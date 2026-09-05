@@ -110,6 +110,18 @@ window.AstraDiscord = (function () {
     }, 400);
   }
 
+  let lastSyncedBanner = null;
+  let syncBannerTimeout = null;
+
+  function syncBanner(banner) {
+    if (banner === lastSyncedBanner) return;
+    clearTimeout(syncBannerTimeout);
+    syncBannerTimeout = setTimeout(() => {
+      lastSyncedBanner = banner;
+      syncProfileToCloud({ banner: banner || null });
+    }, 400);
+  }
+
   function getCustomAvatarsMap() {
     try {
       const raw = localStorage.getItem(DISCORD_AVATARS_KEY);
@@ -239,6 +251,45 @@ window.AstraDiscord = (function () {
   }
 
   /**
+   * Converts a Discord banner image URL to a 300x100 JPEG data URL
+   * compatible with Astra's WebRTC profile exchange.
+   */
+  async function rasterizeBanner(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const w = (window.AstraProfile && window.AstraProfile.BANNER_WIDTH) || 300;
+          const h = (window.AstraProfile && window.AstraProfile.BANNER_HEIGHT) || 100;
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+
+          ctx.fillStyle = '#161616';
+          ctx.fillRect(0, 0, w, h);
+
+          // Center crop to 3:1 aspect ratio
+          const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+          const bw = img.naturalWidth * scale;
+          const bh = img.naturalHeight * scale;
+          const sx = (w - bw) / 2;
+          const sy = (h - bh) / 2;
+
+          ctx.drawImage(img, sx, sy, bw, bh);
+
+          resolve(window.AstraProfile ? window.AstraProfile.encodeBanner(canvas) : null);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => reject(new Error('Failed to load banner image from Discord CDN'));
+      img.src = url;
+    });
+  }
+
+  /**
    * Handles OAuth2 redirect callback containing `#access_token=...` in the URL hash.
    * Extracts token, fetches Discord profile, updates AstraProfile, and cleans URL.
    * If a return destination is in state, redirects there.
@@ -299,6 +350,10 @@ window.AstraDiscord = (function () {
         ? 'https://cdn.discordapp.com/avatars/' + discordUser.id + '/' + discordUser.avatar + '.png?size=128'
         : 'https://cdn.discordapp.com/embed/avatars/' + defaultIndex + '.png';
 
+      const bannerCdnUrl = discordUser.banner
+        ? 'https://cdn.discordapp.com/banners/' + discordUser.id + '/' + discordUser.banner + '.png?size=600'
+        : null;
+
       setToken(accessToken);
 
       const userRecord = {
@@ -308,6 +363,8 @@ window.AstraDiscord = (function () {
         displayName: displayName,
         avatarHash: discordUser.avatar || null,
         avatarCdnUrl: avatarCdnUrl,
+        bannerHash: discordUser.banner || null,
+        bannerCdnUrl: bannerCdnUrl,
         connectedAt: Date.now(),
       };
 
@@ -330,6 +387,21 @@ window.AstraDiscord = (function () {
         } else if (cloud.avatar === null && window.AstraProfile) {
           window.AstraProfile.setAvatar(null);
           saveAccountAvatar(null, true);
+        }
+        if (cloud.banner !== undefined && window.AstraProfile) {
+          lastSyncedBanner = cloud.banner;
+          window.AstraProfile.setBanner(cloud.banner);
+        } else if (bannerCdnUrl && window.AstraProfile && !window.AstraProfile.getBanner()) {
+          try {
+            const dataUrl = await rasterizeBanner(bannerCdnUrl);
+            if (dataUrl && window.AstraProfile.isBanner(dataUrl)) {
+              window.AstraProfile.setBanner(dataUrl);
+              lastSyncedBanner = dataUrl;
+              syncProfileToCloud({ banner: dataUrl }, accessToken);
+            }
+          } catch (bannerErr) {
+            console.warn('AstraDiscord: Could not rasterize banner:', bannerErr);
+          }
         }
       } else {
         // First time connecting: initialize from Discord & save to Cloudflare
@@ -358,9 +430,23 @@ window.AstraDiscord = (function () {
           }
         }
 
+        let activeBanner = window.AstraProfile ? window.AstraProfile.getBanner() : null;
+        if (!activeBanner && bannerCdnUrl && window.AstraProfile) {
+          try {
+            const dataUrl = await rasterizeBanner(bannerCdnUrl);
+            if (dataUrl && window.AstraProfile.isBanner(dataUrl)) {
+              window.AstraProfile.setBanner(dataUrl);
+              activeBanner = dataUrl;
+            }
+          } catch (bannerErr) {
+            console.warn('AstraDiscord: Could not rasterize banner:', bannerErr);
+          }
+        }
+
         syncProfileToCloud({
           name: displayName,
           avatar: activeAvatar,
+          banner: activeBanner,
         }, accessToken);
       }
 
@@ -442,6 +528,11 @@ window.AstraDiscord = (function () {
             changed = true;
           }
         }
+        if (cloud.banner !== undefined && window.AstraProfile && window.AstraProfile.getBanner() !== cloud.banner) {
+          lastSyncedBanner = cloud.banner;
+          window.AstraProfile.setBanner(cloud.banner);
+          changed = true;
+        }
         if (changed) {
           render();
           onChange();
@@ -471,6 +562,7 @@ window.AstraDiscord = (function () {
     saveAccountAvatar: saveAccountAvatar,
     getAccountAvatar: getAccountAvatar,
     syncName: syncName,
+    syncBanner: syncBanner,
     syncProfileToCloud: syncProfileToCloud,
     fetchCloudProfile: fetchCloudProfile,
   };

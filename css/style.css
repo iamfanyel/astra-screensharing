@@ -544,6 +544,15 @@ body.sidebar-hidden .topbar-right {
   background: #2e2e2e;
 }
 
+#toggle-profile {
+  background: #2e2e2e;
+}
+
+#toggle-profile:hover,
+#toggle-profile[aria-pressed="true"] {
+  background: #383838;
+}
+
 .chip-icon {
   width: 15px;
   height: 15px;
@@ -1069,15 +1078,81 @@ body.sidebar-hidden .topbar-right {
 }
 
 .person {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
   border-radius: 10px;
   padding: 6px 8px;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  transition: background 0.12s ease;
 }
 
 .person:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.person.has-banner {
+  background: transparent;
+}
+
+.person.has-banner:hover {
+  background: transparent;
+}
+
+.person-nameplate {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  border: 0;
+  background-size: 100% 100%, cover;
+  background-position: 0 0, center;
+  background-repeat: no-repeat, no-repeat;
+  transition: filter 0.2s ease;
+}
+
+.person.has-banner:hover .person-nameplate {
+  filter: brightness(1.1);
+}
+
+.person .avatar,
+.person .person-name,
+.person .person-tags {
+  position: relative;
+  z-index: 1;
+}
+
+.person.has-banner .person-name {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.person.has-banner .tag {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #dedede;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.person.has-banner .tag-host {
+  background: #ffffff;
+  color: #121212;
+}
+
+.person.has-banner button.tag-danger {
+  background: rgba(255, 107, 107, 0.25);
+  color: #ff8585;
+}
+
+.person.has-banner button.tag-danger:hover {
+  background: var(--danger-strong);
+  color: #ffffff;
 }
 
 .avatar {
@@ -1325,7 +1400,7 @@ button.tag-danger:hover {
 .editor {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -2125,3 +2200,426 @@ body.sidebar-hidden .toasts {
     bottom: 86px;
   }
 }
+
+/* ------------------------------------------------ In-Room Profile Modal (Discord-style) */
+
+.profile-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.profile-modal[hidden] {
+  display: none !important;
+}
+
+.profile-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.profile-modal-dialog {
+  position: relative;
+  width: min(380px, 100%);
+  z-index: 1;
+  animation: profileModalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes profileModalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.profile-card {
+  position: relative;
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.profile-close-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  transform: scale(1.05);
+}
+
+.profile-close-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Banner container & overlay */
+.profile-banner-container {
+  position: relative;
+  width: 100%;
+  height: 124px;
+  background: #18191f;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.profile-banner {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  transition: background-image 0.2s ease, filter 0.2s ease;
+}
+
+.profile-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.profile-banner-container:hover .profile-banner-overlay,
+.profile-banner-container:focus-within .profile-banner-overlay {
+  opacity: 1;
+}
+
+.profile-banner-overlay .avatar-action {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.profile-banner-overlay .avatar-action:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.profile-banner-overlay .avatar-action:last-child:hover {
+  background: var(--danger-strong);
+}
+
+/* Avatar overlapping banner */
+.profile-header-content {
+  position: relative;
+  z-index: 6;
+  padding: 0 16px;
+}
+
+.profile-avatar-wrapper {
+  position: relative;
+  z-index: 2;
+  margin-top: -44px;
+  width: 88px;
+  height: 88px;
+  display: inline-block;
+}
+
+.avatar-xl {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: 32px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+}
+
+.avatar-xl img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.profile-avatar-wrapper:hover .profile-avatar-overlay,
+.profile-avatar-wrapper:focus-within .profile-avatar-overlay {
+  opacity: 1;
+}
+
+/* Card body */
+.profile-card-body {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profile-modal-discord {
+  margin: 0;
+}
+
+.profile-modal-actions {
+  margin-top: 4px;
+}
+
+/* Banner editor modal & stage */
+.banner-editor-modal .editor-card {
+  width: min(380px, 100%);
+}
+
+.banner-stage {
+  width: 300px;
+  height: 100px;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  background: #0e0e0e;
+}
+
+.banner-editor-mask {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------- Profile Pop-up (Discord-style) */
+
+.profile-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  pointer-events: none;
+}
+
+.profile-popup[hidden] {
+  display: none !important;
+}
+
+.profile-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background: transparent;
+  pointer-events: auto;
+}
+
+@media (max-width: 860px) {
+  .profile-popup-backdrop {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+}
+
+.profile-popup-card {
+  position: fixed;
+  z-index: 66;
+  width: 290px;
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  animation: profilePopupIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes profilePopupIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.profile-popup-banner-wrap {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  background: #18191f;
+  overflow: hidden;
+}
+
+.profile-popup-banner {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+}
+
+.profile-popup-header {
+  position: relative;
+  padding: 0 14px;
+}
+
+.profile-popup-avatar-wrap {
+  position: relative;
+  margin-top: -34px;
+  width: 68px;
+  height: 68px;
+  display: inline-block;
+}
+
+.avatar-popup {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  font-size: 26px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+}
+
+.avatar-popup img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-popup.is-speaking {
+  box-shadow: 0 0 0 3px #23a55a, 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.profile-popup-body {
+  padding: 10px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-popup-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-popup-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-popup-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.profile-popup-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.profile-popup-discord {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-popup-discord .discord-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.profile-popup-volume {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-popup-volume-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.profile-popup-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-popup-volume-row .tile-volume-slider {
+  opacity: 1;
+  pointer-events: auto;
+  width: 100%;
+}
+
+.profile-popup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-popup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+}
+

@@ -45,7 +45,7 @@
 
   /** A peer as it looks the moment it joins. */
   function newMember(id, name, host) {
-    const member = { id, name: cleanName(name), avatar: null, host: !!host };
+    const member = { id, name: cleanName(name), avatar: null, banner: null, host: !!host };
     for (const flag of PEER_FLAGS) member[flag] = false;
     return member;
   }
@@ -53,7 +53,7 @@
   /**
    * Peers can only tell the room about the fields below; everything else is
    * ignored. Pictures come from someone else's browser, so they are validated,
-   * never trusted - see AstraProfile.isAvatar.
+   * never trusted - see AstraProfile.isAvatar and isBanner.
    */
   function statePatch(patch) {
     const out = {};
@@ -61,8 +61,14 @@
     for (const flag of PEER_FLAGS) {
       if (typeof patch[flag] === 'boolean') out[flag] = patch[flag];
     }
+    if ('name' in patch && patch.name) {
+      out.name = cleanName(patch.name);
+    }
     if ('avatar' in patch) {
-      out.avatar = window.AstraProfile.isAvatar(patch.avatar) ? patch.avatar : null;
+      out.avatar = window.AstraProfile && window.AstraProfile.isAvatar(patch.avatar) ? patch.avatar : null;
+    }
+    if ('banner' in patch) {
+      out.banner = window.AstraProfile && window.AstraProfile.isBanner(patch.banner) ? patch.banner : null;
     }
     return out;
   }
@@ -184,6 +190,7 @@
           Object.assign(member, statePatch(metadata));
         } else {
           member = newMember(conn.peer, metadata.name, false);
+          Object.assign(member, statePatch(metadata));
         }
 
         this.conns.set(member.id, conn);
@@ -335,7 +342,11 @@
           });
 
           const conn = peer.connect(window.ASTRA.idPrefix + roomCode, {
-            metadata: { name: cleanName(name) },
+            metadata: {
+              name: cleanName(name),
+              avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
+              banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
+            },
             reliable: true,
           });
 
@@ -386,6 +397,7 @@
       for (const p of welcome.peers) {
         // The hub is just another browser: check what it hands us.
         if (!window.AstraProfile.isAvatar(p.avatar)) p.avatar = null;
+        if (!window.AstraProfile.isBanner(p.banner)) p.banner = null;
         this.roster.set(p.id, p);
       }
       this.roster.set(this.selfId, newMember(this.selfId, name, false));
@@ -560,6 +572,7 @@
             mic: me ? me.mic : false,
             deafened: me ? me.deafened : false,
             avatar: me ? me.avatar : null,
+            banner: me ? me.banner : null,
           },
           reliable: true,
         });

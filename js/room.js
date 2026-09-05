@@ -46,6 +46,7 @@
     resizeY: $('resize-y'),
     togglePeople: $('toggle-people'),
     toggleChat: $('toggle-chat'),
+    toggleProfile: $('toggle-profile'),
     messages: $('messages'),
     chatForm: $('chat-form'),
     chatInput: $('chat-input'),
@@ -74,6 +75,37 @@
     backToStart: $('back-to-start'),
     leaving: $('leaving'),
     toasts: $('toasts'),
+    profilePopup: $('profile-popup'),
+    profilePopupBackdrop: $('profile-popup-backdrop'),
+    profilePopupCard: $('profile-popup-card'),
+    profilePopupClose: $('profile-popup-close'),
+    profilePopupBanner: $('profile-popup-banner'),
+    profilePopupAvatar: $('profile-popup-avatar'),
+    profilePopupName: $('profile-popup-name'),
+    profilePopupBadges: $('profile-popup-badges'),
+    profilePopupDiscord: $('profile-popup-discord'),
+    profilePopupDiscordUser: $('profile-popup-discord-user'),
+    profilePopupVolumeSection: $('profile-popup-volume-section'),
+    profilePopupVolumeVal: $('profile-popup-volume-val'),
+    profilePopupVolumeMute: $('profile-popup-volume-mute'),
+    profilePopupVolumeSlider: $('profile-popup-volume-slider'),
+    profilePopupEditBtn: $('profile-popup-edit-btn'),
+    profilePopupKickBtn: $('profile-popup-kick-btn'),
+    profileModal: $('profile-modal'),
+    profileModalBackdrop: $('profile-modal-backdrop'),
+    profileModalClose: $('profile-modal-close'),
+    profileModalBanner: $('profile-modal-banner'),
+    bannerChangeBtn: $('banner-change-btn'),
+    bannerClearBtn: $('banner-clear-btn'),
+    bannerFile: $('banner-file'),
+    profileModalAvatar: $('profile-modal-avatar'),
+    profileAvatarChange: $('profile-avatar-change'),
+    profileAvatarClear: $('profile-avatar-clear'),
+    profileAvatarFile: $('profile-avatar-file'),
+    profileModalName: $('profile-modal-name'),
+    profileModalDiscord: $('profile-modal-discord'),
+    profileModalDiscordUser: $('profile-modal-discord-user'),
+    profileModalSave: $('profile-modal-save'),
   };
 
   const params = new URLSearchParams(location.search);
@@ -219,10 +251,154 @@
       onChange: () => {
         el.gateName.value = AstraProfile.getName();
         picker.repaint();
+        if (state.signal) {
+          const banner = AstraProfile.getBanner();
+          const avatar = AstraProfile.getAvatar();
+          const name = AstraProfile.getName();
+          state.signal.setState({ name, avatar, banner });
+          renderPeople();
+        }
       },
       onError: profileError,
     });
   }
+
+  // ------------------------------------------------ In-Room Profile Modal
+
+  let openProfileModal = () => {};
+
+  function setupProfileModal() {
+    if (!el.toggleProfile || !el.profileModal) return;
+
+    let modalBanner = AstraProfile.getBanner();
+    let modalAvatar = AstraProfile.getAvatar();
+
+    function renderModalPreview() {
+      const name = (el.profileModalName.value || AstraProfile.getName() || 'Guest').trim();
+      AstraProfile.paintBanner(el.profileModalBanner, modalBanner, name);
+      AstraProfile.paint(el.profileModalAvatar, name, modalAvatar);
+      if (el.bannerClearBtn) el.bannerClearBtn.hidden = !modalBanner;
+      if (el.profileAvatarClear) el.profileAvatarClear.hidden = !modalAvatar;
+
+      if (window.AstraDiscord && el.profileModalDiscord && el.profileModalDiscordUser) {
+        const user = window.AstraDiscord.getUser();
+        if (user && user.username) {
+          el.profileModalDiscordUser.textContent = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
+          el.profileModalDiscord.hidden = false;
+        } else {
+          el.profileModalDiscord.hidden = true;
+        }
+      }
+    }
+
+    function openModal() {
+      modalBanner = AstraProfile.getBanner();
+      modalAvatar = AstraProfile.getAvatar();
+      el.profileModalName.value = AstraProfile.getName();
+      renderModalPreview();
+      el.profileModal.hidden = false;
+      if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'true');
+      document.addEventListener('keydown', handleModalKey);
+      setTimeout(() => el.profileModalName.focus(), 50);
+    }
+
+    openProfileModal = openModal;
+
+    function closeModal() {
+      el.profileModal.hidden = true;
+      if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'false');
+      document.removeEventListener('keydown', handleModalKey);
+    }
+
+    function handleModalKey(e) {
+      if (e.key === 'Escape') closeModal();
+    }
+
+    function saveChanges() {
+      const newName = AstraProfile.setName(el.profileModalName.value);
+      AstraProfile.setAvatar(modalAvatar);
+      AstraProfile.setBanner(modalBanner);
+
+      if (state.signal) {
+        state.signal.setState({
+          name: newName,
+          avatar: modalAvatar,
+          banner: modalBanner,
+        });
+      }
+
+      if (window.AstraDiscord) {
+        if (window.AstraDiscord.saveAccountAvatar) {
+          window.AstraDiscord.saveAccountAvatar(modalAvatar);
+        }
+        if (window.AstraDiscord.syncBanner) {
+          window.AstraDiscord.syncBanner(modalBanner);
+        }
+      }
+
+      if (el.gateName) el.gateName.value = newName;
+      picker.repaint();
+      renderPeople();
+      closeModal();
+      toast('Profile updated');
+    }
+
+    el.toggleProfile.addEventListener('click', () => {
+      if (el.profileModal.hidden) openModal();
+      else closeModal();
+    });
+    el.profileModalClose.addEventListener('click', closeModal);
+    el.profileModalBackdrop.addEventListener('click', closeModal);
+    el.profileModalSave.addEventListener('click', saveChanges);
+
+    el.profileModalName.addEventListener('input', renderModalPreview);
+
+    // Banner handlers
+    el.bannerChangeBtn.addEventListener('click', () => el.bannerFile.click());
+    el.bannerFile.addEventListener('change', async () => {
+      const file = el.bannerFile.files && el.bannerFile.files[0];
+      el.bannerFile.value = '';
+      if (!file) return;
+      try {
+        const cropped = await AstraProfile.editBanner(file);
+        if (cropped) {
+          modalBanner = cropped;
+          renderModalPreview();
+        }
+      } catch (err) {
+        toast(err.message || 'Could not load banner', 'bad');
+      }
+    });
+
+    el.bannerClearBtn.addEventListener('click', () => {
+      modalBanner = null;
+      renderModalPreview();
+    });
+
+    // Avatar handlers
+    el.profileAvatarChange.addEventListener('click', () => el.profileAvatarFile.click());
+    el.profileAvatarFile.addEventListener('change', async () => {
+      const file = el.profileAvatarFile.files && el.profileAvatarFile.files[0];
+      el.profileAvatarFile.value = '';
+      if (!file) return;
+      try {
+        const cropped = await AstraProfile.edit(file);
+        if (cropped) {
+          modalAvatar = cropped;
+          renderModalPreview();
+        }
+      } catch (err) {
+        toast(err.message || 'Could not load picture', 'bad');
+      }
+    });
+
+    el.profileAvatarClear.addEventListener('click', () => {
+      modalAvatar = null;
+      renderModalPreview();
+    });
+  }
+
+  setupProfileModal();
 
   /** Swap the gate between its form and the loading dots. */
   function setGateLoading(on) {
@@ -368,6 +544,8 @@
 
     const myAvatar = AstraProfile.getAvatar();
     if (myAvatar) signal.setState({ avatar: myAvatar });
+    const myBanner = AstraProfile.getBanner();
+    if (myBanner) signal.setState({ banner: myBanner });
 
     renderPeople();
     updateEmptyState();
@@ -781,6 +959,9 @@
     const tile = state.tiles.get(id);
     if (tile && tile.updateVolumeUI) {
       tile.updateVolumeUI();
+    }
+    if (activePopupPeerId === id && typeof updatePopupVolumeUI === 'function') {
+      updatePopupVolumeUI(id);
     }
   }
 
@@ -1217,6 +1398,9 @@
         avatar.parentElement.classList.toggle('is-speaking', speaking);
       }
     }
+    if (activePopupPeerId === peerId && el.profilePopupAvatar) {
+      el.profilePopupAvatar.classList.toggle('is-speaking', speaking);
+    }
   }
 
   // -------------------------------------------------------------- remote audio
@@ -1298,25 +1482,30 @@
 
     for (const [id, row] of state.peopleRows) {
       if (seen.has(id)) continue;
+      if (activePopupPeerId === id && typeof closeProfilePopup === 'function') {
+        closeProfilePopup();
+      }
       row.item.remove();
       state.peopleRows.delete(id);
       state.peopleAvatars.delete(id);
     }
   }
 
+  const NAMEPLATE_GRADIENT =
+    'linear-gradient(90deg, rgba(14, 14, 18, 0.82) 0%, rgba(14, 14, 18, 0.65) 32%, rgba(14, 14, 18, 0.28) 65%, transparent 100%)';
+
   /** The parts of a row that never change once it exists. */
   function createPersonRow(peer) {
     const isSelf = peer.id === state.signal.selfId;
     const item = document.createElement('li');
 
-    // Your own picture doubles as the button that changes it.
-    const avatar = document.createElement(isSelf ? 'button' : 'span');
+    const nameplate = document.createElement('div');
+    nameplate.className = 'person-nameplate';
+    nameplate.setAttribute('aria-hidden', 'true');
+    nameplate.hidden = true;
+
+    const avatar = document.createElement('span');
     avatar.dataset.peer = peer.id;
-    if (isSelf) {
-      avatar.type = 'button';
-      avatar.title = 'Change your picture';
-      avatar.addEventListener('click', () => picker.open());
-    }
 
     const name = document.createElement('span');
     name.className = 'person-name';
@@ -1324,13 +1513,33 @@
     const tags = document.createElement('span');
     tags.className = 'person-tags';
 
-    item.append(avatar, name, tags);
-    return { item, avatar, name, tags, isSelf, tagKey: null };
+    item.append(nameplate, avatar, name, tags);
+
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.tag-danger')) return;
+      if (typeof openProfilePopup === 'function') {
+        openProfilePopup(peer.id, item);
+      }
+    });
+
+    return { item, avatar, name, tags, nameplate, isSelf, tagKey: null, bannerKey: null };
   }
 
   function updatePersonRow(row, peer) {
     const isSpeaking = state.speakingPeers.has(peer.id);
-    row.item.className = 'person' + (isSpeaking ? ' is-speaking' : '');
+    const banner = (row.isSelf ? (AstraProfile.getBanner() || peer.banner) : peer.banner) || null;
+    if (row.bannerKey !== banner) {
+      row.bannerKey = banner;
+      if (banner && AstraProfile.isBanner(banner)) {
+        row.nameplate.style.backgroundImage = NAMEPLATE_GRADIENT + ', url(' + banner + ')';
+        row.nameplate.hidden = false;
+      } else {
+        row.nameplate.style.backgroundImage = '';
+        row.nameplate.hidden = true;
+      }
+    }
+    const hasBanner = !!(row.bannerKey && AstraProfile.isBanner(row.bannerKey));
+    row.item.className = 'person' + (isSpeaking ? ' is-speaking' : '') + (hasBanner ? ' has-banner' : '');
     row.avatar.className = 'avatar' + (isSpeaking ? ' is-speaking' : '');
     AstraProfile.paint(row.avatar, peer.name, peer.avatar);
 
@@ -1341,6 +1550,10 @@
     if (tile && tile.pausedOverlay && !tile.pausedOverlay.hidden) {
       if (tile.pausedName) tile.pausedName.textContent = peer.name;
       if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+    }
+
+    if (activePopupPeerId === peer.id && el.profilePopup && !el.profilePopup.hidden && typeof renderPopupContent === 'function') {
+      renderPopupContent(peer.id);
     }
 
     // Badges are cheap to compare and comparatively costly to build.
@@ -1435,6 +1648,225 @@
       prompt('Copy this link:', link);
     }
   });
+
+  // ------------------------------------------------ In-Room Profile Pop-up
+
+  let activePopupPeerId = null;
+  let activePopupAnchor = null;
+  let lastPopupTagKey = null;
+
+  function closeProfilePopup() {
+    if (!el.profilePopup || el.profilePopup.hidden) return;
+    el.profilePopup.hidden = true;
+    activePopupPeerId = null;
+    activePopupAnchor = null;
+    lastPopupTagKey = null;
+    document.removeEventListener('keydown', handlePopupKey);
+  }
+
+  function handlePopupKey(e) {
+    if (e.key === 'Escape') closeProfilePopup();
+  }
+
+  function updatePopupVolumeUI(peerId) {
+    if (!el.profilePopupVolumeSlider || !el.profilePopupVolumeVal || !el.profilePopupVolumeMute) return;
+    const volData = getPeerVolume(peerId);
+    const displayVol = volData.muted ? 0 : Math.round(volData.volume * 100);
+    el.profilePopupVolumeSlider.value = String(displayVol);
+    el.profilePopupVolumeVal.textContent = displayVol + '%';
+
+    if (volData.muted || volData.volume === 0) {
+      el.profilePopupVolumeMute.innerHTML = VOLUME_MUTED_ICON;
+      el.profilePopupVolumeMute.title = 'Unmute user';
+    } else if (volData.volume <= 0.5) {
+      el.profilePopupVolumeMute.innerHTML = VOLUME_LOW_ICON;
+      el.profilePopupVolumeMute.title = 'Mute user';
+    } else {
+      el.profilePopupVolumeMute.innerHTML = VOLUME_HIGH_ICON;
+      el.profilePopupVolumeMute.title = 'Mute user';
+    }
+  }
+
+  function renderPopupContent(peerId) {
+    const isSelf = peerId === state.signal?.selfId;
+    let name = 'Guest';
+    let avatarData = null;
+    let bannerData = null;
+    let isHost = false;
+    let isSharing = false;
+    let isMic = false;
+    let isDeafened = false;
+
+    if (isSelf) {
+      name = AstraProfile.getName() || 'Guest';
+      avatarData = AstraProfile.getAvatar();
+      bannerData = AstraProfile.getBanner();
+      isHost = !!state.signal?.self?.host;
+      isSharing = !!state.sharing;
+      isMic = !!state.micOn;
+      isDeafened = !!state.deafened;
+    } else {
+      const peer = state.signal?.roster?.get(peerId);
+      if (!peer) {
+        closeProfilePopup();
+        return;
+      }
+      name = peer.name || 'Guest';
+      avatarData = peer.avatar;
+      bannerData = peer.banner;
+      isHost = !!peer.host;
+      isSharing = !!peer.sharing;
+      isMic = !!peer.mic;
+      isDeafened = !!peer.deafened;
+    }
+
+    AstraProfile.paintBanner(el.profilePopupBanner, bannerData, name);
+    AstraProfile.paint(el.profilePopupAvatar, name, avatarData);
+    el.profilePopupAvatar.classList.toggle('is-speaking', state.speakingPeers.has(peerId));
+
+    const nameLabel = name + (isSelf ? ' (you)' : '');
+    if (el.profilePopupName.textContent !== nameLabel) {
+      el.profilePopupName.textContent = nameLabel;
+    }
+
+    // Badges: avoid rebuilding DOM if status flags haven't changed
+    const tagKey = [isHost, isSharing, isDeafened, isMic].join('|');
+    if (lastPopupTagKey !== tagKey) {
+      lastPopupTagKey = tagKey;
+      el.profilePopupBadges.textContent = '';
+      if (isHost) el.profilePopupBadges.appendChild(tag('HOST', 'tag-host'));
+      if (isSharing) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.sharing));
+      if (isDeafened) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.deafened));
+      else if (!isMic) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.micMuted));
+    }
+
+    // Discord info
+    if (isSelf && window.AstraDiscord) {
+      const user = window.AstraDiscord.getUser();
+      if (user && user.username) {
+        const discordLabel = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
+        if (el.profilePopupDiscordUser.textContent !== discordLabel) {
+          el.profilePopupDiscordUser.textContent = discordLabel;
+        }
+        el.profilePopupDiscord.hidden = false;
+      } else {
+        el.profilePopupDiscord.hidden = true;
+      }
+    } else {
+      el.profilePopupDiscord.hidden = true;
+    }
+
+    // Volume section (remote peers only)
+    if (!isSelf) {
+      el.profilePopupVolumeSection.hidden = false;
+      updatePopupVolumeUI(peerId);
+    } else {
+      el.profilePopupVolumeSection.hidden = true;
+    }
+
+    // Actions
+    if (isSelf) {
+      el.profilePopupEditBtn.hidden = false;
+      el.profilePopupKickBtn.hidden = true;
+    } else {
+      el.profilePopupEditBtn.hidden = true;
+      const canKick = !!state.signal?.self?.host;
+      el.profilePopupKickBtn.hidden = !canKick;
+    }
+  }
+
+  function positionProfilePopup(anchorEl) {
+    if (!el.profilePopupCard || !anchorEl) return;
+
+    if (window.innerWidth <= 860) {
+      el.profilePopupCard.style.left = '50%';
+      el.profilePopupCard.style.top = '50%';
+      el.profilePopupCard.style.transform = 'translate(-50%, -50%)';
+      return;
+    }
+
+    const rect = anchorEl.getBoundingClientRect();
+    const popupWidth = 290;
+    let left = rect.left - popupWidth - 12;
+    if (left < 10) left = Math.max(10, rect.right + 12);
+    left = Math.min(left, window.innerWidth - popupWidth - 10);
+
+    let top = rect.top - 20;
+    const estimatedHeight = el.profilePopupCard.offsetHeight || 320;
+    const maxTop = window.innerHeight - estimatedHeight - 16;
+    top = Math.max(16, Math.min(top, maxTop));
+
+    el.profilePopupCard.style.left = `${left}px`;
+    el.profilePopupCard.style.top = `${top}px`;
+    el.profilePopupCard.style.transform = 'none';
+  }
+
+  function openProfilePopup(peerId, anchorEl) {
+    if (!el.profilePopup || !anchorEl) return;
+    if (activePopupPeerId === peerId && !el.profilePopup.hidden) {
+      closeProfilePopup();
+      return;
+    }
+
+    activePopupPeerId = peerId;
+    activePopupAnchor = anchorEl;
+
+    renderPopupContent(peerId);
+    positionProfilePopup(anchorEl);
+
+    el.profilePopup.hidden = false;
+    document.removeEventListener('keydown', handlePopupKey);
+    document.addEventListener('keydown', handlePopupKey);
+  }
+
+  function setupProfilePopup() {
+    if (!el.profilePopup) return;
+
+    el.profilePopupClose.addEventListener('click', closeProfilePopup);
+    el.profilePopupBackdrop.addEventListener('click', closeProfilePopup);
+
+    el.profilePopupEditBtn.addEventListener('click', () => {
+      closeProfilePopup();
+      openProfileModal();
+    });
+
+    el.profilePopupKickBtn.addEventListener('click', () => {
+      if (!activePopupPeerId) return;
+      const peer = state.signal?.roster?.get(activePopupPeerId);
+      const name = peer ? peer.name : 'this user';
+      if (confirm('Kick ' + name + ' from the room?')) {
+        state.signal.kick(activePopupPeerId);
+        closeProfilePopup();
+      }
+    });
+
+    if (el.profilePopupVolumeSlider) {
+      el.profilePopupVolumeSlider.addEventListener('input', (e) => {
+        e.stopPropagation();
+        if (!activePopupPeerId) return;
+        const val = parseFloat(el.profilePopupVolumeSlider.value) / 100;
+        setPeerVolume(activePopupPeerId, val, val === 0);
+        updatePopupVolumeUI(activePopupPeerId);
+      });
+    }
+
+    if (el.profilePopupVolumeMute) {
+      el.profilePopupVolumeMute.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!activePopupPeerId) return;
+        const cur = getPeerVolume(activePopupPeerId);
+        if (cur.muted) {
+          const restore = cur.volume > 0 ? cur.volume : 1.0;
+          setPeerVolume(activePopupPeerId, restore, false);
+        } else {
+          setPeerVolume(activePopupPeerId, cur.volume, true);
+        }
+        updatePopupVolumeUI(activePopupPeerId);
+      });
+    }
+  }
+
+  setupProfilePopup();
 
   // -------------------------------------------------------------------- chat
 
@@ -1609,6 +2041,9 @@
   window.addEventListener('resize', () => {
     const width = el.sidebar.getBoundingClientRect().width;
     if (width) document.body.style.setProperty('--sidebar-w', clampSidebar(width) + 'px');
+    if (activePopupAnchor && el.profilePopup && !el.profilePopup.hidden) {
+      positionProfilePopup(activePopupAnchor);
+    }
   });
 
   // ------------------------------------------------------------------- exits
@@ -1625,6 +2060,9 @@
   function teardown() {
     if (tornDown) return;
     tornDown = true;
+    closeProfilePopup();
+    if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'false');
+    if (el.profileModal) el.profileModal.hidden = true;
     if (localOfflineTimer) {
       clearTimeout(localOfflineTimer);
       localOfflineTimer = null;

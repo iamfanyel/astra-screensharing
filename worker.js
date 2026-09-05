@@ -111,10 +111,19 @@ async function handleProfile(request, env) {
           : null;
     }
 
+    let cleanBanner = existing.banner || null;
+    if ('banner' in body) {
+      cleanBanner =
+        typeof body.banner === 'string' && body.banner.length <= 50000 && body.banner.startsWith('data:image/')
+          ? body.banner
+          : null;
+    }
+
     const profile = {
       id: user.id,
       name: cleanName,
       avatar: cleanAvatar,
+      banner: cleanBanner,
       updatedAt: Date.now(),
     };
 

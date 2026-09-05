@@ -68,6 +68,41 @@
     );
   }
 
+  const BANNER_KEY = 'astra:banner';
+  const BANNER_WIDTH = 480;
+  const BANNER_HEIGHT = 160;
+  const BANNER_PREVIEW_W = 300;
+  const BANNER_PREVIEW_H = 100;
+  const BANNER_MAX_LENGTH = 45000;
+
+  function getBanner() {
+    try {
+      const stored = localStorage.getItem(BANNER_KEY);
+      return isBanner(stored) ? stored : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setBanner(dataUrl) {
+    try {
+      if (dataUrl) localStorage.setItem(BANNER_KEY, dataUrl);
+      else localStorage.removeItem(BANNER_KEY);
+    } catch (_) {}
+    if (window.AstraDiscord && window.AstraDiscord.syncBanner) {
+      window.AstraDiscord.syncBanner(dataUrl || null);
+    }
+    return dataUrl || null;
+  }
+
+  function isBanner(value) {
+    return (
+      typeof value === 'string' &&
+      value.length <= BANNER_MAX_LENGTH &&
+      /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(value)
+    );
+  }
+
   /**
    * Open the adjust dialog for a chosen file. Resolves with a data URL, or
    * null if the person backed out.
@@ -325,17 +360,212 @@
     element.textContent = (String(name || '').trim()[0] || '?').toUpperCase();
   }
 
+  function tintBanner(seed) {
+    let hash = 0;
+    for (const char of String(seed || '')) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    const h1 = hash % 360;
+    const h2 = (h1 + 45) % 360;
+    return 'linear-gradient(135deg, hsl(' + h1 + ' 35% 24%), hsl(' + h2 + ' 45% 14%))';
+  }
+
+  function paintBanner(element, banner, fallbackSeed) {
+    if (!element) return;
+    const key = (banner || '') + '\u0000' + (fallbackSeed || '');
+    if (element.__astraBannerPainted === key) return;
+    element.__astraBannerPainted = key;
+
+    if (isBanner(banner)) {
+      element.style.backgroundImage = 'url(' + banner + ')';
+      element.style.backgroundSize = 'cover';
+      element.style.backgroundPosition = 'center';
+      element.classList.add('has-image');
+    } else {
+      element.style.backgroundImage = '';
+      element.style.background = tintBanner(fallbackSeed);
+      element.classList.remove('has-image');
+    }
+  }
+
+  function encodeBanner(canvas) {
+    for (const quality of [0.82, 0.72, 0.58, 0.45, 0.35]) {
+      const url = canvas.toDataURL('image/jpeg', quality);
+      if (url.length <= BANNER_MAX_LENGTH) return url;
+    }
+    return null;
+  }
+
+  function buildBannerEditor() {
+    const root = document.createElement('div');
+    root.className = 'editor banner-editor-modal';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', 'Adjust your banner');
+    root.innerHTML =
+      '<div class="editor-card banner-editor-card">' +
+      '<h2>Adjust your banner</h2>' +
+      '<div class="editor-stage banner-stage">' +
+      '<canvas width="' + BANNER_PREVIEW_W + '" height="' + BANNER_PREVIEW_H + '"></canvas>' +
+      '<div class="banner-editor-mask"></div>' +
+      '</div>' +
+      '<p class="menu-hint">Drag the banner to move it.</p>' +
+      '<label class="menu-row"><span>Size</span>' +
+      '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
+      '<label class="menu-row"><span>Rotation</span>' +
+      '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" /></label>' +
+      '<div class="editor-actions">' +
+      '<button type="button" class="btn btn-small editor-quarter">Rotate 90&deg;</button>' +
+      '<button type="button" class="btn btn-small editor-reset">Reset</button>' +
+      '<span class="editor-spacer"></span>' +
+      '<button type="button" class="btn btn-small editor-cancel">Cancel</button>' +
+      '<button type="button" class="btn btn-small btn-primary editor-save">Save</button>' +
+      '</div>' +
+      '<p class="error editor-error" role="alert" hidden></p>' +
+      '</div>';
+
+    document.body.appendChild(root);
+    return {
+      root,
+      canvas: root.querySelector('canvas'),
+      zoom: root.querySelector('.editor-zoom'),
+      rotation: root.querySelector('.editor-rotation'),
+      quarter: root.querySelector('.editor-quarter'),
+      reset: root.querySelector('.editor-reset'),
+      cancel: root.querySelector('.editor-cancel'),
+      save: root.querySelector('.editor-save'),
+      error: root.querySelector('.editor-error'),
+    };
+  }
+
+  async function editBanner(file) {
+    if (!file || !/^image\//.test(file.type)) throw new Error('That file is not an image.');
+    const bitmap = await createImageBitmap(file);
+
+    const scaleX = BANNER_PREVIEW_W / bitmap.width;
+    const scaleY = BANNER_PREVIEW_H / bitmap.height;
+    const baseScale = Math.max(scaleX, scaleY);
+    const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
+
+    const ui = buildBannerEditor();
+    const ctx = ui.canvas.getContext('2d');
+
+    function draw(target, w, h) {
+      const kw = w / BANNER_PREVIEW_W;
+      const kh = h / BANNER_PREVIEW_H;
+      target.clearRect(0, 0, w, h);
+      target.fillStyle = '#161616';
+      target.fillRect(0, 0, w, h);
+      target.save();
+      target.translate(w / 2 + view.x * kw, h / 2 + view.y * kh);
+      target.rotate((view.rotation * Math.PI) / 180);
+      const scale = baseScale * view.zoom * kw;
+      const bw = bitmap.width * scale;
+      const bh = bitmap.height * scale;
+      target.drawImage(bitmap, -bw / 2, -bh / 2, bw, bh);
+      target.restore();
+    }
+
+    const render = () => draw(ctx, BANNER_PREVIEW_W, BANNER_PREVIEW_H);
+    render();
+
+    return new Promise((resolve) => {
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        ui.root.remove();
+        if (bitmap.close) bitmap.close();
+        resolve(value);
+      };
+
+      const onKey = (event) => {
+        if (event.key === 'Escape') close(null);
+      };
+      document.addEventListener('keydown', onKey);
+
+      ui.zoom.addEventListener('input', () => {
+        view.zoom = Number(ui.zoom.value);
+        render();
+      });
+
+      ui.rotation.addEventListener('input', () => {
+        view.rotation = Number(ui.rotation.value);
+        render();
+      });
+
+      ui.quarter.addEventListener('click', () => {
+        view.rotation = (((view.rotation + 90 + 180) % 360) + 360) % 360 - 180;
+        ui.rotation.value = String(view.rotation);
+        render();
+      });
+
+      ui.reset.addEventListener('click', () => {
+        view.zoom = 1;
+        view.rotation = 0;
+        view.x = 0;
+        view.y = 0;
+        ui.zoom.value = '1';
+        ui.rotation.value = '0';
+        render();
+      });
+
+      ui.canvas.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const startX = event.clientX - view.x;
+        const startY = event.clientY - view.y;
+        const move = (e) => {
+          view.x = e.clientX - startX;
+          view.y = e.clientY - startY;
+          render();
+        };
+        const up = () => {
+          ui.canvas.removeEventListener('pointermove', move);
+          ui.canvas.removeEventListener('pointerup', up);
+          ui.canvas.removeEventListener('pointercancel', up);
+        };
+        try {
+          ui.canvas.setPointerCapture(event.pointerId);
+        } catch (_) {}
+        ui.canvas.addEventListener('pointermove', move);
+        ui.canvas.addEventListener('pointerup', up);
+        ui.canvas.addEventListener('pointercancel', up);
+      });
+
+      ui.cancel.addEventListener('click', () => close(null));
+      ui.root.addEventListener('click', (event) => {
+        if (event.target === ui.root) close(null);
+      });
+
+      ui.save.addEventListener('click', () => {
+        const out = document.createElement('canvas');
+        out.width = BANNER_WIDTH;
+        out.height = BANNER_HEIGHT;
+        draw(out.getContext('2d'), BANNER_WIDTH, BANNER_HEIGHT);
+        const url = encodeBanner(out);
+        if (url) return close(url);
+        ui.error.textContent = 'That banner will not compress small enough. Try another one.';
+        ui.error.hidden = false;
+      });
+    });
+  }
+
   window.AstraProfile = {
     getName,
     setName,
     getAvatar,
     setAvatar,
     isAvatar,
+    getBanner,
+    setBanner,
+    isBanner,
     edit,
+    editBanner,
     encode,
+    encodeBanner,
     paint,
+    paintBanner,
     mountPicker,
     SIZE,
     MAX_LENGTH,
+    BANNER_WIDTH,
+    BANNER_HEIGHT,
+    BANNER_MAX_LENGTH,
   };
 })();
