@@ -213,7 +213,7 @@
 
   let exitBeaconSent = false;
   function sendRoomExitBeacon() {
-    if (exitBeaconSent || !state.signal || !state.signal.code) return;
+    if (exitBeaconSent || !state.active || !state.signal || !state.signal.code) return;
     exitBeaconSent = true;
     const code = state.signal.code;
     const rosterSize = state.signal.roster ? state.signal.roster.size : 1;
@@ -235,7 +235,7 @@
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
-      if (status && (status.expired || status.exists === false)) {
+      if (status && status.expired) {
         location.replace('../?deleted=1');
       }
     });
@@ -257,7 +257,7 @@
       let roomStatus = null;
       if (!wantsCreate && roomCode) {
         roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && (roomStatus.expired || roomStatus.exists === false)) {
+        if (roomStatus && roomStatus.expired) {
           location.replace('../?deleted=1');
           return;
         }
@@ -282,15 +282,21 @@
         state.mixer = null;
       }
       const msg = friendlyError(err);
-      if (
-        (err && (err.type === 'peer-unavailable' || err.type === 'room-deleted')) ||
-        msg.toLowerCase().includes('expired') ||
-        msg.toLowerCase().includes('no room')
-      ) {
+      if (err && err.type === 'room-deleted') {
         location.replace('../?deleted=1');
         return;
       }
-      // Fall back to asking, so a failure is always recoverable.
+      // If joining failed, verify if the room was expired on the backend
+      if (roomCode) {
+        try {
+          const freshStatus = await checkRoomStatus(roomCode);
+          if (freshStatus && freshStatus.expired) {
+            location.replace('../?deleted=1');
+            return;
+          }
+        } catch (_) {}
+      }
+      // Fall back to asking on the gate, so a failure or typo is always recoverable.
       setGateLoading(false);
       el.gateError.textContent = msg;
       el.gateError.hidden = false;

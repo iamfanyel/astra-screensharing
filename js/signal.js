@@ -416,13 +416,17 @@
           if (
             attempts < 2 &&
             err &&
-            (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed')
+            (err.type === 'peer-unavailable' ||
+              err.type === 'network' ||
+              err.type === 'server-error' ||
+              err.type === 'socket-error' ||
+              err.type === 'socket-closed')
           ) {
             settle(() => {}, null);
             try { peer.destroy(); } catch (_) {}
             setTimeout(() => {
               Signal.join(code, name, attempts + 1).then(resolve, reject);
-            }, 600);
+            }, 800);
             return;
           }
           const friendly =

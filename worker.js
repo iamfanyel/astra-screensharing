@@ -52,7 +52,7 @@ async function verifyDiscordToken(request) {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
 };
 
@@ -144,7 +144,7 @@ async function handleProfile(request, env) {
 }
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const STALE_HEARTBEAT_MS = 45 * 1000; // 45 seconds without heartbeat = treated as empty
+const STALE_HEARTBEAT_MS = 180 * 1000; // 3 minutes without heartbeat = treated as empty (avoids background tab timer throttling)
 const ROOM_CODE_REGEX = /^[A-Z0-9]{4,12}$/;
 
 function checkRoomState(room) {
@@ -179,7 +179,7 @@ async function handleRoom(request, env) {
     return new Response(null, { headers: CORS_HEADERS });
   }
 
-  const kv = env.PROFILES_KV || env.KV;
+  const kv = env.ROOMS_KV || env.PROFILES_KV || env.KV;
   const url = new URL(request.url);
 
   if (request.method === 'GET') {
@@ -189,7 +189,7 @@ async function handleRoom(request, env) {
     }
 
     if (!kv) {
-      return jsonResponse({ exists: true, active: true, needsHost: false });
+      return jsonResponse({ exists: true, active: true, needsHost: false, remainingMs: EMPTY_ROOM_TIMEOUT_MS });
     }
 
     const raw = await kv.get('room:' + code);
@@ -205,8 +205,8 @@ async function handleRoom(request, env) {
     }
 
     const state = checkRoomState(room);
-    if (state.expired) {
-      await kv.delete('room:' + code).catch(() => {});
+    if (state.expired || room.expired) {
+      await kv.put('room:' + code, JSON.stringify({ code, expired: true, emptySince: room.emptySince }), { expirationTtl: 3600 }).catch(() => {});
       return jsonResponse({ exists: true, expired: true, error: 'This room has expired (empty for more than 5 minutes).' });
     }
 
