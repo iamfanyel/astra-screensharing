@@ -50,7 +50,7 @@
   createForm.addEventListener('submit', (event) => {
     event.preventDefault();
     rememberName();
-    location.href = 'room.html?create=1';
+    location.href = 'room/?create=1';
   });
 
   // `go=1` says the profile is already set, so the room can skip its own gate.
@@ -61,7 +61,7 @@
     const code = codeInput.value.trim().toUpperCase();
     if (!/^[A-Z0-9]{4,12}$/.test(code)) return fail('Room codes are 6 letters and numbers.');
     rememberName();
-    location.href = 'room.html?room=' + encodeURIComponent(code) + '&go=1';
+    location.href = 'room/?room=' + encodeURIComponent(code) + '&go=1';
   });
 
   // Codes are always upper case, so save people the shift key.

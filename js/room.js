@@ -79,7 +79,7 @@
   const roomCode = (params.get('room') || '').trim().toUpperCase();
 
   if (!wantsCreate && !/^[A-Z0-9]{4,12}$/.test(roomCode)) {
-    location.replace('index.html');
+    location.replace('../');
     return;
   }
 
@@ -163,7 +163,7 @@
   // Coming from the landing page the name and picture are already chosen, so
   // asking again on a second screen would just repeat it: open the room now.
   // A bare invite link has no `go` flag and still gets the gate.
-  // The pre-script in room.html already made this call and showed the loader.
+  // The pre-script in room/index.html already made this call and showed the loader.
   if (document.documentElement.dataset.autostart === '1' && typeof Peer !== 'undefined') {
     setGateLoading(true);
     startSession(AstraProfile.getName() || 'Guest');
@@ -265,7 +265,7 @@
 
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
-    history.replaceState(null, '', 'room.html?room=' + encodeURIComponent(signal.code));
+    history.replaceState(null, '', '?room=' + encodeURIComponent(signal.code));
 
     if (shareMode === 'camera') {
       el.systemAudio.checked = false;
@@ -1340,7 +1340,7 @@
     if (state.signal) state.signal.leave();
     teardown();
     el.leaving.hidden = false;
-    setTimeout(() => { location.href = 'index.html'; }, LEAVE_DELAY_MS);
+    setTimeout(() => { location.href = '../'; }, LEAVE_DELAY_MS);
   }
 
   el.leave.addEventListener('click', leaveForLobby);

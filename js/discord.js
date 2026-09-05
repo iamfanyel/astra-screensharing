@@ -88,10 +88,9 @@ window.AstraDiscord = (function () {
     const url = new URL(location.href);
     url.search = '';
     url.hash = '';
-    // If on room.html, redirect back through base/index so OAuth redirect whitelist matches
-    if (url.pathname.endsWith('room.html')) {
-      url.pathname = url.pathname.replace(/room\.html$/, '');
-    }
+    // Always come back through the site root, so only one redirect URI has to
+    // be registered in the Discord Developer Portal.
+    url.pathname = url.pathname.replace(/room\/?$/, '');
     return url.toString();
   }
 

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Room — Astra</title>
   <meta name="color-scheme" content="dark light" />
-  <link rel="stylesheet" href="css/style.css" />
-  <link rel="icon" type="image/png" href="astralogo.png" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="icon" type="image/png" href="../astralogo.png" />
 </head>
 <body class="room">
   <!-- Gate: also the user gesture that lets us start audio playback. -->
@@ -17,7 +17,7 @@
     </div>
     <form id="gate-form" class="card stack" autocomplete="off" onsubmit="return false">
       <header class="brand">
-        <img class="brand-mark" src="astralogo.png" alt="" width="1920" height="1920" />
+        <img class="brand-mark" src="../astralogo.png" alt="" width="1920" height="1920" />
         <h1 id="gate-title">Join room</h1>
       </header>
       <p class="tagline" id="gate-sub">Pick a name and you are in.</p>
@@ -72,7 +72,7 @@
 
   <header id="topbar" class="topbar" hidden>
     <div class="topbar-side topbar-left">
-      <img class="brand-mark small" src="astralogo.png" alt="" width="1920" height="1920" />
+      <img class="brand-mark small" src="../astralogo.png" alt="" width="1920" height="1920" />
       <button id="copy-link" class="chip" title="Copy invite link" aria-label="Copy invite link">
         <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -248,12 +248,12 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/profile.js"></script>
-  <script src="js/discord.js"></script>
-  <script src="js/signal.js"></script>
-  <script src="js/media.js"></script>
-  <script src="js/mesh.js"></script>
-  <script src="js/room.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/profile.js"></script>
+  <script src="../js/discord.js"></script>
+  <script src="../js/signal.js"></script>
+  <script src="../js/media.js"></script>
+  <script src="../js/mesh.js"></script>
+  <script src="../js/room.js"></script>
 </body>
 </html>

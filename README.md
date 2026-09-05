@@ -72,6 +72,8 @@ sources — so toggling either is instant, and only starting or stopping the vid
 track needs a renegotiation.
 
 ```
+index.html     the landing page, served at /
+room/index.html  the room, served at /room/ - no .html in the address bar
 js/config.js   settings: broker, ICE servers, room size
 js/profile.js  your name and picture: storage, cropping, validation
 js/signal.js   PeerJS hub/member signalling and the room roster
