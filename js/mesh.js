@@ -37,7 +37,9 @@
       this.iceServers = iceServers;
       this.peers = new Map(); // id -> peer record
       this.localStream = null;
-      this.maxVideoBitrate = 3000000;
+      this.maxVideoBitrate = 3500000;
+      this.maxVideoFramerate = 30;
+      this.degradationPreference = 'maintain-framerate';
     }
 
     emit(type, detail) {
@@ -80,6 +82,9 @@
       pc.ontrack = ({ track, streams }) => {
         const stream = streams[0];
         if (!stream) return;
+        if (track.kind === 'video' && 'contentHint' in track) {
+          track.contentHint = 'motion';
+        }
         this.emit('stream', { id, stream, track });
         track.addEventListener('ended', () => this.emit('trackended', { id, track }));
         track.addEventListener('mute', () => this.emit('trackmuted', { id, track }));
@@ -122,8 +127,16 @@
       for (const peer of this.peers.values()) this._sync(peer);
     }
 
-    setMaxVideoBitrate(bitrate) {
+    setMaxVideoBitrate(bitrate, maxFramerate) {
       this.maxVideoBitrate = bitrate;
+      if (maxFramerate) this.maxVideoFramerate = maxFramerate;
+      for (const peer of this.peers.values()) {
+        for (const sender of peer.senders) this._applyBitrate(sender);
+      }
+    }
+
+    setDegradationPreference(preference) {
+      this.degradationPreference = preference;
       for (const peer of this.peers.values()) {
         for (const sender of peer.senders) this._applyBitrate(sender);
       }
@@ -162,7 +175,10 @@
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
         params.encodings[0].maxBitrate = this.maxVideoBitrate;
-        params.degradationPreference = 'maintain-resolution';
+        if (this.maxVideoFramerate) {
+          params.encodings[0].maxFramerate = this.maxVideoFramerate;
+        }
+        params.degradationPreference = this.degradationPreference;
         await sender.setParameters(params);
       } catch (_) {
         // Not every browser lets you set this; the default behaviour is fine.

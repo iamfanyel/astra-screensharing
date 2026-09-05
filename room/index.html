@@ -179,7 +179,17 @@
         <input id="system-audio" type="checkbox" checked class="dock-menu-check" />
       </label>
 
-      <p class="dock-menu-hint">Chrome and Edge show a “Share audio” tick box in the picker.</p>
+      <div class="dock-menu-divider" role="separator"></div>
+
+      <label class="dock-menu-item dock-menu-action" id="fluidity-row">
+        <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+        <span class="dock-menu-label">Prioritize fluidity</span>
+        <input id="fluidity" type="checkbox" checked class="dock-menu-check" />
+      </label>
+
+      <p class="dock-menu-hint">Keeps motion smooth by lowering resolution during network slowdowns.</p>
     </div>
 
     <div class="dock-group">

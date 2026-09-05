@@ -58,12 +58,14 @@
     deafen: $('deafen'),
     deafenLabel: $('deafen-label'),
     systemAudio: $('system-audio'),
+    systemAudioRow: $('system-audio-row'),
+    fluidity: $('fluidity'),
+    fluidityRow: $('fluidity-row'),
     quality: $('quality'),
     qualityVal: $('quality-val'),
     qualityWrap: $('quality-wrap'),
     qualityTrigger: $('quality-trigger'),
     qualityDropdown: $('quality-dropdown'),
-    systemAudioRow: $('system-audio-row'),
     shareMenuTitle: $('share-menu-title'),
     status: $('status'),
     leave: $('leave'),
@@ -377,9 +379,10 @@
     el.share.disabled = true;
     try {
       await state.mixer.resume();
+      const prioritizeFluidity = el.fluidity ? el.fluidity.checked : true;
       const capture =
         shareMode === 'screen'
-          ? await captureScreen(el.quality.value, el.systemAudio.checked)
+          ? await captureScreen(el.quality.value, el.systemAudio.checked, prioritizeFluidity)
           : await captureCamera(el.quality.value);
 
       state.videoStream = capture.stream;
@@ -398,7 +401,8 @@
         setStatus('Sharing.');
       }
 
-      state.mesh.setMaxVideoBitrate(capture.quality.bitrate);
+      state.mesh.setMaxVideoBitrate(capture.quality.bitrate, capture.quality.frameRate);
+      state.mesh.setDegradationPreference(prioritizeFluidity ? 'maintain-framerate' : 'maintain-resolution');
       state.mesh.publish();
 
       state.sharing = true;
@@ -427,7 +431,10 @@
   function stopSharing() {
     if (!state.sharing) return cleanUpCapture();
     cleanUpCapture();
-    state.mesh.publish();
+    if (state.mesh) {
+      state.mesh.setDegradationPreference('maintain-framerate');
+      state.mesh.publish();
+    }
     state.sharing = false;
     state.signal.setState({ sharing: false });
     removeTile(state.signal.selfId);
@@ -530,6 +537,23 @@
 
   if (el.systemAudioRow) {
     el.systemAudioRow.addEventListener('click', () => hideQualityDropdown(0));
+  }
+
+  if (el.fluidityRow) {
+    el.fluidityRow.addEventListener('click', () => hideQualityDropdown(0));
+  }
+
+  if (el.fluidity) {
+    el.fluidity.addEventListener('change', () => {
+      const on = el.fluidity.checked;
+      if (state.mesh) {
+        state.mesh.setDegradationPreference(on ? 'maintain-framerate' : 'maintain-resolution');
+      }
+      if (state.videoTrack && 'contentHint' in state.videoTrack) {
+        state.videoTrack.contentHint = on ? 'motion' : 'detail';
+      }
+      setStatus(on ? 'Prioritizing smooth fluidity.' : 'Prioritizing crisp resolution.');
+    });
   }
 
   if (el.qualityTrigger) {
