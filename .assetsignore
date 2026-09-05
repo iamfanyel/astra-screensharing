@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Git and tooling
+.git/
+.gitignore
+.claude/
+.nojekyll
+
+# Source/dev files
+dev-server.js
+package.json
+package-lock.json
+wrangler.jsonc
+README.md
