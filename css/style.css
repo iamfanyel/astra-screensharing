@@ -1,0 +1,1932 @@
+:root {
+  --bg: #0e0e0e;
+  --bg-soft: #171717;
+  --panel: #1e1e1e;
+  --line: #2e2e2e;
+  --text: #eeeeee;
+  --muted: #9e9e9e;
+  /* Neutral "on" colour: light grey fill with dark ink, used for primary
+     buttons and for anything that is currently live. */
+  --accent: #d6d6d6;
+  --accent-ink: #141414;
+  --ok: #d6d6d6;
+  --danger: #ff6b6b; /* readable on dark: error text, warning borders */
+  --danger-strong: #c62828; /* the hang-up disc */
+  --danger-strong-hover: #d93636;
+  --radius: 14px;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars.
+ *
+ * Chromium ignores every ::-webkit-scrollbar rule on an element that sets the
+ * standard `scrollbar-width`/`scrollbar-color`, and its own thin scrollbar
+ * draws stepper arrows. So the standard properties are scoped to engines that
+ * have no ::-webkit-scrollbar at all (Firefox), leaving the detailed rules
+ * below to style Chromium and Safari - arrows included. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Panels below set their own `display`, which would otherwise beat the browser's
+   rule for the hidden attribute and leave overlays stuck on screen. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ shared */
+
+.btn {
+  appearance: none;
+  border: 0;
+  outline: none;
+  background: var(--bg-soft);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  /* The DOM text keeps its normal case for screen readers; only the rendering
+     is lower-cased. */
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #242424;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border: 0;
+  color: var(--accent-ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+
+.btn-discord {
+  background: #222222;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-transform: none;
+  font-weight: 500;
+  border: 0;
+  transition: background 0.15s, transform 0.05s;
+}
+
+.btn-discord:hover:not(:disabled) {
+  background: #2d2d2d;
+  color: #ffffff;
+}
+
+.btn-discord .discord-icon {
+  width: 20px;
+  height: 20px;
+  color: #ffffff;
+  fill: #ffffff;
+  flex-shrink: 0;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-small {
+  padding: 8px 12px;
+}
+
+/* Checkboxes and radios are not text fields - excluding them here is what
+   keeps them from needing a pile of !important overrides later. */
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  appearance: none;
+  background: #141414;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border: 0;
+}
+
+.btn:focus,
+.btn:focus-visible {
+  outline: none;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+
+.brand h1 {
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  display: block;
+  object-fit: contain;
+}
+
+.brand-mark.small {
+  width: 26px;
+  height: 26px;
+  margin-left: 6px;
+}
+
+/* ------------------------------------------------------------------- lobby */
+
+body.lobby {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  padding: 24px;
+  /* Helvetica World is a licensed face; the stack falls back to the nearest
+     grotesques when it is not installed. */
+  font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+
+@keyframes glowFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Background glowing light sphere - minimalist & clean */
+.bg-glow-sphere {
+  position: fixed;
+  top: calc(-1 * min(1280px, 120vw) + 52vh);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1280px, 120vw);
+  height: min(1280px, 120vw);
+  border-radius: 50%;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  background: radial-gradient(
+    circle at 50% 32%,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.06) 36%,
+    rgba(255, 255, 255, 0.018) 65%,
+    transparent 88%
+  );
+  box-shadow: 0 0 100px 25px rgba(255, 255, 255, 0.025);
+}
+
+.bg-glow-sphere.glow-entering {
+  animation: glowFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+body.lobby .code-input::placeholder {
+  letter-spacing: 0.12em;
+}
+
+/* The hero: logo and wordmark side by side, centred, tagline underneath. */
+body.lobby .brand {
+  flex-direction: row;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+body.lobby .brand h1 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.logo {
+  width: 48px;
+  height: 48px;
+  display: block;
+  object-fit: contain;
+}
+
+body.lobby .tagline {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.card {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  background: var(--panel);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: none;
+  padding: 28px;
+}
+
+.tagline {
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+.stack {
+  display: grid;
+  gap: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.code-input {
+  /* The value is upper-cased in JS because that is the room id; this only
+     changes how it looks. */
+  text-transform: lowercase;
+  letter-spacing: 0.22em;
+  font-weight: 700;
+  text-align: center;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.foot {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  text-align: center;
+  font-size: 13px;
+  padding: 0;
+  margin-top: -10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.foot p {
+  margin: 0;
+}
+
+
+
+/* -------------------------------------------------------------------- room */
+
+body.room {
+  display: grid;
+  --sidebar-w: 320px;
+  grid-template-columns: 1fr var(--sidebar-w);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "top    top"
+    "stage  side";
+  height: 100dvh;
+  padding: 0;
+}
+
+/* Closing both panels should give the space back to the stage, not leave an
+   empty column behind. */
+body.room.sidebar-hidden {
+  grid-template-columns: 1fr 0;
+}
+
+body.resizing {
+  user-select: none;
+  cursor: var(--resize-cursor, col-resize);
+}
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.94);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.gate.gate-fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The leave overlay sits above everything, including the closed-room card. */
+.gate-leaving {
+  z-index: 50;
+  /* No fill mode on purpose: if animations are throttled (background tab) or
+     disabled, the overlay stays at its normal opacity rather than stuck at 0. */
+  animation: gateFadeIn 0.18s ease;
+}
+
+@keyframes gateFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#gate-submit {
+  margin-top: 10px;
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(14, 14, 14, 0.85);
+  backdrop-filter: blur(8px);
+  min-height: 54px;
+  box-sizing: border-box;
+}
+
+.topbar-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topbar-left {
+  flex: 1 1 auto;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* Matches the exact width and position of the member/chat .panel below */
+  width: calc(var(--sidebar-w) - var(--sidebar-pad, 12px));
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+body.sidebar-hidden .topbar-right {
+  width: auto;
+  justify-content: flex-end;
+}
+
+.chip {
+  appearance: none;
+  border: 1px solid transparent;
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 6px 12px;
+  height: 34px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chip:hover {
+  background: #242424;
+}
+
+.chip strong {
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+}
+
+.chip-accent {
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+.chip[aria-pressed="true"] {
+  background: #2e2e2e;
+}
+
+.chip-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.chip-icon-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.chip-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------------- stage */
+
+.stage {
+  grid-area: stage;
+  position: relative;
+  overflow: auto;
+  /* Room for the floating dock to hover over. */
+  padding: 16px 16px 120px;
+}
+
+/* Tiles stay modest so the room reads as a call, not a wall of video. Focus
+   mode is there when someone wants to actually read the shared screen. */
+/* Tiles share out the stage rather than sitting at a fixed size: one fills it,
+   two stack, three put a centred tile under a pair, four make a 2x2, and so on.
+   The count comes from room.js as data-count.
+
+   Each tile sits in a .slot that takes the share of the stage; the tile itself
+   is always the largest 16:9 box that fits inside its slot. Keeping the slot at
+   full size is what makes the rows wrap the way they should - a short, wide
+   stage would otherwise let three narrow tiles sit on one row. */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  height: 100%;
+  justify-content: center;
+  align-content: center;
+  /* Size containment so a slot can measure the stage in cq units. */
+  container-type: size;
+  --cols: 1;
+  --rows: 1;
+}
+
+.grid[data-count="2"] {
+  --rows: 2;
+}
+
+.grid[data-count="3"],
+.grid[data-count="4"] {
+  --cols: 2;
+  --rows: 2;
+}
+
+.grid[data-count="5"],
+.grid[data-count="6"] {
+  --cols: 3;
+  --rows: 2;
+}
+
+.grid[data-count="7"],
+.grid[data-count="8"],
+.grid[data-count="9"] {
+  --cols: 3;
+  --rows: 3;
+}
+
+.grid.has-focus {
+  height: 100%;
+}
+
+.grid.has-focus .slot {
+  display: none;
+}
+
+.grid.has-focus .slot.focused {
+  display: grid;
+  width: 100cqw;
+  height: 100%;
+}
+
+.grid.has-focus .slot.focused .tile {
+  width: min(100%, calc(100cqh * 16 / 9));
+}
+
+/* A slot always claims its full share of the stage width - that is what keeps
+   the rows wrapping correctly - but only as much height as its tile needs. */
+.slot {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: calc((100cqw - (var(--cols) - 1) * 12px) / var(--cols));
+  height: auto;
+}
+
+.tile {
+  position: relative;
+  /* The biggest 16:9 box that fits: capped by the slot's width, or by the row
+     height when the slot is the wider shape. */
+  width: min(100%, calc((100cqh - (var(--rows) - 1) * 12px) / var(--rows) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  margin: 0;
+  cursor: pointer;
+  background: #080808;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.tile:hover {
+  border-color: #3d3d3d;
+}
+
+.tile.self {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #080808;
+  display: block;
+}
+
+.tile figcaption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tile:hover figcaption,
+.tile:focus-within figcaption {
+  opacity: 1;
+}
+
+.tile-name {
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.tile-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tile-btn {
+  appearance: none;
+  border: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  border-radius: 9px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.tile-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tile-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;
+  margin: 0;
+  padding: 24px 24px 120px;
+  line-height: 1.7;
+  overflow: hidden;
+}
+
+.empty-text {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.empty .bg-glow-sphere {
+  position: absolute;
+  top: calc(-1 * min(1280px, 120vw) + 50%);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ----------------------------------------------------------------- sidebar */
+
+.sidebar {
+  grid-area: side;
+  --sidebar-pad: 12px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px var(--sidebar-pad) var(--sidebar-pad) 0;
+  overflow: hidden;
+}
+
+/* Drag the sidebar's left edge to make it wider or narrower. */
+.resizer-x {
+  position: absolute;
+  left: -6px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 22;
+  touch-action: none;
+}
+
+.resizer-x::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resizer-x:hover::after,
+.resizer-x.dragging::after {
+  background: #484848;
+}
+
+/* Split People and Chat when both are open. */
+.resizer-y {
+  flex: 0 0 auto;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.resizer-y::after {
+  content: "";
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 0.15s;
+}
+
+.resizer-y:hover::after,
+.resizer-y.dragging::after {
+  background: #484848;
+}
+
+.panel {
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#people-panel,
+#chat-panel {
+  flex: 1 1 0;
+}
+
+/* The saved split only applies with both panels on screen and only where the
+   handle exists - on a phone the panels just share the sheet. On its own a
+   panel must grow by a full 1, or a stored factor below 1 would leave it
+   stopping short of the bottom. */
+@media (min-width: 861px) {
+  .sidebar.split #people-panel {
+    flex-grow: var(--people-flex, 1);
+  }
+
+  .sidebar.split #chat-panel {
+    flex-grow: var(--chat-flex, 1);
+  }
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #dedede;
+}
+
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.person:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 0.15s ease-out;
+}
+
+.avatar.is-speaking,
+.person.is-speaking .avatar {
+  box-shadow: 0 0 0 2.5px #23a55a;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Your own picture is the button that changes it. */
+button.avatar {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.avatar:hover {
+  filter: brightness(1.2);
+}
+
+.avatar-lg {
+  width: 84px;
+  height: 84px;
+  font-size: 32px;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.avatar-picker {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+}
+
+/* The actions live on top of the picture, not beside it. It is a layer rather
+   than a wrapper because painting the picture replaces the avatar's contents. */
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.58);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.avatar-picker:hover .avatar-overlay,
+.avatar-picker:focus-within .avatar-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.avatar-action {
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  outline: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.avatar-action svg {
+  width: 17px;
+  height: 17px;
+}
+
+.avatar-action:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.avatar-action:last-child:hover {
+  background: var(--danger-strong);
+}
+
+.profile-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+button.tag {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+button.tag:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+button.tag-danger {
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.14);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+button.tag-danger:hover {
+  color: #ffffff;
+  background: var(--danger-strong);
+}
+
+/* ------------------------------------------------------ picture editor ---- */
+
+/* The gate as a splash while a room opens straight from the landing page. */
+.gate.working .card {
+  display: none;
+}
+
+/* Five-dot loading indicator for auto-join */
+.gate-loader {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.gate-loader .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  animation: dotFill 1.2s ease-in-out infinite;
+}
+
+.gate-loader .dot:nth-child(1) { animation-delay: 0s; }
+.gate-loader .dot:nth-child(2) { animation-delay: 0.12s; }
+.gate-loader .dot:nth-child(3) { animation-delay: 0.24s; }
+.gate-loader .dot:nth-child(4) { animation-delay: 0.36s; }
+.gate-loader .dot:nth-child(5) { animation-delay: 0.48s; }
+
+@keyframes dotFill {
+  0%, 100% { background: rgba(255, 255, 255, 0.15); }
+  40% { background: rgba(255, 255, 255, 0.85); }
+}
+
+/* ------------------------------------------------------------- discord auth */
+
+.discord-auth {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.discord-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-soft);
+  border-radius: 10px;
+}
+
+.discord-badge .discord-icon {
+  width: 22px;
+  height: 22px;
+  color: #ffffff;
+  fill: #ffffff;
+  flex-shrink: 0;
+}
+
+.discord-badge-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.discord-badge-label {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.discord-badge-user {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.discord-disconnect-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.discord-disconnect-btn:hover {
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.editor {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 8, 8, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.editor-card {
+  width: min(320px, 100%);
+  background: var(--panel);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.editor-card h2 {
+  margin: 0;
+  font-size: 16px;
+  justify-self: start;
+}
+
+.editor-stage {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0e0e0e;
+}
+
+.editor-stage canvas {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.editor-stage canvas:active {
+  cursor: grabbing;
+}
+
+/* A circular hole: the huge spread is clipped by the stage's overflow. */
+.editor-mask {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(12, 12, 12, 0.66);
+  pointer-events: none;
+}
+
+.editor-card .menu-row,
+.editor-card .menu-hint {
+  width: 100%;
+}
+
+.editor-card .menu-row {
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.editor-spacer {
+  flex: 1;
+}
+
+input[type="range"] {
+  /* The shared input rule strips `appearance`, which takes the slider track
+     with it - put it back. */
+  appearance: auto;
+  -webkit-appearance: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.person-name {
+  font-weight: 500;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* min-width:0 lets a long name truncate instead of pushing the badges out. */
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.person-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tag {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+
+.tag-host {
+  background: #ffffff;
+  color: #121212;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tag-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  line-height: 1;
+}
+
+.tag-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.tag-mic-muted {
+  color: var(--danger);
+  background: none;
+}
+
+.tag-deafened {
+  color: var(--danger);
+  background: none;
+}
+
+.tag-sharing {
+  color: #7abaff;
+  background: none;
+}
+
+.messages {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  flex: 1;
+  align-content: start;
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  font-size: 11px;
+}
+
+.message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.message-who {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.message.mine .message-who {
+  color: var(--text);
+}
+
+.message-body {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: #dedede;
+  overflow-wrap: anywhere;
+}
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+/* -------------------------------------------------------------------- dock */
+
+.dock {
+  position: fixed;
+  /* Centred on the stage, not the window, so a wide side panel never sits
+     under the dock (or the dock over the chat box). */
+  left: calc((100% - var(--sidebar-w)) / 2);
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 18, 18, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 6px;
+  border-radius: 20px;
+}
+
+.dock-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  padding: 3px;
+}
+
+.dock-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, transform 0.08s;
+}
+
+.dock-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* SVG elements have no `hidden` IDL property, so the icon swap is a class on
+   the button rather than an attribute on the icon. */
+.dock-btn .icon-live {
+  display: none;
+}
+
+.dock-btn.is-live .icon-live {
+  display: block;
+}
+
+.dock-btn.is-live .icon-idle {
+  display: none;
+}
+
+.dock-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.dock-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dock-caret {
+  width: 42px;
+  height: 46px;
+  border-radius: 11px;
+  color: var(--muted);
+}
+
+.dock-caret svg {
+  width: 17px;
+  height: 17px;
+  transition: transform 0.18s;
+}
+
+.dock-caret[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.dock-wide {
+  width: 58px;
+  height: 46px;
+  border-radius: 11px;
+  background: transparent;
+}
+
+.dock-caret:hover,
+.dock-wide:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.dock-caret[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.dock-round {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dock-round:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Live states read at a glance: sharing is baby blue, a hot mic is green. */
+.dock-wide.is-live {
+  background: rgba(122, 186, 255, 0.12);
+  color: #7abaff;
+}
+
+.dock-wide.is-live:hover {
+  background: rgba(122, 186, 255, 0.22);
+  color: #7abaff;
+}
+
+.dock-round.is-live {
+  background: var(--ok);
+  color: var(--accent-ink);
+}
+
+.dock-round.is-live:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+.dock-round.is-live#deafen {
+  background: var(--danger-strong);
+  color: #ffffff;
+}
+
+.dock-round.is-live#deafen:hover:not(:disabled) {
+  background: var(--danger-strong-hover);
+}
+
+.dock-danger,
+.dock-danger.dock-round {
+  background: var(--danger-strong);
+  color: #ffffff;
+}
+
+.dock-danger:hover:not(:disabled),
+.dock-danger.dock-round:hover:not(:disabled) {
+  background: var(--danger-strong-hover);
+}
+
+.dock-danger svg {
+  width: 26px;
+  height: 26px;
+}
+
+.dock-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  width: 240px;
+  background: rgba(18, 18, 18, 0.98);
+  border: none;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 35;
+}
+
+.dock-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dock-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dock-menu-item.is-disabled,
+.dock-menu-item:has(input:disabled),
+.dock-menu-item:has(select:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.dock-menu-select {
+  justify-content: space-between;
+}
+
+.dock-menu-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dock-menu-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #f2f2f2;
+  line-height: 1.2;
+}
+
+.dock-menu-sub {
+  font-size: 12px;
+  color: #999999;
+  line-height: 1.2;
+}
+
+.dock-menu-chevron {
+  width: 16px;
+  height: 16px;
+  color: #999999;
+  flex-shrink: 0;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+
+.dock-menu-item:hover .dock-menu-chevron {
+  color: #f2f2f2;
+}
+
+.dock-menu-select-wrap {
+  position: relative;
+}
+
+.dock-menu-select-wrap:hover .dock-menu-item,
+.dock-menu-select[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dock-menu-select-wrap:hover .dock-menu-chevron,
+.dock-menu-select[aria-expanded="true"] .dock-menu-chevron {
+  color: #f2f2f2;
+  transform: translateX(2px);
+}
+
+.dock-dropdown {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  min-width: 175px;
+  background: rgba(18, 18, 18, 0.98);
+  border: none;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 40;
+  max-height: none;
+  overflow: visible;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* Invisible bridge across the 8px gap between trigger and floating dropdown */
+.dock-dropdown::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: -12px;
+  width: 14px;
+}
+
+.dock-dropdown[hidden] {
+  display: none;
+}
+
+.dock-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dock-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dock-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+.dock-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.dock-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #dedede;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dock-dropdown-item:hover,
+.dock-dropdown-item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  outline: none;
+}
+
+.dock-dropdown-item.is-selected {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dock-dropdown-item.is-selected .dock-dropdown-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.dock-dropdown-check {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  margin-left: 12px;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.dock-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 4px;
+}
+
+.dock-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dock-menu-icon {
+  width: 18px;
+  height: 18px;
+  color: #999999;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.dock-menu-item:hover .dock-menu-icon {
+  color: #f2f2f2;
+}
+
+.dock-menu-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #dedede;
+}
+
+.dock-menu-check {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  max-width: 18px;
+  max-height: 18px;
+  aspect-ratio: 1 / 1;
+  border: 1.5px solid rgba(255, 255, 255, 0.32);
+  border-radius: 3.5px;
+  background-color: rgba(255, 255, 255, 0.05);
+  background-position: center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  flex: 0 0 18px;
+  align-self: center;
+  outline: none;
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.dock-menu-check:hover {
+  border-color: rgba(255, 255, 255, 0.55);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dock-menu-check:checked {
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23141414' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8l3 3 6-6'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  border-color: #ffffff;
+}
+
+.dock-menu-check::before,
+.dock-menu-check:checked::before {
+  content: none;
+  display: none;
+}
+
+.dock-menu-check:focus,
+.dock-menu-check:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.dock-menu-hint {
+  margin: 0;
+  padding: 3px 10px 4px;
+  font-size: 10px;
+  color: #8e8e8e;
+  line-height: 1.35;
+}
+
+.menu-row {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+
+.menu-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ toasts */
+
+.toasts {
+  position: fixed;
+  left: calc((100% - var(--sidebar-w)) / 2);
+  bottom: 96px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
+  z-index: 28;
+  pointer-events: none;
+  width: min(420px, calc(100vw - 32px));
+  justify-items: center;
+}
+
+.toast {
+  background: rgba(18, 18, 18, 0.96);
+  color: #f2f2f2;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+  transition: opacity 0.35s, transform 0.35s;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.toast-bad {
+  color: var(--danger);
+}
+
+.toast.out {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+body.sidebar-hidden .dock,
+body.sidebar-hidden .toasts {
+  left: 50%;
+}
+
+/* ------------------------------------------------------------- narrow view */
+
+@media (max-width: 860px) {
+  body.room {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "top"
+      "stage";
+    /* The bottom sheet and the floating dock, named once: the sheet sizes
+       itself from these and the stage keeps its tiles clear of both. */
+    --sheet-h: 40dvh;
+    --dock-h: 88px;
+    --sheet-block: calc(var(--sheet-h) + var(--dock-h));
+  }
+
+  /* With no panels open the sheet takes no room, and every measurement below
+     follows from that on its own. */
+  body.room.sidebar-hidden {
+    --sheet-h: 0px;
+  }
+
+  .topbar-right {
+    width: auto;
+  }
+
+  /* Ride the stage cell so the sheet can never cover the floating dock. */
+  .sidebar {
+    grid-area: stage;
+    align-self: end;
+    z-index: 20;
+    /* A definite height matters: panels flex from a 0 basis, and a 0 basis
+       cannot share out a container whose own height is auto - they would
+       collapse to their headings. */
+    height: var(--sheet-block);
+    max-height: 100%;
+    padding: 0 10px var(--dock-h);
+  }
+
+  .panel {
+    box-shadow: var(--shadow);
+  }
+
+  /* Keep the tiles above the sheet and the dock rather than behind them. */
+  .stage {
+    padding-bottom: var(--sheet-block);
+  }
+
+  /* One column on a phone, centred in whatever space is left, and free to
+     grow and scroll once there are several. */
+  .grid {
+    height: auto;
+    min-height: 100%;
+    align-content: center;
+    container-type: normal;
+  }
+
+  .grid[data-count] .slot {
+    width: 100%;
+    height: auto;
+  }
+
+  .grid[data-count] .tile {
+    width: 100%;
+  }
+
+  /* The sheet spans the width and its panels are sized for us, so neither
+     handle has anything to drag here. */
+  .resizer-x,
+  .resizer-y {
+    display: none;
+  }
+
+  /* The panel is an overlay on a phone, so the dock centres on the window. */
+  .dock {
+    left: 50%;
+    bottom: 16px;
+    gap: 10px;
+  }
+
+  .dock-menu {
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(300px, calc(100vw - 32px));
+  }
+
+  .toasts {
+    left: 50%;
+    bottom: 86px;
+  }
+}

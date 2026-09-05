@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.log
+
+# local editor/tooling config
+.claude/
