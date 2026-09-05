@@ -8,6 +8,7 @@
  */
 window.AstraDiscord = (function () {
   const DISCORD_KEY = 'astra:discord';
+  const DISCORD_TOKEN_KEY = 'astra:discord:token';
   const DISCORD_AVATARS_KEY = 'astra:discord:custom_avatars';
   const DISCORD_LAST_USER_KEY = 'astra:discord:last_user_id';
 
@@ -23,6 +24,21 @@ window.AstraDiscord = (function () {
     }
   }
 
+  function getToken() {
+    try {
+      return localStorage.getItem(DISCORD_TOKEN_KEY);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setToken(token) {
+    try {
+      if (token) localStorage.setItem(DISCORD_TOKEN_KEY, token);
+      else localStorage.removeItem(DISCORD_TOKEN_KEY);
+    } catch (_) {}
+  }
+
   /**
    * Clears Discord connection state from localStorage, remembering the last
    * user ID so preferences can persist if reconnected.
@@ -34,7 +50,64 @@ window.AstraDiscord = (function () {
         localStorage.setItem(DISCORD_LAST_USER_KEY, current.id);
       }
       localStorage.removeItem(DISCORD_KEY);
+      localStorage.removeItem(DISCORD_TOKEN_KEY);
     } catch (_) {}
+  }
+
+  /**
+   * Pushes profile updates (name and/or photo) to Cloudflare.
+   */
+  async function syncProfileToCloud(patch, explicitToken) {
+    const token = explicitToken || getToken();
+    if (!token || !patch) return;
+
+    try {
+      await fetch('/api/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify(patch),
+      });
+    } catch (err) {
+      console.warn('[discord] Cloud profile sync failed:', err);
+    }
+  }
+
+  /**
+   * Fetches saved profile from Cloudflare.
+   */
+  async function fetchCloudProfile(explicitToken) {
+    const token = explicitToken || getToken();
+    if (!token) return null;
+
+    try {
+      const res = await fetch('/api/profile', {
+        headers: {
+          Authorization: 'Bearer ' + token,
+        },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data && data.profile ? data.profile : null;
+    } catch (err) {
+      console.warn('[discord] Cloud profile fetch failed:', err);
+      return null;
+    }
+  }
+
+  let lastSyncedName = null;
+  let syncNameTimeout = null;
+
+  function syncName(name) {
+    const clean = String(name || '').trim().slice(0, 32);
+    if (!clean || clean === lastSyncedName) return;
+    clearTimeout(syncNameTimeout);
+    syncNameTimeout = setTimeout(() => {
+      lastSyncedName = clean;
+      syncProfileToCloud({ name: clean });
+    }, 400);
   }
 
   function getCustomAvatarsMap() {
@@ -63,7 +136,7 @@ window.AstraDiscord = (function () {
    * Associates a custom profile picture (or null) with the active Discord account.
    * If the user disconnects or reconnects, this picture is preferred over the Discord CDN picture.
    */
-  function saveAccountAvatar(avatarDataUrl) {
+  function saveAccountAvatar(avatarDataUrl, skipCloudSync) {
     try {
       const current = getUser();
       const userId = (current && current.id) || localStorage.getItem(DISCORD_LAST_USER_KEY);
@@ -76,6 +149,11 @@ window.AstraDiscord = (function () {
         updatedAt: Date.now(),
       };
       localStorage.setItem(DISCORD_AVATARS_KEY, JSON.stringify(map));
+
+      // Push avatar change to Cloudflare
+      if (!skipCloudSync) {
+        syncProfileToCloud({ avatar: avatarDataUrl || null });
+      }
     } catch (_) {}
   }
 
@@ -221,6 +299,8 @@ window.AstraDiscord = (function () {
         ? 'https://cdn.discordapp.com/avatars/' + discordUser.id + '/' + discordUser.avatar + '.png?size=128'
         : 'https://cdn.discordapp.com/embed/avatars/' + defaultIndex + '.png';
 
+      setToken(accessToken);
+
       const userRecord = {
         id: discordUser.id,
         username: discordUser.username,
@@ -235,31 +315,53 @@ window.AstraDiscord = (function () {
         localStorage.setItem(DISCORD_KEY, JSON.stringify(userRecord));
       } catch (_) {}
 
-      // Update AstraProfile name
-      if (displayName && window.AstraProfile) {
-        window.AstraProfile.setName(displayName);
-      }
+      // Check Cloudflare for previously saved cross-device profile
+      const cloud = await fetchCloudProfile(accessToken);
 
-      // Check if this Discord user already has a saved custom avatar preference
-      const savedPref = getAccountAvatar(discordUser.id);
-      if (savedPref && savedPref.custom) {
-        // User changed their picture previously for this Discord account.
-        // Keep their chosen custom picture, do NOT overwrite with the Discord CDN avatar.
-        if (savedPref.avatar && window.AstraProfile && window.AstraProfile.isAvatar(savedPref.avatar)) {
-          window.AstraProfile.setAvatar(savedPref.avatar);
-        } else if (savedPref.avatar === null && window.AstraProfile) {
+      if (cloud) {
+        // Restore name and avatar from Cloudflare
+        if (cloud.name && window.AstraProfile) {
+          lastSyncedName = cloud.name;
+          window.AstraProfile.setName(cloud.name);
+        }
+        if (cloud.avatar && window.AstraProfile && window.AstraProfile.isAvatar(cloud.avatar)) {
+          window.AstraProfile.setAvatar(cloud.avatar);
+          saveAccountAvatar(cloud.avatar, true);
+        } else if (cloud.avatar === null && window.AstraProfile) {
           window.AstraProfile.setAvatar(null);
+          saveAccountAvatar(null, true);
         }
-      } else if (window.AstraProfile) {
-        // No custom avatar override exists yet for this account: import from Discord CDN
-        try {
-          const dataUrl = await rasterizeAvatar(avatarCdnUrl);
-          if (dataUrl && window.AstraProfile.isAvatar(dataUrl)) {
-            window.AstraProfile.setAvatar(dataUrl);
+      } else {
+        // First time connecting: initialize from Discord & save to Cloudflare
+        if (displayName && window.AstraProfile) {
+          window.AstraProfile.setName(displayName);
+        }
+
+        const savedPref = getAccountAvatar(discordUser.id);
+        let activeAvatar = null;
+        if (savedPref && savedPref.custom) {
+          if (savedPref.avatar && window.AstraProfile && window.AstraProfile.isAvatar(savedPref.avatar)) {
+            window.AstraProfile.setAvatar(savedPref.avatar);
+            activeAvatar = savedPref.avatar;
+          } else if (savedPref.avatar === null && window.AstraProfile) {
+            window.AstraProfile.setAvatar(null);
           }
-        } catch (avatarErr) {
-          console.warn('AstraDiscord: Could not rasterize avatar:', avatarErr);
+        } else if (window.AstraProfile) {
+          try {
+            const dataUrl = await rasterizeAvatar(avatarCdnUrl);
+            if (dataUrl && window.AstraProfile.isAvatar(dataUrl)) {
+              window.AstraProfile.setAvatar(dataUrl);
+              activeAvatar = dataUrl;
+            }
+          } catch (avatarErr) {
+            console.warn('AstraDiscord: Could not rasterize avatar:', avatarErr);
+          }
         }
+
+        syncProfileToCloud({
+          name: displayName,
+          avatar: activeAvatar,
+        }, accessToken);
       }
 
       if (options && typeof options.onSuccess === 'function') {
@@ -317,6 +419,36 @@ window.AstraDiscord = (function () {
       });
     }
 
+    // If already connected with an active token, fetch latest cloud profile in background
+    const currentToken = getToken();
+    const currentUser = getUser();
+    if (currentToken && currentUser) {
+      fetchCloudProfile(currentToken).then((cloud) => {
+        if (!cloud) return;
+        let changed = false;
+        if (cloud.name && window.AstraProfile && window.AstraProfile.getName() !== cloud.name) {
+          lastSyncedName = cloud.name;
+          window.AstraProfile.setName(cloud.name);
+          changed = true;
+        }
+        if (cloud.avatar !== undefined && window.AstraProfile && window.AstraProfile.getAvatar() !== cloud.avatar) {
+          if (cloud.avatar && window.AstraProfile.isAvatar(cloud.avatar)) {
+            window.AstraProfile.setAvatar(cloud.avatar);
+            saveAccountAvatar(cloud.avatar, true);
+            changed = true;
+          } else if (cloud.avatar === null) {
+            window.AstraProfile.setAvatar(null);
+            saveAccountAvatar(null, true);
+            changed = true;
+          }
+        }
+        if (changed) {
+          render();
+          onChange();
+        }
+      });
+    }
+
     handleCallback({
       onSuccess: () => {
         render();
@@ -331,11 +463,15 @@ window.AstraDiscord = (function () {
 
   return {
     getUser: getUser,
+    getToken: getToken,
     disconnect: disconnect,
     login: login,
     handleCallback: handleCallback,
     bindUI: bindUI,
     saveAccountAvatar: saveAccountAvatar,
     getAccountAvatar: getAccountAvatar,
+    syncName: syncName,
+    syncProfileToCloud: syncProfileToCloud,
+    fetchCloudProfile: fetchCloudProfile,
   };
 })();

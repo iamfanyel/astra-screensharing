@@ -1,11 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "astra-screensharing",
+  "main": "worker.js",
   "compatibility_date": "2024-09-01",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "."
-  }
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "PROFILES_KV",
+      "id": "35fb6b1f9cd9499886230c80fea816c5"
+    }
+  ]
 }

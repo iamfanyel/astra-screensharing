@@ -9,6 +9,8 @@ node_modules/
 
 # Source/dev files
 dev-server.js
+worker.js
+.dev-profiles.json
 package.json
 package-lock.json
 wrangler.jsonc

@@ -31,6 +31,9 @@
     } catch (_) {
       /* private mode - it just will not persist */
     }
+    if (window.AstraDiscord && window.AstraDiscord.syncName) {
+      window.AstraDiscord.syncName(clean);
+    }
     return clean;
   }
 

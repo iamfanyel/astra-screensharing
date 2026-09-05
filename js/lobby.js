@@ -47,6 +47,9 @@
     AstraProfile.setName(nameInput.value);
   }
 
+  nameInput.addEventListener('change', rememberName);
+  nameInput.addEventListener('blur', rememberName);
+
   createForm.addEventListener('submit', (event) => {
     event.preventDefault();
     rememberName();
