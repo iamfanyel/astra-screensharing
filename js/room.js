@@ -311,16 +311,6 @@
       }
     });
 
-    state.mesh.addEventListener('peer-unreachable', (e) => {
-      const { id } = e.detail;
-      if (!state.signal || state.signal.left) return;
-      if (state.signal.isHub) {
-        state.signal._dropMember(id, 'timeout');
-      } else if (id === state.signal.hostId) {
-        state.signal._handleHostLoss('timeout');
-      }
-    });
-
     signal.addEventListener('signal', (e) => state.mesh.handleSignal(e.detail.from, e.detail.data));
 
     signal.addEventListener('peer-state', (e) => {

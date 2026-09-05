@@ -592,10 +592,32 @@
 
     _startHeartbeat() {
       this._stopHeartbeat();
-      this._heartbeatInterval = setInterval(() => this._checkHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      const check = () => this._checkHeartbeat();
+      try {
+        if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
+          const blob = new Blob([
+            `let t; self.onmessage = (e) => { if (e.data === 'start') t = setInterval(() => self.postMessage(1), ${HEARTBEAT_INTERVAL_MS}); else if (t) clearInterval(t); };`
+          ], { type: 'application/javascript' });
+          const url = URL.createObjectURL(blob);
+          const worker = new Worker(url);
+          URL.revokeObjectURL(url);
+          worker.onmessage = () => check();
+          worker.postMessage('start');
+          this._heartbeatWorker = worker;
+          return;
+        }
+      } catch (_) {}
+      this._heartbeatInterval = setInterval(check, HEARTBEAT_INTERVAL_MS);
     }
 
     _stopHeartbeat() {
+      if (this._heartbeatWorker) {
+        try {
+          this._heartbeatWorker.postMessage('stop');
+          this._heartbeatWorker.terminate();
+        } catch (_) {}
+        this._heartbeatWorker = null;
+      }
       if (this._heartbeatInterval) {
         clearInterval(this._heartbeatInterval);
         this._heartbeatInterval = null;
