@@ -300,10 +300,25 @@
 
     signal.addEventListener('peer-left', (e) => {
       const id = e.detail.id;
+      const name = e.detail.name;
+      const reason = e.detail.reason;
       state.mesh.remove(id);
       dropPeerMedia(id);
       vad.detach(id);
       renderPeople();
+      if (reason === 'timeout') {
+        toast((name || 'A participant') + ' disconnected (connection lost)', 'bad');
+      }
+    });
+
+    state.mesh.addEventListener('peer-unreachable', (e) => {
+      const { id } = e.detail;
+      if (!state.signal || state.signal.left) return;
+      if (state.signal.isHub) {
+        state.signal._dropMember(id, 'timeout');
+      } else if (id === state.signal.hostId) {
+        state.signal._handleHostLoss('timeout');
+      }
     });
 
     signal.addEventListener('signal', (e) => state.mesh.handleSignal(e.detail.from, e.detail.data));
@@ -1258,6 +1273,8 @@
       state.audios.delete(id);
     }
     vad.detach(id);
+    state.peerVolumes.delete(id);
+    state.peerWatching.delete(id);
   }
 
   // ---------------------------------------------------------------- room UI
@@ -1606,6 +1623,9 @@
 
   // ------------------------------------------------------------------- exits
 
+  let localOfflineTimer = null;
+  const LOCAL_OFFLINE_GRACE_MS = 25000;
+
   function showClosed(reason) {
     el.closedReason.textContent = reason || 'The room ended.';
     el.closed.hidden = false;
@@ -1615,6 +1635,10 @@
   function teardown() {
     if (tornDown) return;
     tornDown = true;
+    if (localOfflineTimer) {
+      clearTimeout(localOfflineTimer);
+      localOfflineTimer = null;
+    }
     if (state.mesh) state.mesh.close();
     cleanUpCapture();
     stopStream(state.micStream);
@@ -1643,6 +1667,30 @@
 
   window.addEventListener('pagehide', () => {
     if (state.signal) state.signal.leave();
+  });
+
+  window.addEventListener('offline', () => {
+    if (tornDown || leaving) return;
+    toast('Network connection lost. Reconnecting…', 'bad');
+    if (localOfflineTimer) clearTimeout(localOfflineTimer);
+    localOfflineTimer = setTimeout(() => {
+      if (!navigator.onLine && !tornDown && !leaving) {
+        showClosed('Disconnected: your network connection was lost.');
+      }
+    }, LOCAL_OFFLINE_GRACE_MS);
+  });
+
+  window.addEventListener('online', () => {
+    if (localOfflineTimer) {
+      clearTimeout(localOfflineTimer);
+      localOfflineTimer = null;
+    }
+    if (!tornDown && !leaving) {
+      toast('Network connection restored.');
+      if (state.signal && state.signal.peer && !state.signal.peer.destroyed && state.signal.peer.disconnected) {
+        try { state.signal.peer.reconnect(); } catch (_) {}
+      }
+    }
   });
 
   el.backToStart.addEventListener('click', leaveForLobby);

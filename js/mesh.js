@@ -29,6 +29,8 @@
     };
   }
 
+  const PEER_UNREACHABLE_TIMEOUT_MS = 25000;
+
   class Mesh extends EventTarget {
     constructor({ selfId, signal, iceServers }) {
       super();
@@ -60,6 +62,7 @@
         settingRemoteAnswer: false,
         senders: [],
         closed: false,
+        disconnectTimer: null,
       };
       this.peers.set(id, peer);
 
@@ -91,9 +94,53 @@
         track.addEventListener('unmute', () => this.emit('trackunmuted', { id, track }));
       };
 
+      const checkConnectionHealth = () => {
+        const connState = pc.connectionState;
+        const iceState = pc.iceConnectionState;
+
+        const isHealthy =
+          connState === 'connected' ||
+          iceState === 'connected' ||
+          connState === 'completed' ||
+          iceState === 'completed';
+
+        if (isHealthy) {
+          if (peer.disconnectTimer) {
+            clearTimeout(peer.disconnectTimer);
+            peer.disconnectTimer = null;
+          }
+        } else if (
+          connState === 'disconnected' ||
+          connState === 'failed' ||
+          iceState === 'disconnected' ||
+          iceState === 'failed'
+        ) {
+          if (!peer.disconnectTimer && !peer.closed) {
+            peer.disconnectTimer = setTimeout(() => {
+              peer.disconnectTimer = null;
+              if (
+                !peer.closed &&
+                (pc.connectionState === 'disconnected' ||
+                  pc.connectionState === 'failed' ||
+                  pc.iceConnectionState === 'disconnected' ||
+                  pc.iceConnectionState === 'failed')
+              ) {
+                console.warn(`[mesh] Peer ${id} media connection unreachable after timeout`);
+                this.emit('peer-unreachable', { id });
+              }
+            }, PEER_UNREACHABLE_TIMEOUT_MS);
+          }
+        }
+      };
+
       pc.onconnectionstatechange = () => {
         this.emit('connectionstate', { id, state: pc.connectionState });
         if (pc.connectionState === 'failed') pc.restartIce();
+        checkConnectionHealth();
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        checkConnectionHealth();
       };
 
       this._sync(peer);
@@ -104,6 +151,10 @@
       const peer = this.peers.get(id);
       if (!peer) return;
       peer.closed = true;
+      if (peer.disconnectTimer) {
+        clearTimeout(peer.disconnectTimer);
+        peer.disconnectTimer = null;
+      }
       try {
         peer.pc.close();
       } catch (_) {

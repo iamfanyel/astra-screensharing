@@ -14,6 +14,9 @@
 (function () {
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I: readable aloud
   const JOIN_TIMEOUT_MS = 20000;
+  const HEARTBEAT_INTERVAL_MS = 3000;
+  const HEARTBEAT_TIMEOUT_MS = 25000;
+  const BROKER_RECONNECT_TIMEOUT_MS = 25000;
 
   function randomCode(length = 6) {
     const bytes = new Uint32Array(length);
@@ -76,6 +79,10 @@
       this.left = false;
       this._gatewayPeer = null;
       this._hubListening = false;
+      this._heartbeatInterval = null;
+      this._memberLastSeen = new Map(); // hub only: member id -> timestamp
+      this._hostLastSeen = 0; // member only: timestamp of last message from host
+      this._brokerDisconnectTimer = null;
     }
 
     emit(type, detail) {
@@ -129,8 +136,19 @@
             host: true,
           });
           this._hubListening = true;
+          this._startHeartbeat();
           peer.on('connection', (conn) => this._acceptMember(conn));
-          peer.on('disconnected', () => !this.left && peer.reconnect());
+          peer.on('disconnected', () => {
+            if (this.left) return;
+            peer.reconnect();
+            if (!this._brokerDisconnectTimer) {
+              this._brokerDisconnectTimer = setTimeout(() => {
+                if (peer.disconnected && !this.left) {
+                  this.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
+                }
+              }, BROKER_RECONNECT_TIMEOUT_MS);
+            }
+          });
           peer.on('close', () => {
             if (!this.left) this._handleHostLoss();
           });
@@ -170,6 +188,7 @@
 
         this.conns.set(member.id, conn);
         this.roster.set(member.id, member);
+        this._memberLastSeen.set(member.id, Date.now());
 
         conn.send({
           t: 'welcome',
@@ -213,6 +232,18 @@
 
     _onHubData(conn, msg) {
       if (!msg || !this.roster.has(conn.peer)) return;
+      this._memberLastSeen.set(conn.peer, Date.now());
+
+      if (msg.t === 'ping') {
+        if (conn && conn.open) {
+          try { conn.send({ t: 'pong' }); } catch (_) {}
+        }
+        return;
+      }
+      if (msg.t === 'pong') {
+        return;
+      }
+
       switch (msg.t) {
         case 'signal':
           if (msg.to === this.selfId) this.emit('signal', { from: conn.peer, data: msg.data });
@@ -244,12 +275,15 @@
       }
     }
 
-    _dropMember(id) {
+    _dropMember(id, reason = 'left') {
       if (!this.conns.has(id) && !this.roster.has(id)) return;
+      const member = this.roster.get(id);
+      const name = member ? member.name : 'A participant';
       this.conns.delete(id);
       this.roster.delete(id);
-      this._fanout({ t: 'left', id });
-      this.emit('peer-left', { id });
+      this._memberLastSeen.delete(id);
+      this._fanout({ t: 'left', id, name, reason });
+      this.emit('peer-left', { id, name, reason });
     }
 
     _sendTo(id, msg) {
@@ -288,6 +322,18 @@
         }, JOIN_TIMEOUT_MS);
 
         peer.on('open', () => {
+          peer.on('disconnected', () => {
+            if (signal.left) return;
+            peer.reconnect();
+            if (!signal._brokerDisconnectTimer) {
+              signal._brokerDisconnectTimer = setTimeout(() => {
+                if (peer.disconnected && !signal.left) {
+                  signal.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
+                }
+              }, BROKER_RECONNECT_TIMEOUT_MS);
+            }
+          });
+
           const conn = peer.connect(window.ASTRA.idPrefix + roomCode, {
             metadata: { name: cleanName(name) },
             reliable: true,
@@ -343,20 +389,47 @@
         this.roster.set(p.id, p);
       }
       this.roster.set(this.selfId, newMember(this.selfId, name, false));
+      this._hostLastSeen = Date.now();
+      this._startHeartbeat();
       peer.on('connection', (c) => this._acceptMember(c));
-      peer.on('disconnected', () => !this.left && peer.reconnect());
+      peer.on('disconnected', () => {
+        if (this.left) return;
+        peer.reconnect();
+        if (!this._brokerDisconnectTimer) {
+          this._brokerDisconnectTimer = setTimeout(() => {
+            if (peer.disconnected && !this.left) {
+              this.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
+            }
+          }, BROKER_RECONNECT_TIMEOUT_MS);
+        }
+      });
     }
 
     _onMemberData(msg) {
+      this._hostLastSeen = Date.now();
+
+      if (msg.t === 'ping') {
+        if (this.conn && this.conn.open) {
+          try { this.conn.send({ t: 'pong' }); } catch (_) {}
+        }
+        return;
+      }
+      if (msg.t === 'pong') {
+        return;
+      }
+
       switch (msg.t) {
         case 'joined':
           this.roster.set(msg.peer.id, msg.peer);
           this.emit('peer-joined', { peer: msg.peer });
           break;
-        case 'left':
+        case 'left': {
+          const leftMember = this.roster.get(msg.id);
+          const leftName = msg.name || (leftMember ? leftMember.name : 'A participant');
           this.roster.delete(msg.id);
-          this.emit('peer-left', { id: msg.id });
+          this.emit('peer-left', { id: msg.id, name: leftName, reason: msg.reason || 'left' });
           break;
+        }
         case 'signal':
           this.emit('signal', { from: msg.from, data: msg.data });
           break;
@@ -392,13 +465,16 @@
       }
     }
 
-    _handleHostLoss() {
+    _handleHostLoss(reason = 'left') {
       if (this.left) return;
 
       const oldHostId = this.hostId;
+      let oldHostName = 'The host';
       if (oldHostId && this.roster.has(oldHostId)) {
+        const oldHost = this.roster.get(oldHostId);
+        if (oldHost) oldHostName = oldHost.name;
         this.roster.delete(oldHostId);
-        this.emit('peer-left', { id: oldHostId });
+        this.emit('peer-left', { id: oldHostId, name: oldHostName, reason });
       }
 
       const remaining = Array.from(this.roster.values());
@@ -417,8 +493,10 @@
       if (this.left) return;
 
       if (oldHostId && oldHostId !== this.selfId && this.roster.has(oldHostId)) {
+        const oldHost = this.roster.get(oldHostId);
+        const oldHostName = oldHost ? oldHost.name : 'The host';
         this.roster.delete(oldHostId);
-        this.emit('peer-left', { id: oldHostId });
+        this.emit('peer-left', { id: oldHostId, name: oldHostName, reason: 'host-migration' });
       }
 
       if (newHostId === this.selfId) {
@@ -432,6 +510,7 @@
       if (this.isHub) return;
       this.isHub = true;
       this.hostId = this.selfId;
+      this._hostLastSeen = 0;
 
       for (const [id, peer] of this.roster) {
         peer.host = (id === this.selfId);
@@ -448,6 +527,7 @@
       }
 
       this._bindGatewayPeer();
+      this._startHeartbeat();
 
       const me = this.roster.get(this.selfId);
       this.emit('host-changed', { hostId: this.selfId, hostName: me ? me.name : 'You' });
@@ -456,6 +536,8 @@
     _reconnectToNewHost(newHostId) {
       this.isHub = false;
       this.hostId = newHostId;
+      this._hostLastSeen = Date.now();
+      this._startHeartbeat();
 
       for (const [id, peer] of this.roster) {
         peer.host = (id === newHostId);
@@ -506,6 +588,53 @@
 
       const newHost = this.roster.get(newHostId);
       this.emit('host-changed', { hostId: newHostId, hostName: newHost ? newHost.name : 'A participant' });
+    }
+
+    _startHeartbeat() {
+      this._stopHeartbeat();
+      this._heartbeatInterval = setInterval(() => this._checkHeartbeat(), HEARTBEAT_INTERVAL_MS);
+    }
+
+    _stopHeartbeat() {
+      if (this._heartbeatInterval) {
+        clearInterval(this._heartbeatInterval);
+        this._heartbeatInterval = null;
+      }
+    }
+
+    _checkHeartbeat() {
+      if (this.left) {
+        this._stopHeartbeat();
+        return;
+      }
+
+      if (this.peer && !this.peer.disconnected && this._brokerDisconnectTimer) {
+        clearTimeout(this._brokerDisconnectTimer);
+        this._brokerDisconnectTimer = null;
+      }
+
+      const now = Date.now();
+      if (this.isHub) {
+        for (const [id, conn] of this.conns) {
+          if (id === this.selfId) continue;
+          const lastSeen = this._memberLastSeen.get(id) || now;
+          if (now - lastSeen > HEARTBEAT_TIMEOUT_MS) {
+            console.warn(`[signal] Member ${id} timed out after ${now - lastSeen}ms`);
+            try { conn.close(); } catch (_) {}
+            this._dropMember(id, 'timeout');
+          } else if (conn && conn.open) {
+            try { conn.send({ t: 'ping' }); } catch (_) {}
+          }
+        }
+      } else {
+        if (this.conn && this.conn.open) {
+          try { this.conn.send({ t: 'ping' }); } catch (_) {}
+        }
+        if (this._hostLastSeen && (now - this._hostLastSeen > HEARTBEAT_TIMEOUT_MS)) {
+          console.warn(`[signal] Host ${this.hostId} timed out after ${now - this._hostLastSeen}ms`);
+          this._handleHostLoss('timeout');
+        }
+      }
     }
 
     _bindGatewayPeer() {
@@ -562,7 +691,7 @@
           id: this.selfId,
           name: me.name,
           avatar: me.avatar || null,
-          text: body,
+          text,
           at: Date.now(),
         };
         this._fanout(message);
@@ -574,6 +703,11 @@
 
     leave() {
       this.left = true;
+      this._stopHeartbeat();
+      if (this._brokerDisconnectTimer) {
+        clearTimeout(this._brokerDisconnectTimer);
+        this._brokerDisconnectTimer = null;
+      }
       if (this.isHub) {
         const others = this.others();
         if (others.length === 0) {
