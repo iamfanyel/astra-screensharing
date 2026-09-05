@@ -41,12 +41,13 @@
    * only edit needed: the patch filter, new members, rejoins and host migration
    * all read from this list.
    */
-  const PEER_FLAGS = ['sharing', 'mic', 'deafened'];
+  const PEER_FLAGS = ['sharing', 'mic', 'deafened', 'dev'];
 
   /** A peer as it looks the moment it joins. */
-  function newMember(id, name, host) {
+  function newMember(id, name, host, dev = false) {
     const member = { id, name: cleanName(name), avatar: null, banner: null, host: !!host };
     for (const flag of PEER_FLAGS) member[flag] = false;
+    member.dev = !!dev;
     return member;
   }
 
@@ -159,12 +160,14 @@
           this.code = code;
           this.selfId = peer.id;
           this.hostId = peer.id;
+          const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
           this.roster.set(peer.id, {
             id: peer.id,
             name,
             sharing: false,
             mic: false,
             deafened: false,
+            dev: selfDev,
             avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
             banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
             host: true,
@@ -377,6 +380,7 @@
               name: cleanName(name),
               avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
               banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
+              dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
             },
             reliable: true,
           });
@@ -444,7 +448,8 @@
         if (!window.AstraProfile.isBanner(p.banner)) p.banner = null;
         this.roster.set(p.id, p);
       }
-      this.roster.set(this.selfId, newMember(this.selfId, name, false));
+      const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
+      this.roster.set(this.selfId, newMember(this.selfId, name, false, selfDev));
       this._hostLastSeen = Date.now();
       this._startHeartbeat();
       peer.on('connection', (c) => this._acceptMember(c));
@@ -615,6 +620,7 @@
             sharing: me ? me.sharing : false,
             mic: me ? me.mic : false,
             deafened: me ? me.deafened : false,
+            dev: me ? !!me.dev : false,
             avatar: me ? me.avatar : null,
             banner: me ? me.banner : null,
           },

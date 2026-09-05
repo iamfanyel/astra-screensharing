@@ -1145,6 +1145,11 @@ body.sidebar-hidden .topbar-right {
   color: #121212;
 }
 
+.person.has-banner .tag-dev {
+  background: #23a55a;
+  color: #ffffff;
+}
+
 .person.has-banner button.tag-danger {
   background: rgba(255, 107, 107, 0.25);
   color: #ff8585;
@@ -1369,6 +1374,8 @@ button.tag-danger:hover {
 }
 
 .discord-badge-user {
+  display: inline-flex;
+  align-items: center;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
@@ -1523,6 +1530,23 @@ input[type="range"] {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.tag-dev {
+  background: #23a55a;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  cursor: default;
+}
+
+.tag-dev .tag-dev-icon {
+  display: block;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 
 .tag-icon {
@@ -2335,6 +2359,9 @@ body.sidebar-hidden .toasts {
   position: relative;
   z-index: 6;
   padding: 0 16px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
 }
 
 .profile-avatar-wrapper {
@@ -2344,6 +2371,7 @@ body.sidebar-hidden .toasts {
   width: 88px;
   height: 88px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .avatar-xl {
@@ -2493,6 +2521,9 @@ body.sidebar-hidden .toasts {
 .profile-popup-header {
   position: relative;
   padding: 0 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 .profile-popup-avatar-wrap {
@@ -2501,6 +2532,7 @@ body.sidebar-hidden .toasts {
   width: 68px;
   height: 68px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .avatar-popup {
@@ -2621,5 +2653,47 @@ body.sidebar-hidden .toasts {
   font-size: 13px;
   padding: 8px 14px;
   border-radius: 8px;
+}
+
+/* User profile badges container (to the right of the profile picture) */
+.profile-user-badges,
+.profile-popup-user-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.profile-user-badges[hidden],
+.profile-popup-user-badges[hidden] {
+  display: none !important;
+}
+
+/* Developer Badge */
+.badge-dev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  cursor: pointer;
+}
+
+.badge-dev:hover {
+  transform: scale(1.12);
+}
+
+.badge-dev-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+  filter: none;
+  box-shadow: none;
 }
 
