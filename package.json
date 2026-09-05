@@ -4,6 +4,7 @@
   "private": true,
   "description": "Peer-to-peer screen + audio sharing rooms. Fully static — deploys to GitHub Pages.",
   "scripts": {
+    "build": "echo 'Static site, no build step needed'",
     "start": "node dev-server.js"
   },
   "engines": {
