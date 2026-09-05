@@ -103,6 +103,8 @@
     speakingPeers: new Set(), // peer IDs currently speaking
     peopleAvatars: new Map(), // peer id -> HTML element (.avatar)
     peopleRows: new Map(), // peer id -> { item, avatar, name, tags, ... }
+    peerVolumes: new Map(), // peer id -> { volume: 1.0, muted: false }
+    peerWatching: new Map(), // peer id -> boolean
     focused: null,
   };
 
@@ -664,8 +666,14 @@
 
   function setDeafened(on) {
     state.deafened = on;
-    for (const audio of state.audios.values()) {
-      audio.muted = on;
+    for (const [peerId, audio] of state.audios) {
+      if (on) {
+        audio.muted = true;
+      } else {
+        const vol = getPeerVolume(peerId);
+        audio.muted = vol.muted;
+        audio.volume = vol.muted ? 0 : vol.volume;
+      }
     }
     if (el.deafen) {
       el.deafen.classList.toggle('is-live', on);
@@ -691,9 +699,104 @@
 
   // -------------------------------------------------------------------- tiles
 
+  const VOLUME_HIGH_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />' +
+    '<path d="M15.54 8.46a5 5 0 0 1 0 7.07" />' +
+    '<path d="M19.07 4.93a10 10 0 0 1 0 14.14" />' +
+    '</svg><span class="sr-only">Stream volume</span>';
+
+  const VOLUME_LOW_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />' +
+    '<path d="M15.54 8.46a5 5 0 0 1 0 7.07" />' +
+    '</svg><span class="sr-only">Stream volume</span>';
+
+  const VOLUME_MUTED_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />' +
+    '<line x1="23" y1="9" x2="17" y2="15" />' +
+    '<line x1="17" y1="9" x2="23" y2="15" />' +
+    '</svg><span class="sr-only">Stream volume</span>';
+
+  const WATCHING_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />' +
+    '<circle cx="12" cy="12" r="3" />' +
+    '</svg><span class="sr-only">Stop watching screen</span>';
+
+  const NOT_WATCHING_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />' +
+    '<line x1="1" y1="1" x2="23" y2="23" />' +
+    '</svg><span class="sr-only">Start watching screen</span>';
+
+  function getPeerVolume(id) {
+    if (!state.peerVolumes.has(id)) {
+      state.peerVolumes.set(id, { volume: 1.0, muted: false });
+    }
+    return state.peerVolumes.get(id);
+  }
+
+  function setPeerVolume(id, vol, muted) {
+    const data = getPeerVolume(id);
+    if (vol !== undefined) data.volume = Math.max(0, Math.min(1, vol));
+    if (muted !== undefined) data.muted = muted;
+
+    const audio = state.audios.get(id);
+    if (audio) {
+      audio.volume = data.muted ? 0 : data.volume;
+      audio.muted = state.deafened || data.muted;
+    }
+
+    const tile = state.tiles.get(id);
+    if (tile && tile.updateVolumeUI) {
+      tile.updateVolumeUI();
+    }
+  }
+
+  function setTileWatching(id, isWatching) {
+    state.peerWatching.set(id, isWatching);
+    const tile = state.tiles.get(id);
+    if (!tile) return;
+
+    const stream = id === state.signal?.selfId ? state.localStream : state.remote.get(id);
+    if (stream) {
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = isWatching;
+      });
+    }
+
+    if (tile.pausedOverlay) {
+      tile.pausedOverlay.hidden = isWatching;
+    }
+    if (tile.watchBtn) {
+      tile.watchBtn.classList.toggle('is-paused', !isWatching);
+      tile.watchBtn.title = isWatching ? 'Stop watching screen' : 'Start watching screen';
+      tile.watchBtn.setAttribute('aria-label', isWatching ? 'Stop watching screen' : 'Start watching screen');
+      tile.watchBtn.innerHTML = isWatching ? WATCHING_ICON : NOT_WATCHING_ICON;
+    }
+
+    if (isWatching) {
+      tile.video.style.visibility = '';
+      tile.video.play().catch(() => {});
+    } else {
+      tile.video.pause();
+      tile.video.style.visibility = 'hidden';
+      if (tile.pausedAvatar && tile.pausedName) {
+        const peer = state.signal?.roster.get(id);
+        const name = peer ? peer.name : (id === state.signal?.selfId ? 'You' : 'Guest');
+        tile.pausedName.textContent = name;
+        AstraProfile.paint(tile.pausedAvatar, name, peer ? peer.avatar : null);
+      }
+    }
+  }
+
   function tileFor(id, name) {
     let tile = state.tiles.get(id);
     if (tile) return tile;
+
+    const isSelf = id === state.signal?.selfId;
 
     // The slot holds the share of the stage; the tile inside stays 16:9.
     const slot = document.createElement('div');
@@ -709,6 +812,52 @@
     video.muted = true; // audio plays through a separate element, never twice
     root.appendChild(video);
 
+    // Paused overlay for when user stops watching
+    let pausedOverlay = null;
+    let pausedAvatar = null;
+    let pausedName = null;
+
+    if (!isSelf) {
+      pausedOverlay = document.createElement('div');
+      pausedOverlay.className = 'tile-paused-overlay';
+      pausedOverlay.hidden = true;
+
+      const pausedCard = document.createElement('div');
+      pausedCard.className = 'tile-paused-card';
+
+      pausedAvatar = document.createElement('span');
+      pausedAvatar.className = 'avatar tile-paused-avatar';
+
+      const pausedInfo = document.createElement('div');
+      pausedInfo.className = 'tile-paused-info';
+
+      pausedName = document.createElement('span');
+      pausedName.className = 'tile-paused-name';
+      pausedName.textContent = name;
+
+      const pausedStatus = document.createElement('span');
+      pausedStatus.className = 'tile-paused-status';
+      pausedStatus.textContent = 'Stream paused';
+
+      pausedInfo.append(pausedName, pausedStatus);
+
+      const resumeBtn = document.createElement('button');
+      resumeBtn.type = 'button';
+      resumeBtn.className = 'tile-resume-btn';
+      resumeBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+        '<polygon points="5 3 19 12 5 21 5 3" /></svg>' +
+        '<span>Watch stream</span>';
+      resumeBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setTileWatching(id, true);
+      });
+
+      pausedCard.append(pausedAvatar, pausedInfo, resumeBtn);
+      pausedOverlay.appendChild(pausedCard);
+      root.appendChild(pausedOverlay);
+    }
+
     const caption = document.createElement('figcaption');
     const label = document.createElement('span');
     label.className = 'tile-name';
@@ -716,6 +865,82 @@
     const buttons = document.createElement('span');
     buttons.className = 'tile-actions';
 
+    // Volume control with expanding slider (for remote peers)
+    let volumeBtn = null;
+    let volumeSlider = null;
+    let volumeText = null;
+
+    if (!isSelf) {
+      const volumeControl = document.createElement('div');
+      volumeControl.className = 'tile-volume-control';
+
+      volumeBtn = document.createElement('button');
+      volumeBtn.type = 'button';
+      volumeBtn.className = 'tile-btn tile-volume-btn';
+      volumeBtn.title = 'Mute stream';
+
+      const sliderWrap = document.createElement('div');
+      sliderWrap.className = 'tile-volume-slider-wrap';
+
+      volumeSlider = document.createElement('input');
+      volumeSlider.type = 'range';
+      volumeSlider.className = 'tile-volume-slider';
+      volumeSlider.min = '0';
+      volumeSlider.max = '100';
+      volumeSlider.value = '100';
+      volumeSlider.setAttribute('aria-label', 'Stream volume');
+
+      volumeText = document.createElement('span');
+      volumeText.className = 'tile-volume-text';
+      volumeText.textContent = '100%';
+
+      sliderWrap.append(volumeSlider, volumeText);
+      volumeControl.append(volumeBtn, sliderWrap);
+
+      volumeBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const data = getPeerVolume(id);
+        if (data.muted) {
+          const restore = data.volume > 0 ? data.volume : 1.0;
+          setPeerVolume(id, restore, false);
+        } else {
+          setPeerVolume(id, data.volume, true);
+        }
+      });
+
+      volumeSlider.addEventListener('input', (event) => {
+        event.stopPropagation();
+        const val = parseFloat(volumeSlider.value) / 100;
+        setPeerVolume(id, val, val === 0);
+      });
+
+      volumeSlider.addEventListener('click', (event) => event.stopPropagation());
+      volumeSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
+      volumeControl.addEventListener('click', (event) => event.stopPropagation());
+
+      buttons.appendChild(volumeControl);
+    }
+
+    // Stop/start watching screen button (for remote peers)
+    let watchBtn = null;
+    if (!isSelf) {
+      watchBtn = document.createElement('button');
+      watchBtn.type = 'button';
+      watchBtn.className = 'tile-btn tile-watch-btn';
+      watchBtn.title = 'Stop watching screen';
+      watchBtn.setAttribute('aria-label', 'Stop watching screen');
+      watchBtn.innerHTML = WATCHING_ICON;
+
+      watchBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const currentWatching = state.peerWatching.get(id) !== false;
+        setTileWatching(id, !currentWatching);
+      });
+
+      buttons.appendChild(watchBtn);
+    }
+
+    // Fullscreen button
     const fullBtn = document.createElement('button');
     fullBtn.className = 'tile-btn';
     fullBtn.title = 'Fullscreen';
@@ -732,15 +957,50 @@
       else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
     });
 
-    buttons.append(fullBtn);
+    buttons.appendChild(fullBtn);
     caption.append(label, buttons);
     root.appendChild(caption);
+
     // One click anywhere on the tile focuses it, and another gives the grid back.
     root.addEventListener('click', () => toggleFocus(id));
 
     slot.appendChild(root);
     el.grid.appendChild(slot);
-    tile = { slot, root, video, label };
+
+    tile = {
+      slot,
+      root,
+      video,
+      label,
+      pausedOverlay,
+      pausedAvatar,
+      pausedName,
+      watchBtn,
+      volumeBtn,
+      volumeSlider,
+      volumeText,
+      updateVolumeUI: () => {
+        if (!volumeBtn || !volumeSlider || !volumeText) return;
+        const data = getPeerVolume(id);
+        const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
+        volumeSlider.value = String(displayVol);
+        volumeText.textContent = displayVol + '%';
+
+        if (data.muted || data.volume === 0) {
+          volumeBtn.innerHTML = VOLUME_MUTED_ICON;
+          volumeBtn.title = 'Unmute stream';
+        } else if (data.volume <= 0.5) {
+          volumeBtn.innerHTML = VOLUME_LOW_ICON;
+          volumeBtn.title = 'Mute stream';
+        } else {
+          volumeBtn.innerHTML = VOLUME_HIGH_ICON;
+          volumeBtn.title = 'Mute stream';
+        }
+      }
+    };
+
+    if (tile.updateVolumeUI) tile.updateVolumeUI();
+
     state.tiles.set(id, tile);
     updateEmptyState();
     return tile;
@@ -773,7 +1033,10 @@
     const tile = tileFor(id, peer ? peer.name : 'Guest');
     if (tile.video.srcObject !== stream) tile.video.srcObject = stream;
     tile.label.textContent = peer ? peer.name : 'Guest';
-    tile.video.play().catch(() => {});
+
+    const isWatching = state.peerWatching.get(id) !== false;
+    setTileWatching(id, isWatching);
+
     updateEmptyState();
   }
 
@@ -783,6 +1046,7 @@
     tile.video.srcObject = null;
     tile.slot.remove();
     state.tiles.delete(id);
+    state.peerWatching.delete(id);
     if (state.focused === id) toggleFocus(id);
     updateEmptyState();
   }
@@ -937,9 +1201,9 @@
       document.body.appendChild(audio);
       state.audios.set(id, audio);
     }
-    if (state.deafened) {
-      audio.muted = true;
-    }
+    const vol = getPeerVolume(id);
+    audio.volume = vol.muted ? 0 : vol.volume;
+    audio.muted = state.deafened || vol.muted;
     if (audio.srcObject !== stream) audio.srcObject = stream;
     audio.play().catch(() => {
       // Autoplay policy can still bite; offer a button to unblock every element.
@@ -1041,6 +1305,12 @@
 
     const label = peer.name + (row.isSelf ? ' (you)' : '');
     if (row.name.textContent !== label) row.name.textContent = label;
+
+    const tile = state.tiles.get(peer.id);
+    if (tile && tile.pausedOverlay && !tile.pausedOverlay.hidden) {
+      if (tile.pausedName) tile.pausedName.textContent = peer.name;
+      if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+    }
 
     // Badges are cheap to compare and comparatively costly to build.
     const canKick = !row.isSelf && !!state.signal.self?.host;
@@ -1326,6 +1596,8 @@
     stopStream(state.micStream);
     vad.destroy();
     if (state.mixer) state.mixer.close();
+    state.peerWatching.clear();
+    state.peerVolumes.clear();
   }
 
   /**

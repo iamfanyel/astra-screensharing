@@ -692,6 +692,7 @@ body.sidebar-hidden .topbar-right {
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
   opacity: 0;
   transition: opacity 0.15s;
+  z-index: 5;
 }
 
 .tile:hover figcaption,
@@ -706,6 +707,7 @@ body.sidebar-hidden .topbar-right {
 
 .tile-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
@@ -731,6 +733,199 @@ body.sidebar-hidden .topbar-right {
 
 .tile-btn:hover {
   background: rgba(0, 0, 0, 0.7);
+}
+
+/* Stream volume control with expanding slider */
+.tile-volume-control {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 9px;
+  backdrop-filter: blur(4px);
+  height: 30px;
+  padding: 0;
+  transition: background 0.15s, padding 0.15s;
+}
+
+.tile-volume-control:hover,
+.tile-volume-control:focus-within {
+  background: rgba(0, 0, 0, 0.75);
+  padding-right: 8px;
+}
+
+.tile-volume-btn {
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.tile-volume-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.tile-volume-control:hover .tile-volume-slider-wrap,
+.tile-volume-control:focus-within .tile-volume-slider-wrap {
+  max-width: 120px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tile-volume-slider {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 58px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+}
+
+.tile-volume-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+}
+
+.tile-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  margin-top: -4px;
+  transition: transform 0.1s ease;
+}
+
+.tile-volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.tile-volume-slider::-moz-range-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  border: none;
+}
+
+.tile-volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: transform 0.1s ease;
+}
+
+.tile-volume-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
+.tile-volume-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #eeeeee;
+  min-width: 26px;
+  text-align: right;
+  user-select: none;
+}
+
+/* Stop/start watching button */
+.tile-watch-btn.is-paused {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+/* Paused stream overlay */
+.tile-paused-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.94);
+  backdrop-filter: blur(8px);
+  z-index: 2;
+  user-select: none;
+}
+
+.tile-paused-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 16px;
+  max-width: 90%;
+}
+
+.tile-paused-avatar {
+  width: 58px;
+  height: 58px;
+  font-size: 24px;
+}
+
+.tile-paused-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tile-paused-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.tile-paused-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tile-resume-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+
+.tile-resume-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.tile-resume-btn:active {
+  transform: translateY(1px);
+}
+
+.tile-resume-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .empty {
