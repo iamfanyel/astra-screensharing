@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Astra</title>
+  <meta name="robots" content="noindex" />
+  <link rel="canonical" href="room/" />
+  <script>
+    // The room moved from /room.html to /room/ so the address bar carries no
+    // file extension. Invite links shared before that move still point here,
+    // and so does any cached copy of the landing page, so forward them on with
+    // the room code (and any hash) intact rather than 404ing.
+    location.replace('room/' + location.search + location.hash);
+  </script>
+</head>
+<body>
+  <p><a id="continue" href="room/">Continue to the room</a></p>
+  <script>
+    var link = document.getElementById('continue');
+    link.href = 'room/' + location.search + location.hash;
+  </script>
+</body>
+</html>
