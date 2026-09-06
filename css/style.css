@@ -178,9 +178,11 @@ body {
   padding: 8px 12px;
 }
 
-/* Checkboxes and radios are not text fields - excluding them here is what
-   keeps them from needing a pile of !important overrides later. */
-input:not([type="checkbox"]):not([type="radio"]),
+/* Text fields only. Checkboxes, radios and range sliders are excluded because
+   the block below sizes and paints a text box - and because :not() carries the
+   specificity of its argument, this selector would otherwise outrank the class
+   rules that style those controls. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select {
   appearance: none;
   background: #141414;
@@ -753,13 +755,19 @@ body.sidebar-hidden .topbar-right {
   backdrop-filter: blur(4px);
   height: 30px;
   padding: 0;
-  transition: background 0.15s, padding 0.15s;
+  transition: background 0.15s;
 }
 
-.tile-volume-control:hover,
-.tile-volume-control:focus-within {
+.tile-volume-control:hover {
   background: rgba(0, 0, 0, 0.75);
-  padding-right: 8px;
+}
+
+/* Focus on the slider itself, never on the mute button: a click leaves focus
+   behind on the button, which would hold the control open long after the
+   pointer walked away. Split from the :hover rule so a browser without :has()
+   loses only this state instead of the whole thing. */
+.tile-volume-control:has(.tile-volume-slider:focus) {
+  background: rgba(0, 0, 0, 0.75);
 }
 
 .tile-volume-btn {
@@ -770,7 +778,10 @@ body.sidebar-hidden .topbar-right {
 .tile-volume-slider-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* Full pill height: the wrap clips horizontally to collapse, so it has to be
+     tall enough that the thumb, which stands proud of the 5px track, survives
+     that clipping. */
+  align-self: stretch;
   max-width: 0;
   overflow: hidden;
   opacity: 0;
@@ -779,58 +790,64 @@ body.sidebar-hidden .topbar-right {
 }
 
 .tile-volume-control:hover .tile-volume-slider-wrap,
-.tile-volume-control:focus-within .tile-volume-slider-wrap {
-  max-width: 120px;
+.tile-volume-slider-wrap:focus-within {
+  max-width: 90px;
   opacity: 1;
   pointer-events: auto;
 }
 
-.tile-volume-slider {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  width: 58px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
+/* Range sliders share one dark look: the volume pill and the picture editor.
+   A type selector outranks a plain class, so this rule deliberately sets no
+   width - each slider keeps sizing itself through its own class. */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  /* The box is the thumb's full height, not the track's. Sizing it to the 6px
+     track leaves the thumb overflowing a box that is itself being centred, and
+     the circle ends up riding above the bar. */
+  height: 14px;
+  background: transparent;
+  border: 0;
   outline: none;
   cursor: pointer;
   margin: 0;
   padding: 0;
 }
 
-.tile-volume-slider::-webkit-slider-runnable-track {
-  height: 4px;
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
   background: rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
-.tile-volume-slider::-webkit-slider-thumb {
+input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #ffffff;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  /* Centres the thumb on the track: (track height - thumb height) / 2. */
   margin-top: -4px;
   transition: transform 0.1s ease;
 }
 
-.tile-volume-slider::-webkit-slider-thumb:hover {
+input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
-.tile-volume-slider::-moz-range-track {
-  height: 4px;
+input[type="range"]::-moz-range-track {
+  height: 6px;
   background: rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
+  border-radius: 3px;
   border: none;
 }
 
-.tile-volume-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #ffffff;
   cursor: pointer;
@@ -839,18 +856,21 @@ body.sidebar-hidden .topbar-right {
   transition: transform 0.1s ease;
 }
 
-.tile-volume-slider::-moz-range-thumb:hover {
+input[type="range"]::-moz-range-thumb:hover {
   transform: scale(1.2);
 }
 
-.tile-volume-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: #eeeeee;
-  min-width: 26px;
-  text-align: right;
-  user-select: none;
+.tile-volume-slider {
+  width: 74px;
 }
+
+/* The padding around the slider lives here rather than on the pill, so the
+   clipped wrap swallows it as the slider collapses and the mute button never
+   shifts. */
+.tile-volume-slider-wrap .tile-volume-slider {
+  margin: 0 7px 0 9px;
+}
+
 
 /* Stop/start watching button */
 .tile-watch-btn.is-paused {
@@ -1482,18 +1502,6 @@ button.tag-danger:hover {
 
 .editor-spacer {
   flex: 1;
-}
-
-input[type="range"] {
-  /* The shared input rule strips `appearance`, which takes the slider track
-     with it - put it back. */
-  appearance: auto;
-  -webkit-appearance: auto;
-  padding: 0;
-  background: none;
-  border: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .person-name {
@@ -2340,18 +2348,6 @@ body.sidebar-hidden .toasts {
 .profile-banner-container:hover .profile-banner-overlay,
 .profile-banner-container:focus-within .profile-banner-overlay {
   opacity: 1;
-}
-
-.profile-banner-overlay .avatar-action {
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.profile-banner-overlay .avatar-action:hover {
-  background: rgba(0, 0, 0, 0.85);
-}
-
-.profile-banner-overlay .avatar-action:last-child:hover {
-  background: var(--danger-strong);
 }
 
 /* Avatar overlapping banner */

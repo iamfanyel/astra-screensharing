@@ -1203,7 +1203,6 @@
     // Volume control with expanding slider (for remote peers)
     let volumeBtn = null;
     let volumeSlider = null;
-    let volumeText = null;
 
     if (!isSelf) {
       const volumeControl = document.createElement('div');
@@ -1225,12 +1224,11 @@
       volumeSlider.value = '100';
       volumeSlider.setAttribute('aria-label', 'Stream volume');
 
-      volumeText = document.createElement('span');
-      volumeText.className = 'tile-volume-text';
-      volumeText.textContent = '100%';
-
-      sliderWrap.append(volumeSlider, volumeText);
-      volumeControl.append(volumeBtn, sliderWrap);
+      sliderWrap.append(volumeSlider);
+      // The button sits last so it keeps the same spot whether the slider is
+      // collapsed or open - the control grows leftwards, away from the cursor,
+      // so the next click still lands on mute.
+      volumeControl.append(sliderWrap, volumeBtn);
 
       volumeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -1313,13 +1311,11 @@
       watchBtn,
       volumeBtn,
       volumeSlider,
-      volumeText,
       updateVolumeUI: () => {
-        if (!volumeBtn || !volumeSlider || !volumeText) return;
+        if (!volumeBtn || !volumeSlider) return;
         const data = getPeerVolume(id);
         const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
         volumeSlider.value = String(displayVol);
-        volumeText.textContent = displayVol + '%';
 
         if (data.muted || data.volume === 0) {
           volumeBtn.innerHTML = VOLUME_MUTED_ICON;
