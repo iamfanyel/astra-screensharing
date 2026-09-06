@@ -2,7 +2,7 @@
   "name": "astra-screensharing",
   "version": "1.0.0",
   "private": true,
-  "description": "Peer-to-peer screen + audio sharing rooms. Fully static — deploys to GitHub Pages.",
+  "description": "Peer-to-peer screen + audio sharing rooms.",
   "scripts": {
     "build": "echo 'Static site, no build step needed'",
     "deploy": "wrangler deploy",
