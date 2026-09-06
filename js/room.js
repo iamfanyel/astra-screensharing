@@ -5,6 +5,13 @@
  */
 (function () {
   const LAYOUT_KEY = 'astra:layout';
+  /**
+   * A peer can publish a screen and a camera at once, so tiles are keyed by
+   * both. Everything that walks or clears a peer's tiles iterates this list
+   * rather than spelling the two suffixes out again.
+   */
+  const TILE_KINDS = ['screen', 'camera'];
+  const tileKey = (id, kind) => id + ':' + kind;
   /** Long enough to read as a transition, short enough not to feel like a wait. */
   const LEAVE_DELAY_MS = 450;
   let leaving = false;
@@ -74,7 +81,6 @@
     qualityWrap: $('quality-wrap'),
     qualityTrigger: $('quality-trigger'),
     qualityDropdown: $('quality-dropdown'),
-    shareMenuTitle: $('share-menu-title'),
     status: $('status'),
     leave: $('leave'),
     closed: $('closed'),
@@ -123,7 +129,7 @@
   const wantsCreate = params.has('create');
   const roomCode = (params.get('room') || '').trim().toUpperCase();
 
-  if (!wantsCreate && !/^[A-Z0-9]{4,12}$/.test(roomCode)) {
+  if (!wantsCreate && !window.ASTRA.roomCodePattern.test(roomCode)) {
     location.replace('../');
     return;
   }
@@ -752,9 +758,8 @@
     });
 
     const myAvatar = AstraProfile.getAvatar();
-    if (myAvatar) signal.setState({ avatar: myAvatar });
     const myBanner = AstraProfile.getBanner();
-    if (myBanner) signal.setState({ banner: myBanner });
+    if (myAvatar || myBanner) signal.setState({ avatar: myAvatar, banner: myBanner });
 
     renderPeople();
     updateEmptyState();
@@ -783,7 +788,7 @@
     try {
       if (state.mixer) await state.mixer.resume();
       const prioritizeFluidity = el.fluidity ? el.fluidity.checked : true;
-      const capture = await captureScreen(el.quality.value, el.systemAudio.checked, prioritizeFluidity);
+      const capture = await captureScreen(el.quality.value, el.systemAudio.checked);
 
       state.videoStream = capture.stream;
       state.videoTrack = capture.stream.getVideoTracks()[0];
@@ -1117,6 +1122,7 @@
   function toggleCameraMenu(force) {
     if (!el.cameraMenu || !el.cameraOptions) return;
     const open = force === undefined ? el.cameraMenu.hidden : force;
+    if (el.cameraMenu.hidden === !open) return;
     el.cameraMenu.hidden = !open;
     el.cameraOptions.setAttribute('aria-expanded', String(open));
     if (open) {
@@ -1156,6 +1162,7 @@
 
   function toggleShareMenu(force) {
     const open = force === undefined ? el.shareMenu.hidden : force;
+    if (el.shareMenu.hidden === !open) return;
     el.shareMenu.hidden = !open;
     el.shareOptions.setAttribute('aria-expanded', String(open));
     if (!open) hideQualityDropdown(0);
@@ -1169,8 +1176,12 @@
 
   el.shareMenu.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', () => {
+    // Closed explicitly rather than through the share menu's cascade: that
+    // cascade is skipped when the menu is already shut, and each of these is a
+    // no-op when it has nothing to close.
     toggleShareMenu(false);
     toggleCameraMenu(false);
+    hideQualityDropdown(0);
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -1196,6 +1207,7 @@
     if (!el.qualityDropdown || !el.qualityTrigger) return;
     if (el.quality.disabled) return;
     const open = force === undefined ? el.qualityDropdown.hidden : force;
+    if (el.qualityDropdown.hidden === !open) return;
     el.qualityDropdown.hidden = !open;
     el.qualityTrigger.setAttribute('aria-expanded', String(open));
     if (open) {
@@ -1734,7 +1746,7 @@
     const selfLabel = `${selfName} (You)`;
 
     // Screen tile
-    const screenKey = selfId + ':screen';
+    const screenKey = tileKey(selfId, 'screen');
     if (state.sharing && state.videoTrack && state.videoTrack.readyState === 'live') {
       const tile = tileFor(screenKey, selfLabel, selfId, 'screen');
       tile.root.classList.add('self');
@@ -1749,7 +1761,7 @@
     }
 
     // Camera tile
-    const cameraKey = selfId + ':camera';
+    const cameraKey = tileKey(selfId, 'camera');
     if (state.cameraOn && state.cameraTrack && state.cameraTrack.readyState === 'live') {
       const tile = tileFor(cameraKey, selfLabel, selfId, 'camera');
       tile.root.classList.add('self', 'is-camera');
@@ -1767,10 +1779,6 @@
     }
 
     updateEmptyState();
-  }
-
-  function showSelfTile() {
-    updateSelfTiles();
   }
 
   /** Show remote tile(s) when that peer has live video, hide otherwise. */
@@ -1803,8 +1811,7 @@
     const wantsCamera = !!(peer && peer.camera);
 
     if (!wantsSharing && !wantsCamera && liveTracks.length === 0) {
-      removeTile(id + ':screen');
-      removeTile(id + ':camera');
+      for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
       removeTile(id);
       updateEmptyState();
       return;
@@ -1854,7 +1861,7 @@
       }
     }
 
-    const screenTileKey = id + ':screen';
+    const screenTileKey = tileKey(id, 'screen');
     if (screenTrack && wantsSharing !== false) {
       const tile = tileFor(screenTileKey, peerName, id, 'screen');
       tile.label.textContent = peerName;
@@ -1869,7 +1876,7 @@
       removeTile(screenTileKey);
     }
 
-    const cameraTileKey = id + ':camera';
+    const cameraTileKey = tileKey(id, 'camera');
     if (cameraTrack && wantsCamera !== false) {
       const tile = tileFor(cameraTileKey, peerName, id, 'camera');
       tile.label.textContent = peerName;
@@ -1889,10 +1896,6 @@
     }
 
     updateEmptyState();
-  }
-
-  function refreshTile(id) {
-    refreshPeerTiles(id);
   }
 
   function removeTile(tileKey) {
@@ -1968,15 +1971,22 @@
       this.lastSpoke.delete(id);
       const actualId = id === 'self' ? state.signal?.selfId : id;
       if (actualId) setSpeaking(actualId, false);
-      if (this.analysers.size === 0 && this.timer) {
-        clearInterval(this.timer);
-        this.timer = null;
-      }
+      if (this.analysers.size === 0) this.stop();
+    },
+
+    stop() {
+      if (!this.timer) return;
+      clearInterval(this.timer);
+      this.timer = null;
     },
 
     start() {
       if (this.timer) return;
-      this.timer = setInterval(() => this.poll(), 50);
+      // The speaking ring holds for 350ms, so sampling faster than this buys
+      // nothing visible - and it only drives rings, which cannot be seen while
+      // the tab is hidden, so it stops entirely there.
+      if (document.hidden) return;
+      this.timer = setInterval(() => this.poll(), 100);
     },
 
     poll() {
@@ -2017,15 +2027,19 @@
     },
 
     destroy() {
-      if (this.timer) {
-        clearInterval(this.timer);
-        this.timer = null;
-      }
+      this.stop();
       for (const id of Array.from(this.analysers.keys())) {
         this.detach(id);
       }
     }
   };
+
+  // start() refuses to run while the tab is hidden, so it has to be woken when
+  // the tab comes back.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) vad.stop();
+    else if (vad.analysers.size) vad.start();
+  });
 
   function setSpeaking(peerId, speaking) {
     if (!peerId) return;
@@ -2083,8 +2097,7 @@
   });
 
   function dropPeerMedia(id) {
-    removeTile(id + ':screen');
-    removeTile(id + ':camera');
+    for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
     removeTile(id);
     state.remoteVideoTracks.delete(id);
     state.remote.delete(id);
@@ -2096,8 +2109,7 @@
     }
     vad.detach(id);
     state.peerVolumes.delete(id);
-    state.peerWatching.delete(id + ':screen');
-    state.peerWatching.delete(id + ':camera');
+    for (const kind of TILE_KINDS) state.peerWatching.delete(tileKey(id, kind));
     state.peerWatching.delete(id);
   }
 
@@ -2172,7 +2184,7 @@
       }
     });
 
-    return { item, avatar, name, tags, nameplate, isSelf, tagKey: null, bannerKey: null };
+    return { item, avatar, name, tags, nameplate, isSelf, tagKey: null, bannerKey: null, hasBanner: false };
   }
 
   function updatePersonRow(row, peer) {
@@ -2180,7 +2192,8 @@
     const banner = (row.isSelf ? (AstraProfile.getBanner() || peer.banner) : peer.banner) || null;
     if (row.bannerKey !== banner) {
       row.bannerKey = banner;
-      if (banner && AstraProfile.isBanner(banner)) {
+      row.hasBanner = !!banner && AstraProfile.isBanner(banner);
+      if (row.hasBanner) {
         row.nameplate.style.backgroundImage = NAMEPLATE_GRADIENT + ', url(' + banner + ')';
         row.nameplate.hidden = false;
       } else {
@@ -2188,26 +2201,24 @@
         row.nameplate.hidden = true;
       }
     }
-    const hasBanner = !!(row.bannerKey && AstraProfile.isBanner(row.bannerKey));
-    row.item.className = 'person' + (isSpeaking ? ' is-speaking' : '') + (hasBanner ? ' has-banner' : '');
+    row.item.className =
+      'person' + (isSpeaking ? ' is-speaking' : '') + (row.hasBanner ? ' has-banner' : '');
     row.avatar.className = 'avatar' + (isSpeaking ? ' is-speaking' : '');
     AstraProfile.paint(row.avatar, peer.name, peer.avatar);
 
     const label = peer.name + (row.isSelf ? ' (you)' : '');
     if (row.name.textContent !== label) row.name.textContent = label;
 
-    for (const tile of state.tiles.values()) {
-      if (tile.peerId === peer.id) {
-        if (tile.pausedOverlay && !tile.pausedOverlay.hidden) {
-          if (tile.pausedName) tile.pausedName.textContent = peer.name;
-          if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
-        }
-        if (tile.label) {
-          const expectedLabel = row.isSelf ? `${peer.name} (You)` : peer.name;
-          if (tile.label.textContent !== expectedLabel) {
-            tile.label.textContent = expectedLabel;
-          }
-        }
+    const expectedLabel = row.isSelf ? `${peer.name} (You)` : peer.name;
+    for (const kind of TILE_KINDS) {
+      const tile = state.tiles.get(tileKey(peer.id, kind));
+      if (!tile) continue;
+      if (tile.pausedOverlay && !tile.pausedOverlay.hidden) {
+        if (tile.pausedName) tile.pausedName.textContent = peer.name;
+        if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+      }
+      if (tile.label && tile.label.textContent !== expectedLabel) {
+        tile.label.textContent = expectedLabel;
       }
     }
 
@@ -2876,8 +2887,6 @@
     el.status.textContent = text;
     toast(text, kind);
   }
-
-  const MAX_TOASTS = 1;
 
   function toast(text, kind) {
     if (!text || !el.toasts) return;

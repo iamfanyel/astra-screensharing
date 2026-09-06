@@ -59,6 +59,9 @@
         ignoreOffer: false,
         settingRemoteAnswer: false,
         senders: [],
+        // Tracks already wired for end/mute events, so a renegotiation that
+        // re-fires ontrack does not subscribe to the same track twice.
+        boundTracks: new WeakSet(),
         closed: false,
       };
       this.peers.set(id, peer);
@@ -83,6 +86,8 @@
         const stream = streams[0];
         if (!stream) return;
         this.emit('stream', { id, stream, track });
+        if (peer.boundTracks.has(track)) return;
+        peer.boundTracks.add(track);
         track.addEventListener('ended', () => this.emit('trackended', { id, track }));
         track.addEventListener('mute', () => this.emit('trackmuted', { id, track }));
         track.addEventListener('unmute', () => this.emit('trackunmuted', { id, track }));

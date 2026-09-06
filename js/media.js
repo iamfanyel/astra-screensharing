@@ -11,10 +11,10 @@
  */
 (function () {
   const QUALITY = {
-    '720': { height: 720, frameRate: 30, bitrate: 2000000, hint: 'motion' },
-    '1080': { height: 1080, frameRate: 30, bitrate: 3500000, hint: 'motion' },
-    '1080-60': { height: 1080, frameRate: 60, bitrate: 5500000, hint: 'motion' },
-    max: { height: null, frameRate: 60, bitrate: 8000000, hint: 'motion' },
+    '720': { height: 720, frameRate: 30, bitrate: 2000000 },
+    '1080': { height: 1080, frameRate: 30, bitrate: 3500000 },
+    '1080-60': { height: 1080, frameRate: 60, bitrate: 5500000 },
+    max: { height: null, frameRate: 60, bitrate: 8000000 },
   };
 
   const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
@@ -82,7 +82,7 @@
    * the shared surface - Chrome and Edge offer it as a "Share audio" tick box,
    * Firefox and Safari mostly do not, so treat it as best effort.
    */
-  async function captureScreen(qualityKey, systemAudio, prioritizeFluidity = true) {
+  async function captureScreen(qualityKey, systemAudio) {
     const quality = QUALITY[qualityKey] || QUALITY['1080'];
     const video = { frameRate: { ideal: quality.frameRate } };
     if (quality.height) video.height = { ideal: quality.height };
@@ -115,13 +115,12 @@
 
     const stream = await navigator.mediaDevices.getDisplayMedia(request);
 
-    const track = stream.getVideoTracks()[0];
-    const hint = prioritizeFluidity ? 'motion' : (quality.hint || 'detail');
-    if (track && 'contentHint' in track) track.contentHint = hint;
+    // The video track's contentHint belongs to the caller, which sets it from
+    // the fluidity toggle and keeps changing it while sharing.
     for (const audio of stream.getAudioTracks()) {
       if ('contentHint' in audio) audio.contentHint = 'music';
     }
-    return { stream, quality, hint };
+    return { stream, quality };
   }
 
   /** Capture camera video (front/user facing by default, or specific deviceId). */

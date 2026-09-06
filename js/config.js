@@ -33,6 +33,14 @@ window.ASTRA = {
    */
   idPrefix: 'astra1-',
 
+  /**
+   * What counts as a room code. Astra generates six characters; the range is
+   * wider so a code typed by hand, or minted by an older build, still resolves.
+   * The server copies of this rule live in worker.js and dev-server.js - they
+   * run in different runtimes and cannot share this file.
+   */
+  roomCodePattern: /^[A-Z0-9]{4,12}$/,
+
   /** A mesh gets expensive fast: every peer sends its stream to every other. */
   maxPeers: 8,
 

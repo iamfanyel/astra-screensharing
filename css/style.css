@@ -8,6 +8,12 @@
   /* Light values take a third of the tint, so text stays close to neutral
      while the surfaces behind it carry the colour. */
   --tint-s-text: calc(var(--tint-s) / 3);
+  /* The hue picker's track: one value, two vendor pseudo-elements. */
+  --hue-track: linear-gradient(
+    to right,
+    hsl(0 65% 55%), hsl(60 65% 55%), hsl(120 65% 55%),
+    hsl(180 65% 55%), hsl(240 65% 55%), hsl(300 65% 55%), hsl(360 65% 55%)
+  );
 
   --bg: hsl(var(--tint-h) var(--tint-s) 5.49%);
   --bg-soft: hsl(var(--tint-h) var(--tint-s) 9.02%);
@@ -21,6 +27,8 @@
   --accent-ink: hsl(var(--tint-h) var(--tint-s) 7.84%);
   --ok: hsl(var(--tint-h) var(--tint-s-text) 83.92%);
   --danger: #ff6b6b; /* readable on dark: error text, warning borders */
+  --speaking: #23a55a; /* the ring and dot that mean "this person is talking" */
+  --live: #7abaff; /* sharing a screen or camera right now */
   --danger-strong: #c62828; /* the hang-up disc */
   --danger-strong-hover: #d93636;
   --radius: 14px;
@@ -893,19 +901,11 @@ input[type="range"]::-moz-range-thumb:hover {
 /* A type selector outranks a bare class, so the shared grey track has to be
    overridden through `input.` - see the note on the range rules above. */
 input.theme-hue::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    hsl(0 65% 55%), hsl(60 65% 55%), hsl(120 65% 55%),
-    hsl(180 65% 55%), hsl(240 65% 55%), hsl(300 65% 55%), hsl(360 65% 55%)
-  );
+  background: var(--hue-track);
 }
 
 input.theme-hue::-moz-range-track {
-  background: linear-gradient(
-    to right,
-    hsl(0 65% 55%), hsl(60 65% 55%), hsl(120 65% 55%),
-    hsl(180 65% 55%), hsl(240 65% 55%), hsl(300 65% 55%), hsl(360 65% 55%)
-  );
+  background: var(--hue-track);
 }
 
 /* The far end of the same choice the slider offers: no hue at all. Its fill is
@@ -1236,7 +1236,7 @@ input.theme-hue::-moz-range-track {
 }
 
 .person.has-banner .tag-dev {
-  background: #23a55a;
+  background: var(--speaking);
   color: #ffffff;
 }
 
@@ -1267,7 +1267,7 @@ input.theme-hue::-moz-range-track {
 
 .avatar.is-speaking,
 .person.is-speaking .avatar {
-  box-shadow: 0 0 0 2.5px #23a55a;
+  box-shadow: 0 0 0 2.5px var(--speaking);
 }
 
 .avatar img {
@@ -1611,7 +1611,7 @@ button.tag-danger:hover {
 }
 
 .tag-dev {
-  background: #23a55a;
+  background: var(--speaking);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -1644,23 +1644,15 @@ button.tag-danger:hover {
   flex-shrink: 0;
 }
 
-.tag-mic-muted {
-  color: var(--danger);
-  background: none;
-}
-
+.tag-mic-muted,
 .tag-deafened {
   color: var(--danger);
   background: none;
 }
 
-.tag-sharing {
-  color: #7abaff;
-  background: none;
-}
-
+.tag-sharing,
 .tag-camera {
-  color: #7abaff;
+  color: var(--live);
   background: none;
 }
 
@@ -1839,12 +1831,12 @@ button.tag-danger:hover {
 /* Live states read at a glance: sharing is baby blue, a hot mic is green. */
 .dock-wide.is-live {
   background: rgba(122, 186, 255, 0.12);
-  color: #7abaff;
+  color: var(--live);
 }
 
 .dock-wide.is-live:hover {
   background: rgba(122, 186, 255, 0.22);
-  color: #7abaff;
+  color: var(--live);
 }
 
 
@@ -2485,13 +2477,6 @@ body.sidebar-hidden .toasts {
   box-sizing: border-box;
 }
 
-.avatar-xl img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .profile-avatar-overlay {
   position: absolute;
   inset: 0;
@@ -2646,15 +2631,8 @@ body.sidebar-hidden .toasts {
   box-sizing: border-box;
 }
 
-.avatar-popup img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .avatar-popup.is-speaking {
-  box-shadow: 0 0 0 3px #23a55a, 0 4px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 3px var(--speaking), 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
 .profile-popup-body {

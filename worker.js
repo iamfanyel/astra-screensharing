@@ -118,6 +118,9 @@ async function handleProfile(request, env) {
     let cleanAvatar = existing.avatar || null;
     if ('avatar' in body) {
       cleanAvatar =
+        // Deliberately looser than the client's own caps (MAX_LENGTH 30000 /
+        // BANNER_MAX_LENGTH 45000 in js/profile.js): slack for older payloads,
+        // never a licence to store something the client would then reject.
         typeof body.avatar === 'string' && body.avatar.length <= 35000 && body.avatar.startsWith('data:image/')
           ? body.avatar
           : null;
@@ -155,6 +158,7 @@ async function handleProfile(request, env) {
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const STALE_HEARTBEAT_MS = 3 * 60 * 1000; // 3 minutes without heartbeat = treated as empty (tolerant of background tabs)
+// Must match `roomCodePattern` in js/config.js.
 const ROOM_CODE_REGEX = /^[A-Z0-9]{4,12}$/;
 
 function checkRoomState(room) {
@@ -273,31 +277,6 @@ async function handleRoom(request, env, ctx) {
   const url = new URL(request.url);
 
   if (request.method === 'GET') {
-    if (url.searchParams.get('diag') === '1') {
-      const kv = getKvNamespace(env);
-      let kvWriteOk = false;
-      let kvError = null;
-      let kvKeys = [];
-      if (kv) {
-        try {
-          await kv.put('__diag_test__', JSON.stringify({ at: Date.now() }), { expirationTtl: 60 });
-          kvWriteOk = true;
-          const listRes = await kv.list({ prefix: 'room:', limit: 10 });
-          kvKeys = (listRes && listRes.keys ? listRes.keys.map((k) => k.name) : []);
-        } catch (err) {
-          kvError = String(err && err.message ? err.message : err);
-        }
-      }
-      return jsonResponse({
-        kvDetected: !!kv,
-        kvWriteOk,
-        kvError,
-        kvKeys,
-        envKeys: Object.keys(env || {}),
-        memoryRooms: Array.from(memoryRooms.keys()),
-      });
-    }
-
     const code = (url.searchParams.get('code') || '').trim().toUpperCase();
     if (!ROOM_CODE_REGEX.test(code)) {
       return jsonResponse({ error: 'Invalid room code format' }, 400);

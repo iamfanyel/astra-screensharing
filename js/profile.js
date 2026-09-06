@@ -350,9 +350,11 @@
    * identical picture is pure waste.
    */
   function paint(element, name, avatar) {
-    const key = String(name || '') + '\u0000' + (avatar || '');
-    if (element.__astraPainted === key) return;
-    element.__astraPainted = key;
+    const paintedName = String(name || '');
+    const paintedAvatar = avatar || '';
+    if (element.__astraName === paintedName && element.__astraAvatar === paintedAvatar) return;
+    element.__astraName = paintedName;
+    element.__astraAvatar = paintedAvatar;
 
     element.textContent = '';
     if (isAvatar(avatar)) {
@@ -377,9 +379,11 @@
 
   function paintBanner(element, banner, fallbackSeed) {
     if (!element) return;
-    const key = (banner || '') + '\u0000' + (fallbackSeed || '');
-    if (element.__astraBannerPainted === key) return;
-    element.__astraBannerPainted = key;
+    const painted = banner || '';
+    const seed = fallbackSeed || '';
+    if (element.__astraBanner === painted && element.__astraBannerSeed === seed) return;
+    element.__astraBanner = painted;
+    element.__astraBannerSeed = seed;
 
     if (isBanner(banner)) {
       element.style.backgroundImage = 'url(' + banner + ')';

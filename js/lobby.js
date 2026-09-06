@@ -68,7 +68,7 @@
   joinForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const code = codeInput.value.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,12}$/.test(code)) return fail('Room codes are 6 letters and numbers.');
+    if (!window.ASTRA.roomCodePattern.test(code)) return fail('Room codes are 6 letters and numbers.');
     rememberName();
     location.href = 'room/?room=' + encodeURIComponent(code) + '&go=1';
   });
