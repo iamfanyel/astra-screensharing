@@ -536,15 +536,23 @@
     }
 
     _handleHostLoss(reason = 'left') {
-      if (this.left) return;
+      if (this.left || this.isHub) return;
 
       const oldHostId = this.hostId;
+      if (oldHostId === this.selfId) return; // Self is already host, ignore
+
       let oldHostName = 'The host';
       if (oldHostId && this.roster.has(oldHostId)) {
         const oldHost = this.roster.get(oldHostId);
         if (oldHost) oldHostName = oldHost.name;
         this.roster.delete(oldHostId);
         this.emit('peer-left', { id: oldHostId, name: oldHostName, reason });
+      }
+
+      // Ensure self is in roster
+      if (!this.roster.has(this.selfId)) {
+        const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
+        this.roster.set(this.selfId, newMember(this.selfId, 'Guest', false, selfDev));
       }
 
       const remaining = Array.from(this.roster.values());
@@ -569,6 +577,21 @@
         this.emit('peer-left', { id: oldHostId, name: oldHostName, reason: 'host-migration' });
       }
 
+      // Detach close/error listeners from old connection before closing so it doesn't re-trigger host loss
+      if (this.conn) {
+        const oldConn = this.conn;
+        this.conn = null;
+        try {
+          if (typeof oldConn.removeAllListeners === 'function') {
+            oldConn.removeAllListeners('close');
+            oldConn.removeAllListeners('error');
+          }
+          oldConn.onclose = null;
+          oldConn.onerror = null;
+          oldConn.close();
+        } catch (_) {}
+      }
+
       if (newHostId === this.selfId) {
         this._promoteToHub();
       } else {
@@ -587,8 +610,17 @@
       }
 
       if (this.conn) {
-        try { this.conn.close(); } catch (_) {}
+        const oldConn = this.conn;
         this.conn = null;
+        try {
+          if (typeof oldConn.removeAllListeners === 'function') {
+            oldConn.removeAllListeners('close');
+            oldConn.removeAllListeners('error');
+          }
+          oldConn.onclose = null;
+          oldConn.onerror = null;
+          oldConn.close();
+        } catch (_) {}
       }
 
       if (this.peer && !this._hubListening) {
@@ -820,9 +852,12 @@
         try { this._gatewayPeer.destroy(); } catch (_) {}
         this._gatewayPeer = null;
       }
-      if (this.peer) {
-        try { this.peer.destroy(); } catch (_) {}
-        this.peer = null;
+      const p = this.peer;
+      this.peer = null;
+      if (p) {
+        setTimeout(() => {
+          try { p.destroy(); } catch (_) {}
+        }, 150);
       }
     }
   }
