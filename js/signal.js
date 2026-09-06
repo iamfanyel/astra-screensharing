@@ -114,37 +114,10 @@
         } catch (err) {
           lastError = err;
           if (err && err.type === 'unavailable-id') continue; // code taken, roll another
-          if (attempt < 4 && (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error')) {
-            await new Promise((r) => setTimeout(r, 600));
-            continue;
-          }
           throw err;
         }
       }
       throw lastError || new Error('Could not create a room. Try again.');
-    }
-
-    /** Reclaim an empty room within grace period, becoming the host. */
-    static async reclaim(code, name) {
-      const roomCode = String(code || '').trim().toUpperCase();
-      let lastError = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const signal = new Signal();
-        try {
-          return await signal._openHub(roomCode, cleanName(name));
-        } catch (err) {
-          lastError = err;
-          if (err && err.type === 'unavailable-id') {
-            return await Signal.join(roomCode, name);
-          }
-          if (attempt < 2 && (err && (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error'))) {
-            await new Promise((r) => setTimeout(r, 600));
-            continue;
-          }
-          throw err;
-        }
-      }
-      throw lastError || new Error('Could not reclaim room. Try again.');
     }
 
     _openHub(code, name) {
@@ -165,8 +138,7 @@
             sharing: false,
             mic: false,
             deafened: false,
-            avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
-            banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
+            avatar: null,
             host: true,
           });
           this._hubListening = true;
@@ -334,15 +306,12 @@
 
     // ------------------------------------------------------------------ join
 
-    static join(code, name, attempts = 0) {
+    static join(code, name) {
       const signal = new Signal();
       const roomCode = String(code || '').trim().toUpperCase();
 
       return new Promise((resolve, reject) => {
-        // Explicit unique client ID bypasses PeerJS's HTTP GET /peerjs/id
-        // which triggers "Could not reach the signalling broker" under network/CORS hiccups
-        const clientId = 'c-' + randomCode(16);
-        const peer = new Peer(clientId, peerOptions());
+        const peer = new Peer(undefined, peerOptions());
         let settled = false;
 
         const settle = (fn, arg) => {
@@ -408,22 +377,9 @@
         });
 
         peer.on('error', (err) => {
-          if (settled) return signal.emit('error', err);
-          if (
-            attempts < 2 &&
-            err &&
-            (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed')
-          ) {
-            settle(() => {}, null);
-            try { peer.destroy(); } catch (_) {}
-            setTimeout(() => {
-              Signal.join(code, name, attempts + 1).then(resolve, reject);
-            }, 600);
-            return;
-          }
           const friendly =
             err && err.type === 'peer-unavailable'
-              ? Object.assign(new Error('No room with that code. It may have expired.'), { type: 'peer-unavailable' })
+              ? new Error('No room with that code. It may have expired.')
               : err;
           if (settle(reject, friendly)) peer.destroy();
           else signal.emit('error', err);

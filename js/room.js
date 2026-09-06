@@ -163,82 +163,6 @@
     el.gateError.hidden = false;
   }
 
-  async function checkRoomStatus(code) {
-    if (!code) return null;
-    try {
-      const res = await fetch('/api/room?code=' + encodeURIComponent(code));
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function notifyRoomApi(action, code, peerCount) {
-    if (!code) return;
-    try {
-      fetch('/api/room', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, code, peerCount }),
-        keepalive: true,
-      }).catch(() => {});
-    } catch (_) {}
-  }
-
-  let roomApiHeartbeatInterval = null;
-
-  function startRoomApiHeartbeat(code) {
-    stopRoomApiHeartbeat();
-    const count = state.signal && state.signal.roster ? state.signal.roster.size : 1;
-    notifyRoomApi('heartbeat', code, count);
-    roomApiHeartbeatInterval = setInterval(() => {
-      if (tornDown || leaving || !state.signal || state.signal.left) {
-        stopRoomApiHeartbeat();
-        return;
-      }
-      const peerCount = state.signal.roster ? state.signal.roster.size : 1;
-      notifyRoomApi('heartbeat', code, peerCount);
-    }, 20000);
-  }
-
-  function stopRoomApiHeartbeat() {
-    if (roomApiHeartbeatInterval) {
-      clearInterval(roomApiHeartbeatInterval);
-      roomApiHeartbeatInterval = null;
-    }
-  }
-
-  let exitBeaconSent = false;
-  function sendRoomExitBeacon() {
-    if (exitBeaconSent || !state.signal || !state.signal.code) return;
-    exitBeaconSent = true;
-    const code = state.signal.code;
-    const rosterSize = state.signal.roster ? state.signal.roster.size : 1;
-    const action = rosterSize <= 1 ? 'empty' : 'leave';
-    const payload = JSON.stringify({ action, code, peerCount: Math.max(0, rosterSize - 1) });
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/room', new Blob([payload], { type: 'application/json' }));
-    } else {
-      fetch('/api/room', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true,
-      }).catch(() => {});
-    }
-  }
-
-  // Pre-check room status on load; reuse the same promise if startSession runs immediately
-  const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
-  if (roomStatusPromise) {
-    roomStatusPromise.then((status) => {
-      if (status && (status.expired || status.exists === false)) {
-        location.replace('../?deleted=1');
-      }
-    });
-  }
-
   el.gateForm.addEventListener('submit', (event) => {
     event.preventDefault();
     startSession(AstraProfile.setName(el.gateName.value) || 'Guest');
@@ -252,26 +176,10 @@
     setGateLoading(true);
 
     try {
-      let roomStatus = null;
-      if (!wantsCreate && roomCode) {
-        roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && (roomStatus.expired || roomStatus.exists === false)) {
-          location.replace('../?deleted=1');
-          return;
-        }
-      }
-
       state.mixer = new AudioMixer();
       await state.mixer.resume();
 
-      if (wantsCreate) {
-        state.signal = await Signal.create(name);
-      } else if (roomStatus && roomStatus.needsHost) {
-        state.signal = await Signal.reclaim(roomCode, name);
-      } else {
-        state.signal = await Signal.join(roomCode, name);
-      }
-
+      state.signal = wantsCreate ? await Signal.create(name) : await Signal.join(roomCode, name);
       enterRoom();
     } catch (err) {
       console.error(err);
@@ -279,18 +187,9 @@
         state.mixer.close();
         state.mixer = null;
       }
-      const msg = friendlyError(err);
-      if (
-        (err && (err.type === 'peer-unavailable' || err.type === 'room-deleted')) ||
-        msg.toLowerCase().includes('expired') ||
-        msg.toLowerCase().includes('no room')
-      ) {
-        location.replace('../?deleted=1');
-        return;
-      }
       // Fall back to asking, so a failure is always recoverable.
       setGateLoading(false);
-      el.gateError.textContent = msg;
+      el.gateError.textContent = friendlyError(err);
       el.gateError.hidden = false;
       el.gateSubmit.disabled = false;
       el.gateSubmit.textContent = wantsCreate ? 'Create room' : 'Join';
@@ -547,8 +446,6 @@
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
     history.replaceState(null, '', '?room=' + encodeURIComponent(signal.code));
-    notifyRoomApi('create', signal.code, signal.roster ? signal.roster.size : 1);
-    startRoomApiHeartbeat(signal.code);
 
     if (shareMode === 'camera') {
       el.systemAudio.checked = false;
@@ -2177,7 +2074,6 @@
     if (state.mixer) state.mixer.close();
     state.peerWatching.clear();
     state.peerVolumes.clear();
-    stopRoomApiHeartbeat();
   }
 
   /**
@@ -2188,7 +2084,6 @@
   function leaveForLobby() {
     if (leaving) return; // a double-click should not queue two navigations
     leaving = true;
-    sendRoomExitBeacon();
     // Say goodbye now rather than at unload, so the others see it immediately.
     if (state.signal) state.signal.leave();
     teardown();
@@ -2199,7 +2094,6 @@
   el.leave.addEventListener('click', leaveForLobby);
 
   window.addEventListener('pagehide', () => {
-    sendRoomExitBeacon();
     if (state.signal) state.signal.leave();
   });
 

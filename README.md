@@ -5,7 +5,7 @@ send someone the six-character code, and share your screen — no install, no
 account, and no media server: video and audio go straight from one browser to
 another over WebRTC.
 
-The whole site is static, so it deploys easily as-is.
+The whole site is static, so it deploys to GitHub Pages as-is.
 
 ## Features
 
@@ -44,9 +44,15 @@ npm start
 Then visit http://localhost:3000. There are no dependencies to install — the dev
 server is a ~40 line static file server, used only for local development.
 
-## Deployment
+## Deploying to GitHub Pages
 
-The application runs as a static site and can be served over HTTPS by any static host or Cloudflare Workers (`npm run deploy`). HTTPS is required for screen capture permissions.
+1. Push this repository to GitHub.
+2. **Settings → Pages → Build and deployment**, source **Deploy from a branch**,
+   branch `main`, folder `/ (root)`.
+3. Open `https://<user>.github.io/<repo>/`.
+
+Pages serves HTTPS, which is all the browser needs to allow screen capture.
+`.nojekyll` is there so Jekyll does not touch the files.
 
 ## How it works
 

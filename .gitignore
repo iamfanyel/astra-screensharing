@@ -5,4 +5,3 @@ node_modules/
 # local editor/tooling config
 .claude/
 .dev-profiles.json
-.dev-rooms.json

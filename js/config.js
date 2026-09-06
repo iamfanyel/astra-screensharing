@@ -3,8 +3,9 @@
  */
 window.ASTRA = {
   /**
-   * Signalling broker. `null` uses the free PeerJS cloud broker.
-   * It is rate limited and best-effort - for anything you depend on, run your own:
+   * Signalling broker. `null` uses the free PeerJS cloud broker, which is what
+   * makes this work on GitHub Pages with no backend at all. It is rate limited
+   * and best-effort - for anything you depend on, run your own:
    *
    *   npx peerjs --port 9000 --key astra
    *
