@@ -257,18 +257,18 @@ window.AstraDiscord = (function () {
   }
 
   /**
-   * Converts a Discord avatar image URL to a 96x96 square JPEG data URL
+   * Converts a Discord avatar image URL to a 256x256 square data URL
    * compatible with Astra's WebRTC profile exchange.
    */
   async function rasterizeAvatar(url) {
+    // Ensure high-resolution (512px) source from Discord CDN if size param is present
+    const hiResUrl = typeof url === 'string' ? url.replace(/(\?size=)\d+/, '$1512') : url;
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         try {
-          // Size and payload cap belong to AstraProfile - the picture has to
-          // survive the same data-channel trip as a hand-picked one.
-          const size = window.AstraProfile.SIZE;
+          const size = (window.AstraProfile && window.AstraProfile.SIZE) || 256;
           const canvas = document.createElement('canvas');
           canvas.width = size;
           canvas.height = size;
@@ -291,7 +291,7 @@ window.AstraDiscord = (function () {
         }
       };
       img.onerror = () => reject(new Error('Failed to load avatar image from Discord CDN'));
-      img.src = url;
+      img.src = hiResUrl;
     });
   }
 
@@ -392,7 +392,7 @@ window.AstraDiscord = (function () {
       }
 
       const avatarCdnUrl = discordUser.avatar
-        ? 'https://cdn.discordapp.com/avatars/' + discordUser.id + '/' + discordUser.avatar + '.png?size=128'
+        ? 'https://cdn.discordapp.com/avatars/' + discordUser.id + '/' + discordUser.avatar + '.png?size=512'
         : 'https://cdn.discordapp.com/embed/avatars/' + defaultIndex + '.png';
 
       const bannerCdnUrl = discordUser.banner
@@ -583,6 +583,30 @@ window.AstraDiscord = (function () {
           onChange();
         }
       });
+    }
+
+    // Auto-upgrade legacy low-res Discord avatar (< 200px natural width) in background
+    if (currentUser && currentUser.avatarCdnUrl) {
+      const savedPref = getAccountAvatar(currentUser.id);
+      if (!savedPref || !savedPref.custom) {
+        const curAvatar = window.AstraProfile ? window.AstraProfile.getAvatar() : null;
+        if (curAvatar) {
+          const probe = new Image();
+          probe.onload = () => {
+            if (probe.naturalWidth > 0 && probe.naturalWidth < 200) {
+              rasterizeAvatar(currentUser.avatarCdnUrl).then((upgraded) => {
+                if (upgraded && window.AstraProfile && window.AstraProfile.isAvatar(upgraded)) {
+                  window.AstraProfile.setAvatar(upgraded);
+                  saveAccountAvatar(upgraded, false);
+                  render();
+                  onChange(upgraded);
+                }
+              }).catch(() => {});
+            }
+          };
+          probe.src = curAvatar;
+        }
+      }
     }
 
     handleCallback({

@@ -121,7 +121,7 @@ async function handleProfile(request, env) {
         // Deliberately looser than the client's own caps (MAX_LENGTH 30000 /
         // BANNER_MAX_LENGTH 45000 in js/profile.js): slack for older payloads,
         // never a licence to store something the client would then reject.
-        typeof body.avatar === 'string' && body.avatar.length <= 35000 && body.avatar.startsWith('data:image/')
+        typeof body.avatar === 'string' && body.avatar.length <= 50000 && body.avatar.startsWith('data:image/')
           ? body.avatar
           : null;
     }

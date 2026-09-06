@@ -11,9 +11,9 @@
 (function () {
   const NAME_KEY = 'astra:name';
   const AVATAR_KEY = 'astra:avatar';
-  const SIZE = 96;
+  const SIZE = 256;
   const PREVIEW = 240; // the editor canvas, in CSS pixels
-  const MAX_LENGTH = 30000; // data URL characters, so roughly 22KB of image
+  const MAX_LENGTH = 45000; // data URL characters, allowing crisp 256px avatars
 
   function getName() {
     try {
@@ -284,7 +284,15 @@
    * result travels to the room over a data channel.
    */
   function encode(canvas) {
-    for (const quality of [0.82, 0.7, 0.55, 0.4]) {
+    // Try WebP first: significantly higher fidelity, zero block artifacts, compact payload
+    try {
+      for (const quality of [0.88, 0.78, 0.65]) {
+        const url = canvas.toDataURL('image/webp', quality);
+        if (url && url.startsWith('data:image/webp') && url.length <= MAX_LENGTH) return url;
+      }
+    } catch (_) {}
+    // Fallback to JPEG
+    for (const quality of [0.85, 0.75, 0.65, 0.5]) {
       const url = canvas.toDataURL('image/jpeg', quality);
       if (url.length <= MAX_LENGTH) return url;
     }

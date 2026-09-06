@@ -605,6 +605,7 @@ body.sidebar-hidden .topbar-right {
   overflow: auto;
   /* Room for the floating dock to hover over. */
   padding: 16px 16px 120px;
+  container-type: size;
 }
 
 /* Tiles stay modest so the room reads as a call, not a wall of video. Focus
@@ -622,6 +623,9 @@ body.sidebar-hidden .topbar-right {
   flex-wrap: wrap;
   gap: 12px;
   height: 100%;
+  max-width: calc(var(--cols) * ((100cqh - (var(--rows) - 1) * 12px) / var(--rows) * 16 / 9) + (var(--cols) - 1) * 12px);
+  width: 100%;
+  margin-inline: auto;
   justify-content: center;
   align-content: center;
   /* Size containment so a slot can measure the stage in cq units. */
@@ -631,7 +635,15 @@ body.sidebar-hidden .topbar-right {
 }
 
 .grid[data-count="2"] {
-  --rows: 2;
+  --cols: 2;
+  --rows: 1;
+}
+
+@container (aspect-ratio < 1.2) {
+  .grid[data-count="2"] {
+    --cols: 1;
+    --rows: 2;
+  }
 }
 
 .grid[data-count="3"],
@@ -653,7 +665,24 @@ body.sidebar-hidden .topbar-right {
   --rows: 3;
 }
 
+.grid[data-count="10"],
+.grid[data-count="11"],
+.grid[data-count="12"] {
+  --cols: 4;
+  --rows: 3;
+}
+
+.grid[data-count="13"],
+.grid[data-count="14"],
+.grid[data-count="15"],
+.grid[data-count="16"] {
+  --cols: 4;
+  --rows: 4;
+}
+
 .grid.has-focus {
+  max-width: none;
+  width: 100%;
   height: 100%;
 }
 
@@ -663,7 +692,7 @@ body.sidebar-hidden .topbar-right {
 
 .grid.has-focus .slot.focused {
   display: grid;
-  width: 100cqw;
+  width: 100%;
   height: 100%;
 }
 
@@ -677,15 +706,14 @@ body.sidebar-hidden .topbar-right {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: calc((100cqw - (var(--cols) - 1) * 12px) / var(--cols));
+  width: calc((100% - (var(--cols) - 1) * 12px) / var(--cols));
   height: auto;
 }
 
 .tile {
   position: relative;
-  /* The biggest 16:9 box that fits: capped by the slot's width, or by the row
-     height when the slot is the wider shape. */
-  width: min(100%, calc((100cqh - (var(--rows) - 1) * 12px) / var(--rows) * 16 / 9));
+  /* The biggest 16:9 box that fits inside its slot */
+  width: 100%;
   aspect-ratio: 16 / 9;
   margin: 0;
   cursor: pointer;
@@ -819,6 +847,161 @@ body.sidebar-hidden .topbar-right {
   max-width: 90px;
   opacity: 1;
   pointer-events: auto;
+}
+
+/* ------------------------------------------------ Discord-style user squares */
+
+.tile.user-tile,
+.tile.user-tile.self {
+  background-color: hsl(var(--tint-h) var(--tint-s) 7%);
+  background-image:
+    radial-gradient(ellipse 90% 70% at 50% 50%, var(--tile-user-glow, transparent) 0%, transparent 80%),
+    linear-gradient(160deg, var(--tile-user-color, transparent) 0%, transparent 70%);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: box-shadow 0.15s ease;
+}
+
+.tile.user-tile.is-speaking,
+.tile.is-speaking {
+  box-shadow: 0 0 0 2px var(--speaking) !important;
+}
+
+.tile-avatar-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  container-type: size;
+}
+
+.tile .tile-avatar,
+.tile-avatar.avatar,
+.tile .tile-avatar.is-speaking,
+.tile-avatar.avatar.is-speaking {
+  width: clamp(72px, 35cqh, 150px);
+  height: clamp(72px, 35cqh, 150px);
+  font-size: clamp(28px, 14cqh, 56px);
+  border-radius: 50%;
+  box-shadow: none !important;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease-out;
+}
+
+.tile .tile-avatar:hover,
+.tile-avatar.avatar:hover {
+  transform: scale(1.04);
+}
+
+.tile.user-tile video {
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.tile.user-tile.has-camera video {
+  display: block;
+}
+
+.tile.user-tile.has-camera .tile-avatar-wrap {
+  display: none;
+}
+
+.tile.user-tile.self.has-camera video {
+  transform: scaleX(-1);
+}
+
+/* User badge pill (bottom-left) */
+.tile-user-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  padding: 4px 9px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  z-index: 5;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.tile-user-badge:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.tile-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-user-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tile-user-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tile-user-icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.tile-user-icon.is-muted,
+.tile-user-icon.is-deafened {
+  color: #ed4245; /* Discord red */
+}
+
+.tile-user-icon.is-host {
+  color: #f59e0b; /* Discord gold */
+}
+
+/* User tile action buttons (top-right, hover) */
+.tile-user-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 6;
+}
+
+.tile.user-tile:hover .tile-user-actions,
+.tile.user-tile:focus-within .tile-user-actions {
+  opacity: 1;
+}
+
+/* Screen Tile Specifics */
+.tile.screen-tile video {
+  object-fit: contain;
 }
 
 /* Range sliders share one dark look: the volume pill and the picture editor.
@@ -1278,6 +1461,7 @@ input.theme-hue::-moz-range-track {
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: inherit;
 }
 
 /* Your own picture is the button that changes it. */

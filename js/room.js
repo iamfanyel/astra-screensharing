@@ -16,7 +16,7 @@
    * both. Everything that walks or clears a peer's tiles iterates this list
    * rather than spelling the two suffixes out again.
    */
-  const TILE_KINDS = ['screen', 'camera'];
+  const TILE_KINDS = ['user', 'screen', 'camera'];
   const tileKey = (id, kind) => id + ':' + kind;
   /** Long enough to read as a transition, short enough not to feel like a wait. */
   const LEAVE_DELAY_MS = 450;
@@ -1537,6 +1537,198 @@
     }
   }
 
+  function updateTileUserBadge(tile, name, isHost, isMuted, isDeafened) {
+    if (!tile || !tile.badgeName || !tile.badgeIcons) return;
+    if (name && tile.badgeName.textContent !== name) {
+      tile.badgeName.textContent = name;
+    }
+    const stateKey = `${!!isHost}|${!!isDeafened}|${!!isMuted}`;
+    if (tile.badgeIcons.__stateKey === stateKey) return;
+    tile.badgeIcons.__stateKey = stateKey;
+    tile.badgeIcons.innerHTML = '';
+
+    if (isHost) {
+      const hostSpan = document.createElement('span');
+      hostSpan.className = 'tile-user-icon is-host';
+      hostSpan.title = 'Host';
+      hostSpan.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+        '<path d="M2 19h20v2H2zM3 7l5 5 4-7 4 7 5-5v10H3z" />' +
+        '</svg>';
+      tile.badgeIcons.appendChild(hostSpan);
+    }
+
+    if (isDeafened) {
+      const deafSpan = document.createElement('span');
+      deafSpan.className = 'tile-user-icon is-deafened';
+      deafSpan.title = 'Deafened';
+      deafSpan.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+        '<path d="M3 18v-6a9 9 0 0 1 18 0v6" />' +
+        '<path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />' +
+        '<line x1="2" y1="2" x2="22" y2="22" stroke-width="2.2" />' +
+        '</svg>';
+      tile.badgeIcons.appendChild(deafSpan);
+    } else if (isMuted) {
+      const muteSpan = document.createElement('span');
+      muteSpan.className = 'tile-user-icon is-muted';
+      muteSpan.title = 'Microphone muted';
+      muteSpan.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+        '<line x1="2" y1="2" x2="22" y2="22" />' +
+        '<path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />' +
+        '<path d="M5 10v2a7 7 0 0 0 10.5 6.07" />' +
+        '<path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />' +
+        '<path d="M9 9v3a3 3 0 0 0 5.12 2.12" />' +
+        '<line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />' +
+        '</svg>';
+      tile.badgeIcons.appendChild(muteSpan);
+    }
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+  }
+
+  function hslToRgb(h, s, l) {
+    h /= 360; s /= 100; l /= 100;
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+  }
+
+  function getFallbackColor(name) {
+    let hash = 0;
+    for (const char of String(name || '')) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    const hue = hash % 360;
+    return hslToRgb(hue, 58, 48);
+  }
+
+  const userColorCache = new Map();
+  let colorCanvas = null;
+  let colorCtx = null;
+  function getColorCtx() {
+    if (!colorCanvas) {
+      colorCanvas = document.createElement('canvas');
+      colorCanvas.width = 32;
+      colorCanvas.height = 32;
+      colorCtx = colorCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    return colorCtx;
+  }
+
+  function getUserColor(name, avatar, callback) {
+    if (avatar && window.AstraProfile && window.AstraProfile.isAvatar(avatar)) {
+      if (userColorCache.has(avatar)) {
+        return callback(userColorCache.get(avatar));
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const ctx = getColorCtx();
+          ctx.clearRect(0, 0, 32, 32);
+          ctx.drawImage(img, 0, 0, 32, 32);
+          const data = ctx.getImageData(0, 0, 32, 32).data;
+          let r = 0, g = 0, b = 0, count = 0;
+          let chromaticR = 0, chromaticG = 0, chromaticB = 0, chromaticCount = 0;
+
+          for (let i = 0; i < data.length; i += 4) {
+            const a = data[i + 3];
+            if (a < 64) continue;
+            const pr = data[i], pg = data[i + 1], pb = data[i + 2];
+            const max = Math.max(pr, pg, pb), min = Math.min(pr, pg, pb);
+            const delta = max - min;
+            const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+
+            if (delta > 18 && lum > 25 && lum < 235) {
+              const satWeight = delta * 2;
+              chromaticR += pr * satWeight;
+              chromaticG += pg * satWeight;
+              chromaticB += pb * satWeight;
+              chromaticCount += satWeight;
+            } else if (lum > 20 && lum < 240) {
+              r += pr;
+              g += pg;
+              b += pb;
+              count++;
+            }
+          }
+
+          let color;
+          if (chromaticCount > 0) {
+            const rawR = Math.round(chromaticR / chromaticCount);
+            const rawG = Math.round(chromaticG / chromaticCount);
+            const rawB = Math.round(chromaticB / chromaticCount);
+            const [h, s, l] = rgbToHsl(rawR, rawG, rawB);
+            const tunedS = Math.min(85, Math.max(45, s));
+            const tunedL = Math.min(54, Math.max(38, l));
+            color = hslToRgb(h, tunedS, tunedL);
+          } else if (count > 0) {
+            color = {
+              r: Math.round(r / count),
+              g: Math.round(g / count),
+              b: Math.round(b / count)
+            };
+          } else {
+            color = getFallbackColor(name);
+          }
+          if (userColorCache.size > 200) userColorCache.clear();
+          userColorCache.set(avatar, color);
+          callback(color);
+        } catch (_) {
+          callback(getFallbackColor(name));
+        }
+      };
+      img.onerror = () => callback(getFallbackColor(name));
+      img.src = avatar;
+      return;
+    }
+    callback(getFallbackColor(name));
+  }
+
+  function applyUserTileColor(tile, name, avatar) {
+    if (!tile || !tile.root) return;
+    const colorKey = `${name || ''}|${avatar || ''}`;
+    if (tile.root.__colorKey === colorKey) return;
+    tile.root.__colorKey = colorKey;
+    getUserColor(name, avatar, (color) => {
+      if (!color || !tile.root) return;
+      tile.root.style.setProperty('--tile-user-color', `rgba(${color.r}, ${color.g}, ${color.b}, 0.16)`);
+      tile.root.style.setProperty('--tile-user-glow', `rgba(${color.r}, ${color.g}, ${color.b}, 0.12)`);
+      tile.root.style.setProperty('--tile-user-border', `rgba(${color.r}, ${color.g}, ${color.b}, 0.26)`);
+    });
+  }
+
   function tileFor(tileKey, name, peerId, kind) {
     let tile = state.tiles.get(tileKey);
     if (tile) {
@@ -1546,16 +1738,17 @@
 
     const actualPeerId = peerId || tileKey;
     const isSelf = actualPeerId === state.signal?.selfId;
+    const actualKind = kind || 'screen';
 
     // The slot holds the share of the stage; the tile inside stays 16:9.
     const slot = document.createElement('div');
     slot.className = 'slot';
 
     const root = document.createElement('figure');
-    root.className = 'tile';
+    root.className = 'tile' + (actualKind === 'user' ? ' user-tile' : ' screen-tile') + (isSelf ? ' self' : '');
     root.dataset.peer = actualPeerId;
     root.dataset.tileKey = tileKey;
-    if (kind) root.dataset.kind = kind;
+    root.dataset.kind = actualKind;
 
     const video = document.createElement('video');
     video.autoplay = true;
@@ -1563,148 +1756,266 @@
     video.muted = true; // audio plays through a separate element, never twice
     root.appendChild(video);
 
-    // Paused overlay for when user stops watching
+    let avatarWrap = null;
+    let avatar = null;
+    let badge = null;
+    let badgeName = null;
+    let badgeIcons = null;
     let pausedOverlay = null;
     let pausedAvatar = null;
     let pausedName = null;
-
-    if (!isSelf) {
-      pausedOverlay = document.createElement('div');
-      pausedOverlay.className = 'tile-paused-overlay';
-      pausedOverlay.hidden = true;
-
-      const pausedCard = document.createElement('div');
-      pausedCard.className = 'tile-paused-card';
-
-      pausedAvatar = document.createElement('span');
-      pausedAvatar.className = 'avatar tile-paused-avatar';
-
-      const pausedInfo = document.createElement('div');
-      pausedInfo.className = 'tile-paused-info';
-
-      pausedName = document.createElement('span');
-      pausedName.className = 'tile-paused-name';
-      pausedName.textContent = name;
-
-      const pausedStatus = document.createElement('span');
-      pausedStatus.className = 'tile-paused-status';
-      pausedStatus.textContent = 'Stream paused';
-
-      pausedInfo.append(pausedName, pausedStatus);
-
-      const resumeBtn = document.createElement('button');
-      resumeBtn.type = 'button';
-      resumeBtn.className = 'tile-resume-btn';
-      resumeBtn.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-        '<polygon points="5 3 19 12 5 21 5 3" /></svg>' +
-        '<span>Watch stream</span>';
-      resumeBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setTileWatching(tileKey, true);
-      });
-
-      pausedCard.append(pausedAvatar, pausedInfo, resumeBtn);
-      pausedOverlay.appendChild(pausedCard);
-      root.appendChild(pausedOverlay);
-    }
-
-    const caption = document.createElement('figcaption');
-    const label = document.createElement('span');
-    label.className = 'tile-name';
-    label.textContent = name;
-    const buttons = document.createElement('span');
-    buttons.className = 'tile-actions';
-
-    // Volume control with expanding slider (for remote peers)
+    let watchBtn = null;
     let volumeBtn = null;
     let volumeSlider = null;
+    let label = null;
 
-    if (!isSelf) {
-      const volumeControl = document.createElement('div');
-      volumeControl.className = 'tile-volume-control';
+    if (actualKind === 'user') {
+      avatarWrap = document.createElement('div');
+      avatarWrap.className = 'tile-avatar-wrap';
 
-      volumeBtn = document.createElement('button');
-      volumeBtn.type = 'button';
-      volumeBtn.className = 'tile-btn tile-volume-btn';
-      volumeBtn.title = 'Mute stream';
+      avatar = document.createElement('span');
+      avatar.className = 'avatar tile-avatar';
+      avatar.dataset.peer = actualPeerId;
+      avatarWrap.appendChild(avatar);
+      root.appendChild(avatarWrap);
 
-      const sliderWrap = document.createElement('div');
-      sliderWrap.className = 'tile-volume-slider-wrap';
+      const peer = state.signal?.roster?.get(actualPeerId);
+      const peerName = isSelf ? (AstraProfile.getName() || 'You') : (peer ? peer.name : (name || 'Guest'));
+      const peerAvatar = isSelf ? AstraProfile.getAvatar() : (peer ? peer.avatar : null);
+      AstraProfile.paint(avatar, peerName, peerAvatar);
+      applyUserTileColor({ root }, peerName, peerAvatar);
 
-      volumeSlider = document.createElement('input');
-      volumeSlider.type = 'range';
-      volumeSlider.className = 'tile-volume-slider';
-      volumeSlider.min = '0';
-      volumeSlider.max = '100';
-      volumeSlider.value = '100';
-      volumeSlider.setAttribute('aria-label', 'Stream volume');
-
-      sliderWrap.append(volumeSlider);
-      volumeControl.append(sliderWrap, volumeBtn);
-
-      volumeBtn.addEventListener('click', (event) => {
+      avatar.addEventListener('click', (event) => {
         event.stopPropagation();
-        const data = getPeerVolume(actualPeerId);
-        if (data.muted) {
-          const restore = data.volume > 0 ? data.volume : 1.0;
-          setPeerVolume(actualPeerId, restore, false);
-        } else {
-          setPeerVolume(actualPeerId, data.volume, true);
+        if (typeof openProfilePopup === 'function') {
+          openProfilePopup(actualPeerId, avatar);
         }
       });
 
-      volumeSlider.addEventListener('input', (event) => {
+      badge = document.createElement('div');
+      badge.className = 'tile-user-badge';
+
+      badgeName = document.createElement('span');
+      badgeName.className = 'tile-user-name';
+      badgeName.textContent = name || peerName;
+
+      badgeIcons = document.createElement('span');
+      badgeIcons.className = 'tile-user-icons';
+
+      badge.append(badgeName, badgeIcons);
+      root.appendChild(badge);
+
+      label = badgeName;
+
+      badge.addEventListener('click', (event) => {
         event.stopPropagation();
-        const val = parseFloat(volumeSlider.value) / 100;
-        setPeerVolume(actualPeerId, val, val === 0);
+        if (typeof openProfilePopup === 'function') {
+          openProfilePopup(actualPeerId, badge);
+        }
       });
 
-      volumeSlider.addEventListener('click', (event) => event.stopPropagation());
-      volumeSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
-      volumeControl.addEventListener('click', (event) => event.stopPropagation());
+      const isHost = isSelf ? !!state.signal?.self?.host : !!peer?.host;
+      const isMuted = isSelf ? !state.micOn : peer?.mic === false;
+      const isDeafened = isSelf ? !!state.deafened : !!peer?.deafened;
+      updateTileUserBadge({ badgeName, badgeIcons }, name || peerName, isHost, isMuted, isDeafened);
 
-      buttons.appendChild(volumeControl);
-    }
+      const userActions = document.createElement('div');
+      userActions.className = 'tile-user-actions';
 
-    // Stop/start watching screen button (for remote peers)
-    let watchBtn = null;
-    if (!isSelf) {
-      watchBtn = document.createElement('button');
-      watchBtn.type = 'button';
-      watchBtn.className = 'tile-btn tile-watch-btn';
-      watchBtn.title = 'Stop watching';
-      watchBtn.setAttribute('aria-label', 'Stop watching');
-      watchBtn.innerHTML = WATCHING_ICON;
+      if (!isSelf) {
+        const volumeControl = document.createElement('div');
+        volumeControl.className = 'tile-volume-control';
 
-      watchBtn.addEventListener('click', (event) => {
+        volumeBtn = document.createElement('button');
+        volumeBtn.type = 'button';
+        volumeBtn.className = 'tile-btn tile-volume-btn';
+        volumeBtn.title = 'Mute stream';
+
+        const sliderWrap = document.createElement('div');
+        sliderWrap.className = 'tile-volume-slider-wrap';
+
+        volumeSlider = document.createElement('input');
+        volumeSlider.type = 'range';
+        volumeSlider.className = 'tile-volume-slider';
+        volumeSlider.min = '0';
+        volumeSlider.max = '100';
+        volumeSlider.value = '100';
+        volumeSlider.setAttribute('aria-label', 'Peer volume');
+
+        sliderWrap.append(volumeSlider);
+        volumeControl.append(sliderWrap, volumeBtn);
+
+        volumeBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const data = getPeerVolume(actualPeerId);
+          if (data.muted) {
+            const restore = data.volume > 0 ? data.volume : 1.0;
+            setPeerVolume(actualPeerId, restore, false);
+          } else {
+            setPeerVolume(actualPeerId, data.volume, true);
+          }
+        });
+
+        volumeSlider.addEventListener('input', (event) => {
+          event.stopPropagation();
+          const val = parseFloat(volumeSlider.value) / 100;
+          setPeerVolume(actualPeerId, val, val === 0);
+        });
+
+        volumeSlider.addEventListener('click', (event) => event.stopPropagation());
+        volumeSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
+        volumeControl.addEventListener('click', (event) => event.stopPropagation());
+
+        userActions.appendChild(volumeControl);
+      }
+
+      const fullBtn = document.createElement('button');
+      fullBtn.className = 'tile-btn';
+      fullBtn.title = 'Fullscreen';
+      fullBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3' +
+        'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
+        '<span class="sr-only">Fullscreen</span>';
+      fullBtn.addEventListener('click', (event) => {
         event.stopPropagation();
-        const currentWatching = state.peerWatching.get(tileKey) !== false;
-        setTileWatching(tileKey, !currentWatching);
+        if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
+        else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+      });
+      userActions.appendChild(fullBtn);
+
+      root.appendChild(userActions);
+    } else {
+      if (!isSelf) {
+        pausedOverlay = document.createElement('div');
+        pausedOverlay.className = 'tile-paused-overlay';
+        pausedOverlay.hidden = true;
+
+        const pausedCard = document.createElement('div');
+        pausedCard.className = 'tile-paused-card';
+
+        pausedAvatar = document.createElement('span');
+        pausedAvatar.className = 'avatar tile-paused-avatar';
+
+        const pausedInfo = document.createElement('div');
+        pausedInfo.className = 'tile-paused-info';
+
+        pausedName = document.createElement('span');
+        pausedName.className = 'tile-paused-name';
+        pausedName.textContent = name;
+
+        const pausedStatus = document.createElement('span');
+        pausedStatus.className = 'tile-paused-status';
+        pausedStatus.textContent = 'Stream paused';
+
+        pausedInfo.append(pausedName, pausedStatus);
+
+        const resumeBtn = document.createElement('button');
+        resumeBtn.type = 'button';
+        resumeBtn.className = 'tile-resume-btn';
+        resumeBtn.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+          '<polygon points="5 3 19 12 5 21 5 3" /></svg>' +
+          '<span>Watch stream</span>';
+        resumeBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          setTileWatching(tileKey, true);
+        });
+
+        pausedCard.append(pausedAvatar, pausedInfo, resumeBtn);
+        pausedOverlay.appendChild(pausedCard);
+        root.appendChild(pausedOverlay);
+      }
+
+      const caption = document.createElement('figcaption');
+      label = document.createElement('span');
+      label.className = 'tile-name';
+      label.textContent = name;
+      const buttons = document.createElement('span');
+      buttons.className = 'tile-actions';
+
+      if (!isSelf) {
+        const volumeControl = document.createElement('div');
+        volumeControl.className = 'tile-volume-control';
+
+        volumeBtn = document.createElement('button');
+        volumeBtn.type = 'button';
+        volumeBtn.className = 'tile-btn tile-volume-btn';
+        volumeBtn.title = 'Mute stream';
+
+        const sliderWrap = document.createElement('div');
+        sliderWrap.className = 'tile-volume-slider-wrap';
+
+        volumeSlider = document.createElement('input');
+        volumeSlider.type = 'range';
+        volumeSlider.className = 'tile-volume-slider';
+        volumeSlider.min = '0';
+        volumeSlider.max = '100';
+        volumeSlider.value = '100';
+        volumeSlider.setAttribute('aria-label', 'Stream volume');
+
+        sliderWrap.append(volumeSlider);
+        volumeControl.append(sliderWrap, volumeBtn);
+
+        volumeBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const data = getPeerVolume(actualPeerId);
+          if (data.muted) {
+            const restore = data.volume > 0 ? data.volume : 1.0;
+            setPeerVolume(actualPeerId, restore, false);
+          } else {
+            setPeerVolume(actualPeerId, data.volume, true);
+          }
+        });
+
+        volumeSlider.addEventListener('input', (event) => {
+          event.stopPropagation();
+          const val = parseFloat(volumeSlider.value) / 100;
+          setPeerVolume(actualPeerId, val, val === 0);
+        });
+
+        volumeSlider.addEventListener('click', (event) => event.stopPropagation());
+        volumeSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
+        volumeControl.addEventListener('click', (event) => event.stopPropagation());
+
+        buttons.appendChild(volumeControl);
+
+        watchBtn = document.createElement('button');
+        watchBtn.type = 'button';
+        watchBtn.className = 'tile-btn tile-watch-btn';
+        watchBtn.title = 'Stop watching';
+        watchBtn.setAttribute('aria-label', 'Stop watching');
+        watchBtn.innerHTML = WATCHING_ICON;
+
+        watchBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const currentWatching = state.peerWatching.get(tileKey) !== false;
+          setTileWatching(tileKey, !currentWatching);
+        });
+
+        buttons.appendChild(watchBtn);
+      }
+
+      const fullBtn = document.createElement('button');
+      fullBtn.className = 'tile-btn';
+      fullBtn.title = 'Fullscreen';
+      fullBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3' +
+        'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
+        '<span class="sr-only">Fullscreen</span>';
+      fullBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
+        else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
       });
 
-      buttons.appendChild(watchBtn);
+      buttons.appendChild(fullBtn);
+      caption.append(label, buttons);
+      root.appendChild(caption);
     }
-
-    // Fullscreen button
-    const fullBtn = document.createElement('button');
-    fullBtn.className = 'tile-btn';
-    fullBtn.title = 'Fullscreen';
-    fullBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
-      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3' +
-      'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
-      '<span class="sr-only">Fullscreen</span>';
-    fullBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
-      else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
-    });
-
-    buttons.appendChild(fullBtn);
-    caption.append(label, buttons);
-    root.appendChild(caption);
 
     // One click anywhere on the tile focuses it, and another gives the grid back.
     root.addEventListener('click', () => toggleFocus(tileKey));
@@ -1715,10 +2026,15 @@
     tile = {
       tileKey,
       peerId: actualPeerId,
-      kind: kind || 'screen',
+      kind: actualKind,
       slot,
       root,
       video,
+      avatarWrap,
+      avatar,
+      badge,
+      badgeName,
+      badgeIcons,
       label,
       pausedOverlay,
       pausedAvatar,
@@ -1757,14 +2073,43 @@
     const selfId = state.signal.selfId;
     const selfName = state.signal.self?.name || AstraProfile.getName() || 'Guest';
     const selfLabel = `${selfName} (You)`;
+    const isHost = !!state.signal.self?.host;
+    const isMuted = !state.micOn;
+    const isDeafened = !!state.deafened;
 
-    // Screen tile
+    // 1. User square for self (always present in room)
+    const userKey = tileKey(selfId, 'user');
+    const userTile = tileFor(userKey, selfLabel, selfId, 'user');
+    userTile.root.classList.add('self', 'user-tile');
+    const hasCamera = !!(state.cameraOn && state.cameraTrack && state.cameraTrack.readyState === 'live');
+    userTile.root.classList.toggle('has-camera', hasCamera);
+    const isSpeaking = state.speakingPeers.has(selfId);
+    userTile.root.classList.toggle('is-speaking', isSpeaking);
+    if (userTile.avatar) {
+      AstraProfile.paint(userTile.avatar, selfName, AstraProfile.getAvatar());
+    }
+    applyUserTileColor(userTile, selfName, AstraProfile.getAvatar());
+    updateTileUserBadge(userTile, selfLabel, isHost, isMuted, isDeafened);
+
+    if (hasCamera) {
+      if (!userTile.video.srcObject || userTile.video.srcObject.getVideoTracks()[0] !== state.cameraTrack) {
+        userTile.video.srcObject = new MediaStream([state.cameraTrack]);
+        userTile.video.play().catch(() => {});
+      }
+    } else {
+      if (userTile.video.srcObject) {
+        userTile.video.srcObject = null;
+      }
+    }
+
+    // 2. Screen tile for self
     const screenKey = tileKey(selfId, 'screen');
     if (state.sharing && state.videoTrack && state.videoTrack.readyState === 'live') {
-      const tile = tileFor(screenKey, selfLabel, selfId, 'screen');
-      tile.root.classList.add('self');
-      tile.root.classList.remove('is-camera');
-      tile.label.textContent = selfLabel;
+      const screenLabel = `${selfName}'s Screen (You)`;
+      const tile = tileFor(screenKey, screenLabel, selfId, 'screen');
+      tile.root.classList.add('self', 'screen-tile');
+      tile.root.classList.remove('is-camera', 'user-tile');
+      if (tile.label) tile.label.textContent = screenLabel;
       if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== state.videoTrack) {
         tile.video.srcObject = new MediaStream([state.videoTrack]);
         tile.video.play().catch(() => {});
@@ -1773,23 +2118,9 @@
       removeTile(screenKey);
     }
 
-    // Camera tile
-    const cameraKey = tileKey(selfId, 'camera');
-    if (state.cameraOn && state.cameraTrack && state.cameraTrack.readyState === 'live') {
-      const tile = tileFor(cameraKey, selfLabel, selfId, 'camera');
-      tile.root.classList.add('self', 'is-camera');
-      tile.label.textContent = selfLabel;
-      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== state.cameraTrack) {
-        tile.video.srcObject = new MediaStream([state.cameraTrack]);
-        tile.video.play().catch(() => {});
-      }
-    } else {
-      removeTile(cameraKey);
-    }
-
-    if (state.tiles.has(selfId)) {
-      removeTile(selfId);
-    }
+    // Clean up legacy tiles if any
+    removeTile(tileKey(selfId, 'camera'));
+    if (state.tiles.has(selfId)) removeTile(selfId);
 
     updateEmptyState();
   }
@@ -1798,7 +2129,29 @@
   function refreshPeerTiles(id) {
     if (!state.signal || id === state.signal.selfId) return;
     const peer = state.signal.roster.get(id);
-    const peerName = peer ? peer.name : 'Guest';
+    if (!peer) {
+      for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
+      removeTile(id);
+      updateEmptyState();
+      return;
+    }
+    const peerName = peer.name || 'Guest';
+    const isHost = !!peer.host;
+    const isMuted = peer.mic === false;
+    const isDeafened = !!peer.deafened;
+
+    // 1. User square for peer (always present while peer in room)
+    const userKey = tileKey(id, 'user');
+    const userTile = tileFor(userKey, peerName, id, 'user');
+    userTile.root.classList.add('user-tile');
+    userTile.root.classList.remove('self');
+    const isSpeaking = state.speakingPeers.has(id);
+    userTile.root.classList.toggle('is-speaking', isSpeaking);
+    if (userTile.avatar) {
+      AstraProfile.paint(userTile.avatar, peerName, peer.avatar);
+    }
+    applyUserTileColor(userTile, peerName, peer.avatar);
+    updateTileUserBadge(userTile, peerName, isHost, isMuted, isDeafened);
 
     let trackSet = state.remoteVideoTracks.get(id);
     const stream = state.remote.get(id);
@@ -1820,15 +2173,8 @@
 
     const liveTracks = trackSet ? Array.from(trackSet).filter((t) => t.readyState === 'live') : [];
 
-    const wantsSharing = !!(peer && peer.sharing);
-    const wantsCamera = !!(peer && peer.camera);
-
-    if (!wantsSharing && !wantsCamera && liveTracks.length === 0) {
-      for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
-      removeTile(id);
-      updateEmptyState();
-      return;
-    }
+    const wantsSharing = !!peer.sharing;
+    const wantsCamera = !!peer.camera;
 
     let screenTrack = null;
     let cameraTrack = null;
@@ -1839,9 +2185,9 @@
         cameraTrack = track;
       } else if (wantsSharing && !wantsCamera) {
         screenTrack = track;
-      } else if (peer && peer.cameraTrackId === track.id) {
+      } else if (peer.cameraTrackId === track.id) {
         cameraTrack = track;
-      } else if (peer && peer.screenTrackId === track.id) {
+      } else if (peer.screenTrackId === track.id) {
         screenTrack = track;
       } else if (wantsCamera) {
         cameraTrack = track;
@@ -1850,9 +2196,9 @@
       }
     } else if (liveTracks.length >= 2) {
       for (const track of liveTracks) {
-        if (peer && peer.cameraTrackId && track.id === peer.cameraTrackId) {
+        if (peer.cameraTrackId && track.id === peer.cameraTrackId) {
           cameraTrack = track;
-        } else if (peer && peer.screenTrackId && track.id === peer.screenTrackId) {
+        } else if (peer.screenTrackId && track.id === peer.screenTrackId) {
           screenTrack = track;
         }
       }
@@ -1874,39 +2220,41 @@
       }
     }
 
+    // Camera attached to user square
+    if (cameraTrack && wantsCamera !== false) {
+      userTile.root.classList.add('has-camera');
+      if (!userTile.video.srcObject || userTile.video.srcObject.getVideoTracks()[0] !== cameraTrack) {
+        userTile.video.srcObject = new MediaStream([cameraTrack]);
+        userTile.video.play().catch(() => {});
+      }
+    } else {
+      userTile.root.classList.remove('has-camera');
+      if (userTile.video.srcObject) {
+        userTile.video.srcObject = null;
+      }
+    }
+
+    // Screen share tile
     const screenTileKey = tileKey(id, 'screen');
     if (screenTrack && wantsSharing !== false) {
-      const tile = tileFor(screenTileKey, peerName, id, 'screen');
-      tile.label.textContent = peerName;
-      tile.root.classList.remove('is-camera');
-      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== screenTrack) {
-        tile.video.srcObject = new MediaStream([screenTrack]);
-        tile.video.play().catch(() => {});
+      const screenTitle = `${peerName}'s Screen`;
+      const screenTile = tileFor(screenTileKey, screenTitle, id, 'screen');
+      if (screenTile.label) screenTile.label.textContent = screenTitle;
+      screenTile.root.classList.remove('is-camera', 'user-tile');
+      screenTile.root.classList.add('screen-tile');
+      if (!screenTile.video.srcObject || screenTile.video.srcObject.getVideoTracks()[0] !== screenTrack) {
+        screenTile.video.srcObject = new MediaStream([screenTrack]);
+        screenTile.video.play().catch(() => {});
       }
       const isWatching = state.peerWatching.get(screenTileKey) !== false;
       setTileWatching(screenTileKey, isWatching);
-    } else if (!wantsSharing) {
+    } else {
       removeTile(screenTileKey);
     }
 
-    const cameraTileKey = tileKey(id, 'camera');
-    if (cameraTrack && wantsCamera !== false) {
-      const tile = tileFor(cameraTileKey, peerName, id, 'camera');
-      tile.label.textContent = peerName;
-      tile.root.classList.add('is-camera');
-      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== cameraTrack) {
-        tile.video.srcObject = new MediaStream([cameraTrack]);
-        tile.video.play().catch(() => {});
-      }
-      const isWatching = state.peerWatching.get(cameraTileKey) !== false;
-      setTileWatching(cameraTileKey, isWatching);
-    } else if (!wantsCamera) {
-      removeTile(cameraTileKey);
-    }
-
-    if (state.tiles.has(id)) {
-      removeTile(id);
-    }
+    // Clean up legacy tiles if any
+    removeTile(tileKey(id, 'camera'));
+    if (state.tiles.has(id)) removeTile(id);
 
     updateEmptyState();
   }
@@ -1935,7 +2283,7 @@
     el.empty.hidden = state.tiles.size > 0;
     // Drives the share-out rules in the stylesheet: 1 fills, 2 stack, 3 is a
     // pair over a centred tile, 4 is a 2x2, and so on.
-    el.grid.dataset.count = String(Math.min(state.tiles.size, 9));
+    el.grid.dataset.count = String(Math.min(state.tiles.size, 16));
   }
 
   // ------------------------------------------------ voice activity detection
@@ -2073,6 +2421,10 @@
     if (activePopupPeerId === peerId && el.profilePopupAvatar) {
       el.profilePopupAvatar.classList.toggle('is-speaking', speaking);
     }
+    const userTile = state.tiles.get(tileKey(peerId, 'user'));
+    if (userTile) {
+      userTile.root.classList.toggle('is-speaking', speaking);
+    }
   }
 
   // -------------------------------------------------------------- remote audio
@@ -2136,11 +2488,16 @@
    * rebuilding all of them (which also re-decoded every avatar).
    */
   function renderPeople() {
+    if (!state.signal) return;
+    updateSelfTiles();
     const roster = Array.from(state.signal.roster.values());
     const seen = new Set();
 
     roster.forEach((peer, index) => {
       seen.add(peer.id);
+      if (peer.id !== state.signal.selfId) {
+        refreshPeerTiles(peer.id);
+      }
       let row = state.peopleRows.get(peer.id);
       if (!row) {
         row = createPersonRow(peer);
@@ -2163,6 +2520,7 @@
       row.item.remove();
       state.peopleRows.delete(id);
       state.peopleAvatars.delete(id);
+      dropPeerMedia(id);
     }
   }
 
@@ -2222,16 +2580,28 @@
     const label = peer.name + (row.isSelf ? ' (you)' : '');
     if (row.name.textContent !== label) row.name.textContent = label;
 
+    const isMic = row.isSelf ? !!state.micOn : !!peer.mic;
+    const isDeafened = row.isSelf ? !!state.deafened : !!peer.deafened;
     const expectedLabel = row.isSelf ? `${peer.name} (You)` : peer.name;
     for (const kind of TILE_KINDS) {
       const tile = state.tiles.get(tileKey(peer.id, kind));
       if (!tile) continue;
-      if (tile.pausedOverlay && !tile.pausedOverlay.hidden) {
-        if (tile.pausedName) tile.pausedName.textContent = peer.name;
-        if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
-      }
-      if (tile.label && tile.label.textContent !== expectedLabel) {
-        tile.label.textContent = expectedLabel;
+      if (tile.kind === 'user') {
+        const currentAvatar = row.isSelf ? AstraProfile.getAvatar() : peer.avatar;
+        if (tile.avatar) {
+          AstraProfile.paint(tile.avatar, peer.name, currentAvatar);
+        }
+        applyUserTileColor(tile, peer.name, currentAvatar);
+        updateTileUserBadge(tile, expectedLabel, !!peer.host, !isMic, isDeafened);
+      } else {
+        if (tile.pausedOverlay && !tile.pausedOverlay.hidden) {
+          if (tile.pausedName) tile.pausedName.textContent = peer.name;
+          if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+        }
+        const screenLabel = row.isSelf ? `${peer.name}'s Screen (You)` : `${peer.name}'s Screen`;
+        if (tile.label && tile.label.textContent !== screenLabel) {
+          tile.label.textContent = screenLabel;
+        }
       }
     }
 
@@ -2244,8 +2614,6 @@
     const canKick = !row.isSelf && !!state.signal?.self?.host;
     const isSharing = row.isSelf ? !!state.sharing : !!peer.sharing;
     const isCamera = row.isSelf ? !!state.cameraOn : !!peer.camera;
-    const isMic = row.isSelf ? !!state.micOn : !!peer.mic;
-    const isDeafened = row.isSelf ? !!state.deafened : !!peer.deafened;
     const tagKey = [peer.host, isDevPeer, isSharing, isCamera, isDeafened, isMic, canKick, peer.name].join('|');
     if (row.tagKey === tagKey) return;
     row.tagKey = tagKey;
@@ -2957,4 +3325,6 @@
     setTimeout(() => node.classList.add('out'), 3200);
     setTimeout(() => node.remove(), 3600);
   }
+
+  window.__astra = { state, setSpeaking, updateSelfTiles, refreshPeerTiles };
 })();
