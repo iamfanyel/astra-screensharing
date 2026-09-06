@@ -74,7 +74,7 @@ function saveDevProfiles(data) {
 
 const ROOMS_FILE = path.join(ROOT, '.dev-rooms.json');
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const STALE_HEARTBEAT_MS = 45 * 1000; // 45 seconds without heartbeat = treated as empty
+const STALE_HEARTBEAT_MS = 3 * 60 * 1000; // 3 minutes without heartbeat = treated as empty (allows background tabs)
 const ROOM_CODE_REGEX = /^[A-Z0-9]{4,12}$/;
 
 let devRoomsCache = null;

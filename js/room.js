@@ -182,10 +182,10 @@
     if (!code) return null;
     try {
       const res = await fetch('/api/room?code=' + encodeURIComponent(code));
-      if (!res.ok) return null;
+      if (!res.ok) return { exists: true, fallback: true };
       return await res.json();
     } catch (_) {
-      return null;
+      return { exists: true, fallback: true };
     }
   }
 
@@ -205,16 +205,20 @@
 
   function startRoomApiHeartbeat(code) {
     stopRoomApiHeartbeat();
+    // Only the room host (hub) needs to send periodic heartbeats.
+    // Non-host peers sending heartbeats creates redundant KV writes and rapidly exhausts free tier quotas.
+    if (!state.signal || !state.signal.isHub) return;
+
     const count = state.signal && state.signal.roster ? state.signal.roster.size : 1;
     notifyRoomApi('heartbeat', code, count);
     roomApiHeartbeatInterval = setInterval(() => {
-      if (tornDown || leaving || !state.signal || state.signal.left) {
+      if (tornDown || leaving || !state.signal || state.signal.left || !state.signal.isHub) {
         stopRoomApiHeartbeat();
         return;
       }
       const peerCount = state.signal.roster ? state.signal.roster.size : 1;
       notifyRoomApi('heartbeat', code, peerCount);
-    }, 20000);
+    }, 60000);
   }
 
   function stopRoomApiHeartbeat() {
@@ -230,6 +234,8 @@
     exitBeaconSent = true;
     const code = state.signal.code;
     const rosterSize = state.signal.roster ? state.signal.roster.size : 1;
+    // Only the host or the last member leaving needs to signal room vacancy.
+    if (!state.signal.isHub && rosterSize > 1) return;
     const action = rosterSize <= 1 ? 'empty' : 'leave';
     const payload = JSON.stringify({ action, code, peerCount: Math.max(0, rosterSize - 1) });
     if (navigator.sendBeacon) {
@@ -248,7 +254,7 @@
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
-      if (status && (status.expired || status.exists === false)) {
+      if (status && !status.fallback && (status.expired || status.exists === false)) {
         location.replace('../?deleted=1');
       }
     });
@@ -270,7 +276,7 @@
       let roomStatus = null;
       if (!wantsCreate && roomCode) {
         roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && (roomStatus.expired || roomStatus.exists === false)) {
+        if (roomStatus && !roomStatus.fallback && (roomStatus.expired || roomStatus.exists === false)) {
           location.replace('../?deleted=1');
           return;
         }
@@ -662,6 +668,9 @@
       const isSelf = e.detail.hostId === state.signal.selfId;
       toast(isSelf ? 'You are now the room host' : (e.detail.hostName ? `${e.detail.hostName} is now the room host` : 'Room host changed'));
       renderPeople();
+      if (isSelf && signal.code) {
+        startRoomApiHeartbeat(signal.code);
+      }
     });
     signal.addEventListener('error', (e) => toast(friendlyError(e.detail), 'bad'));
 

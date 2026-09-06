@@ -7,23 +7,31 @@
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
 
-    // API routes
-    if (url.pathname === '/api/profile' || url.pathname === '/api/profile/') {
-      return handleProfile(request, env);
+      // API routes
+      if (url.pathname === '/api/profile' || url.pathname === '/api/profile/') {
+        return await handleProfile(request, env);
+      }
+
+      if (url.pathname === '/api/room' || url.pathname === '/api/room/') {
+        return await handleRoom(request, env);
+      }
+
+      // Static assets fallback
+      if (env.ASSETS) {
+        return await env.ASSETS.fetch(request);
+      }
+
+      return new Response('Not found', { status: 404 });
+    } catch (err) {
+      console.error('Unhandled worker exception:', err);
+      return new Response(JSON.stringify({ error: 'Internal Server Error', fallback: true }), {
+        status: 200,
+        headers: Object.assign({ 'Content-Type': 'application/json' }, CORS_HEADERS),
+      });
     }
-
-    if (url.pathname === '/api/room' || url.pathname === '/api/room/') {
-      return handleRoom(request, env);
-    }
-
-    // Static assets fallback
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
-
-    return new Response('Not found', { status: 404 });
   },
 };
 
@@ -76,12 +84,12 @@ async function handleProfile(request, env) {
   if (request.method === 'GET') {
     let profile = null;
     if (kv) {
-      const raw = await kv.get('profile:' + user.id);
-      if (raw) {
-        try {
+      try {
+        const raw = await kv.get('profile:' + user.id);
+        if (raw) {
           profile = JSON.parse(raw);
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
     }
     return new Response(JSON.stringify({ profile, user: { id: user.id, username: user.username } }), {
       headers: Object.assign({ 'Content-Type': 'application/json' }, CORS_HEADERS),
@@ -94,12 +102,12 @@ async function handleProfile(request, env) {
     let existing = {};
 
     if (kv) {
-      const raw = await kv.get('profile:' + user.id);
-      if (raw) {
-        try {
+      try {
+        const raw = await kv.get('profile:' + user.id);
+        if (raw) {
           existing = JSON.parse(raw);
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
     }
 
 
@@ -132,7 +140,9 @@ async function handleProfile(request, env) {
     };
 
     if (kv) {
-      await kv.put('profile:' + user.id, JSON.stringify(profile));
+      try {
+        await kv.put('profile:' + user.id, JSON.stringify(profile));
+      } catch (_) {}
     }
 
     return new Response(JSON.stringify({ success: true, profile }), {
@@ -144,7 +154,7 @@ async function handleProfile(request, env) {
 }
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const STALE_HEARTBEAT_MS = 45 * 1000; // 45 seconds without heartbeat = treated as empty
+const STALE_HEARTBEAT_MS = 3 * 60 * 1000; // 3 minutes without heartbeat = treated as empty (tolerant of background tabs)
 const ROOM_CODE_REGEX = /^[A-Z0-9]{4,12}$/;
 
 function checkRoomState(room) {
@@ -189,10 +199,18 @@ async function handleRoom(request, env) {
     }
 
     if (!kv) {
-      return jsonResponse({ exists: true, active: true, needsHost: false });
+      return jsonResponse({ exists: true, active: true, needsHost: false, fallback: true });
     }
 
-    const raw = await kv.get('room:' + code);
+    let raw = null;
+    try {
+      raw = await kv.get('room:' + code);
+    } catch (err) {
+      console.warn('KV get failed (rate limited or unavailable):', err);
+      // If KV is rate limited or unavailable, allow user to attempt direct P2P connection
+      return jsonResponse({ exists: true, active: true, needsHost: false, fallback: true });
+    }
+
     if (!raw) {
       return jsonResponse({ exists: false, error: 'Room does not exist or has expired.' });
     }
@@ -206,7 +224,9 @@ async function handleRoom(request, env) {
 
     const state = checkRoomState(room);
     if (state.expired) {
-      await kv.delete('room:' + code).catch(() => {});
+      try {
+        await kv.delete('room:' + code);
+      } catch (_) {}
       return jsonResponse({ exists: true, expired: true, error: 'This room has expired (empty for more than 5 minutes).' });
     }
 
@@ -228,16 +248,18 @@ async function handleRoom(request, env) {
     }
 
     if (!kv) {
-      return jsonResponse({ success: true });
+      return jsonResponse({ success: true, fallback: true });
     }
 
     const now = Date.now();
     let room = null;
-    const raw = await kv.get('room:' + code);
-    if (raw) {
-      try {
+    try {
+      const raw = await kv.get('room:' + code);
+      if (raw) {
         room = JSON.parse(raw);
-      } catch (_) {}
+      }
+    } catch (err) {
+      console.warn('KV get in POST failed:', err);
     }
 
     const action = body.action || 'heartbeat';
@@ -282,7 +304,12 @@ async function handleRoom(request, env) {
     }
 
     if (room) {
-      await kv.put('room:' + code, JSON.stringify(room), { expirationTtl: 86400 });
+      try {
+        await kv.put('room:' + code, JSON.stringify(room), { expirationTtl: 86400 });
+      } catch (err) {
+        console.warn('KV put failed (rate limited or unavailable):', err);
+        return jsonResponse({ success: true, room, fallback: true, warning: 'KV write limit reached' });
+      }
     }
 
     return jsonResponse({ success: true, room });
