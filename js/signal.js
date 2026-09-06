@@ -375,11 +375,13 @@
             }
           });
 
+          // Connect metadata is relayed by the broker inside a single
+          // signalling message, so it has to stay small. Pictures go over the
+          // data channel once the connection is open - see setState below and
+          // the push in room.js right after joining.
           const conn = peer.connect(window.ASTRA.idPrefix + roomCode, {
             metadata: {
               name: cleanName(name),
-              avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
-              banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
               dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
             },
             reliable: true,
@@ -614,6 +616,7 @@
       const connectToHost = () => {
         if (this.left || this.isHub || !this.peer || this.peer.destroyed) return;
         const conn = this.peer.connect(newHostId, {
+          // Flags only: pictures are too big for the broker to relay here.
           metadata: {
             name: me ? me.name : 'Guest',
             rejoin: true,
@@ -621,14 +624,17 @@
             mic: me ? me.mic : false,
             deafened: me ? me.deafened : false,
             dev: me ? !!me.dev : false,
-            avatar: me ? me.avatar : null,
-            banner: me ? me.banner : null,
           },
           reliable: true,
         });
 
         conn.on('open', () => {
           this.conn = conn;
+          // The new host received flags in the metadata but no pictures, so
+          // send those on now that a data channel exists.
+          if (me && (me.avatar || me.banner)) {
+            this.setState({ avatar: me.avatar || null, banner: me.banner || null });
+          }
         });
 
         conn.on('data', (msg) => {
