@@ -238,9 +238,11 @@ async function getStoredRoom(request, env, code) {
   return room;
 }
 
-async function putStoredRoom(request, env, ctx, code, room) {
+async function putStoredRoom(request, env, ctx, code, room, persistToKv = true) {
   memoryRooms.set(code, room);
   pruneMemoryRooms();
+
+  if (!persistToKv) return;
 
   const kv = getKvNamespace(env);
   if (kv) {
@@ -374,7 +376,11 @@ async function handleRoom(request, env, ctx) {
     }
 
     if (room) {
-      await putStoredRoom(request, env, ctx, code, room);
+      const shouldWriteKv = action !== 'heartbeat' || !room.lastKvWrite || (now - room.lastKvWrite > 15 * 60 * 1000);
+      if (shouldWriteKv) {
+        room.lastKvWrite = now;
+      }
+      await putStoredRoom(request, env, ctx, code, room, shouldWriteKv);
     }
 
     return jsonResponse({ success: true, room });
