@@ -1506,7 +1506,8 @@ button.tag-danger:hover {
 }
 
 .editor-card {
-  width: min(320px, 100%);
+  /* Wide enough for the action row in one line, which needs ~302px. */
+  width: min(380px, 100%);
   background: var(--panel);
   border: 0;
   border-radius: var(--radius);
@@ -1525,8 +1526,6 @@ button.tag-danger:hover {
 
 .editor-stage {
   position: relative;
-  width: 240px;
-  height: 240px;
   border-radius: 12px;
   overflow: hidden;
   background: hsl(var(--tint-h) var(--tint-s) 5.49%);
@@ -1551,8 +1550,7 @@ button.tag-danger:hover {
   pointer-events: none;
 }
 
-.editor-card .menu-row,
-.editor-card .menu-hint {
+.editor-card .menu-row {
   width: 100%;
 }
 
@@ -2188,13 +2186,6 @@ button.tag-danger:hover {
 }
 
 
-.menu-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
 /* ------------------------------------------------------------------ toasts */
 
 .toasts {
@@ -2511,18 +2502,9 @@ body.sidebar-hidden .toasts {
   margin-top: 4px;
 }
 
-/* Banner editor modal & stage */
-.banner-editor-modal .editor-card {
-  width: min(380px, 100%);
-}
-
+/* Banner editor stage */
 .banner-stage {
-  width: 300px;
-  height: 100px;
   border-radius: 8px;
-  position: relative;
-  overflow: hidden;
-  background: hsl(var(--tint-h) var(--tint-s) 5.49%);
 }
 
 .banner-editor-mask {

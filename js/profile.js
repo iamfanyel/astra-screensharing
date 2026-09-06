@@ -104,6 +104,66 @@
   }
 
   /**
+   * The smallest scale at which the picture still covers the frame at this
+   * rotation.
+   *
+   * A picture that only just covered square-on pulls its corners inside the
+   * frame as soon as it is turned, and then no offset can hide the gap. Growing
+   * the cover scale with the turn keeps zoom 1 meaning "just covers", whichever
+   * way round the picture is - the same rule crop tools use.
+   */
+  function coverScale(pictureW, pictureH, frameW, frameH, rotation) {
+    const radians = (rotation * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(radians));
+    const sin = Math.abs(Math.sin(radians));
+    return Math.max(
+      (cos * frameW + sin * frameH) / pictureW,
+      (sin * frameW + cos * frameH) / pictureH
+    );
+  }
+
+  /**
+   * Hold the picture over the whole frame, so dragging can never expose the
+   * backdrop behind it.
+   *
+   * Written in the picture's own turned frame, every corner of the frame has
+   * to land inside the picture. Solving that pair of inequalities gives one
+   * bound per axis. When no offset can cover - a diagonal turn on a picture
+   * that only just fitted square-on - the bound collapses to zero and the
+   * picture pins to the middle, which is the best position on offer.
+   *
+   * Sizes are in preview pixels, the same units as `view.x` / `view.y`.
+   */
+  function clampOffset(view, pictureW, pictureH, frameW, frameH) {
+    const radians = (view.rotation * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(radians));
+    const sin = Math.abs(Math.sin(radians));
+    const fw = frameW / 2;
+    const fh = frameH / 2;
+    const pw = pictureW / 2;
+    const ph = pictureH / 2;
+    // At a quarter turn one of the two terms drops out; guard the divisions.
+    const FLAT = 1e-6;
+
+    const maxX = (absY) => {
+      let limit = Infinity;
+      if (cos > FLAT) limit = Math.min(limit, (pw - sin * (fh + absY)) / cos - fw);
+      if (sin > FLAT) limit = Math.min(limit, (ph - cos * (fh + absY)) / sin - fw);
+      return Math.max(0, limit);
+    };
+    const maxY = (absX) => {
+      let limit = Infinity;
+      if (sin > FLAT) limit = Math.min(limit, (pw - cos * (fw + absX)) / sin - fh);
+      if (cos > FLAT) limit = Math.min(limit, (ph - sin * (fw + absX)) / cos - fh);
+      return Math.max(0, limit);
+    };
+
+    const pin = (value, max) => Math.max(-max, Math.min(max, value));
+    view.x = pin(view.x, maxX(Math.abs(view.y)));
+    view.y = pin(view.y, maxY(Math.abs(view.x)));
+  }
+
+  /**
    * Open the adjust dialog for a chosen file. Resolves with a data URL, or
    * null if the person backed out.
    */
@@ -111,9 +171,10 @@
     if (!file || !/^image\//.test(file.type)) throw new Error('That file is not an image.');
     const bitmap = await createImageBitmap(file);
 
-    // Zoom 1 means "just covers the circle", whichever way round the image is.
-    const baseScale = PREVIEW / Math.min(bitmap.width, bitmap.height);
     const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
+    // Zoom 1 means "just covers", recomputed as the picture turns.
+    const baseScale = () =>
+      coverScale(bitmap.width, bitmap.height, PREVIEW, PREVIEW, view.rotation);
 
     const ui = buildEditor();
     const ctx = ui.canvas.getContext('2d');
@@ -126,14 +187,19 @@
       target.save();
       target.translate(size / 2 + view.x * k, size / 2 + view.y * k);
       target.rotate((view.rotation * Math.PI) / 180);
-      const scale = baseScale * view.zoom * k;
+      const scale = baseScale() * view.zoom * k;
       const w = bitmap.width * scale;
       const h = bitmap.height * scale;
       target.drawImage(bitmap, -w / 2, -h / 2, w, h);
       target.restore();
     }
 
-    const render = () => draw(ctx, PREVIEW);
+    /** Re-pin the picture, then repaint. Every control goes through here. */
+    const render = () => {
+      const scale = baseScale() * view.zoom;
+      clampOffset(view, bitmap.width * scale, bitmap.height * scale, PREVIEW, PREVIEW);
+      draw(ctx, PREVIEW);
+    };
     render();
 
     return new Promise((resolve) => {
@@ -156,13 +222,6 @@
 
       ui.rotation.addEventListener('input', () => {
         view.rotation = Number(ui.rotation.value);
-        render();
-      });
-
-      ui.quarter.addEventListener('click', () => {
-        // Wrap into the slider's range so the two controls stay in step.
-        view.rotation = (((view.rotation + 90 + 180) % 360) + 360) % 360 - 180;
-        ui.rotation.value = String(view.rotation);
         render();
       });
 
@@ -245,13 +304,11 @@
       '<canvas width="' + PREVIEW + '" height="' + PREVIEW + '"></canvas>' +
       '<div class="editor-mask"></div>' +
       '</div>' +
-      '<p class="menu-hint">Drag the picture to move it.</p>' +
       '<label class="menu-row"><span>Size</span>' +
       '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
       '<label class="menu-row"><span>Rotation</span>' +
       '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" /></label>' +
       '<div class="editor-actions">' +
-      '<button type="button" class="btn btn-small editor-quarter">Rotate 90&deg;</button>' +
       '<button type="button" class="btn btn-small editor-reset">Reset</button>' +
       '<span class="editor-spacer"></span>' +
       '<button type="button" class="btn btn-small editor-cancel">Cancel</button>' +
@@ -266,7 +323,6 @@
       canvas: root.querySelector('canvas'),
       zoom: root.querySelector('.editor-zoom'),
       rotation: root.querySelector('.editor-rotation'),
-      quarter: root.querySelector('.editor-quarter'),
       reset: root.querySelector('.editor-reset'),
       cancel: root.querySelector('.editor-cancel'),
       save: root.querySelector('.editor-save'),
@@ -418,13 +474,11 @@
       '<canvas width="' + BANNER_PREVIEW_W + '" height="' + BANNER_PREVIEW_H + '"></canvas>' +
       '<div class="banner-editor-mask"></div>' +
       '</div>' +
-      '<p class="menu-hint">Drag the banner to move it.</p>' +
       '<label class="menu-row"><span>Size</span>' +
       '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
       '<label class="menu-row"><span>Rotation</span>' +
       '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" /></label>' +
       '<div class="editor-actions">' +
-      '<button type="button" class="btn btn-small editor-quarter">Rotate 90&deg;</button>' +
       '<button type="button" class="btn btn-small editor-reset">Reset</button>' +
       '<span class="editor-spacer"></span>' +
       '<button type="button" class="btn btn-small editor-cancel">Cancel</button>' +
@@ -439,7 +493,6 @@
       canvas: root.querySelector('canvas'),
       zoom: root.querySelector('.editor-zoom'),
       rotation: root.querySelector('.editor-rotation'),
-      quarter: root.querySelector('.editor-quarter'),
       reset: root.querySelector('.editor-reset'),
       cancel: root.querySelector('.editor-cancel'),
       save: root.querySelector('.editor-save'),
@@ -451,10 +504,9 @@
     if (!file || !/^image\//.test(file.type)) throw new Error('That file is not an image.');
     const bitmap = await createImageBitmap(file);
 
-    const scaleX = BANNER_PREVIEW_W / bitmap.width;
-    const scaleY = BANNER_PREVIEW_H / bitmap.height;
-    const baseScale = Math.max(scaleX, scaleY);
     const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
+    const baseScale = () =>
+      coverScale(bitmap.width, bitmap.height, BANNER_PREVIEW_W, BANNER_PREVIEW_H, view.rotation);
 
     const ui = buildBannerEditor();
     const ctx = ui.canvas.getContext('2d');
@@ -468,14 +520,19 @@
       target.save();
       target.translate(w / 2 + view.x * kw, h / 2 + view.y * kh);
       target.rotate((view.rotation * Math.PI) / 180);
-      const scale = baseScale * view.zoom * kw;
+      const scale = baseScale() * view.zoom * kw;
       const bw = bitmap.width * scale;
       const bh = bitmap.height * scale;
       target.drawImage(bitmap, -bw / 2, -bh / 2, bw, bh);
       target.restore();
     }
 
-    const render = () => draw(ctx, BANNER_PREVIEW_W, BANNER_PREVIEW_H);
+    const render = () => {
+      const scale = baseScale() * view.zoom;
+      clampOffset(view, bitmap.width * scale, bitmap.height * scale,
+                  BANNER_PREVIEW_W, BANNER_PREVIEW_H);
+      draw(ctx, BANNER_PREVIEW_W, BANNER_PREVIEW_H);
+    };
     render();
 
     return new Promise((resolve) => {
@@ -498,12 +555,6 @@
 
       ui.rotation.addEventListener('input', () => {
         view.rotation = Number(ui.rotation.value);
-        render();
-      });
-
-      ui.quarter.addEventListener('click', () => {
-        view.rotation = (((view.rotation + 90 + 180) % 360) + 360) % 360 - 180;
-        ui.rotation.value = String(view.rotation);
         render();
       });
 

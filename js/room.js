@@ -463,7 +463,10 @@
       el.profileModal.hidden = false;
       if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'true');
       document.addEventListener('keydown', handleModalKey);
-      setTimeout(() => el.profileModalName.focus(), 50);
+      // Focus the close button, not the name field: opening the editor should
+      // not put a caret in a box the person may not have come to change, but
+      // focus still has to land inside the dialog for Escape and Tab to work.
+      if (el.profileModalClose) el.profileModalClose.focus();
     }
 
     /** Slider position and the grey swatch's ring both follow the stored hue. */
