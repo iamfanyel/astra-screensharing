@@ -6,6 +6,12 @@
 (function () {
   const LAYOUT_KEY = 'astra:layout';
   /**
+   * The one place the layout breakpoint is written down. Below it People and
+   * Chat stop being a side column and become a sheet that rises from the
+   * bottom, a panel at a time - the CSS reads the same number.
+   */
+  const compact = window.matchMedia('(max-width: 860px)');
+  /**
    * A peer can publish a screen and a camera at once, so tiles are keyed by
    * both. Everything that walks or clears a peer's tiles iterates this list
    * rather than spelling the two suffixes out again.
@@ -40,6 +46,7 @@
     topbar: $('topbar'),
     stage: $('stage'),
     sidebar: $('sidebar'),
+    sheetBackdrop: $('sheet-backdrop'),
     controls: $('controls'),
     grid: $('grid'),
     empty: $('empty'),
@@ -612,7 +619,8 @@
 
     el.topbar.hidden = false;
     el.stage.hidden = false;
-    el.sidebar.hidden = false;
+    if (compact.matches) closeSheet();
+    else syncPanels();
     el.controls.hidden = false;
     el.gate.classList.add('gate-fade-out');
     setTimeout(() => {
@@ -2647,14 +2655,34 @@
   el.toggleChat.addEventListener('click', () => {
     togglePanel(el.chatPanel, el.toggleChat);
     el.toggleChat.classList.remove('chip-accent');
-    if (!el.chatPanel.hidden) el.chatInput.focus();
+    // Opening the keyboard under the sheet fights the sheet for the screen, so
+    // only reach for the composer where there is room for both.
+    if (!el.chatPanel.hidden && !compact.matches) el.chatInput.focus();
   });
 
+  function setPanel(panel, button, open) {
+    panel.hidden = !open;
+    button.setAttribute('aria-pressed', String(open));
+  }
+
   function togglePanel(panel, button) {
-    panel.hidden = !panel.hidden;
-    button.setAttribute('aria-pressed', String(!panel.hidden));
+    const open = panel.hidden;
+    setPanel(panel, button, open);
+    // The sheet shows one panel at a time; a side column can show both.
+    if (open && compact.matches) {
+      if (panel === el.peoplePanel) setPanel(el.chatPanel, el.toggleChat, false);
+      else setPanel(el.peoplePanel, el.togglePeople, false);
+    }
     syncPanels();
   }
+
+  function closeSheet() {
+    setPanel(el.peoplePanel, el.togglePeople, false);
+    setPanel(el.chatPanel, el.toggleChat, false);
+    syncPanels();
+  }
+
+  if (el.sheetBackdrop) el.sheetBackdrop.addEventListener('click', closeSheet);
 
   function syncPanels() {
     el.sidebar.hidden = el.peoplePanel.hidden && el.chatPanel.hidden;
@@ -2665,7 +2693,26 @@
     const split = !el.peoplePanel.hidden && !el.chatPanel.hidden;
     el.resizeY.hidden = !split;
     el.sidebar.classList.toggle('split', split);
+
+    const sheetOpen = compact.matches && !el.sidebar.hidden;
+    document.body.classList.toggle('sheet-open', sheetOpen);
+    if (el.sheetBackdrop) el.sheetBackdrop.hidden = !sheetOpen;
   }
+
+  // A sheet that covers the room should not be waiting there when the phone is
+  // first picked up, and should not survive a rotation into phone width.
+  let wasCompact = compact.matches;
+  function syncBreakpoint() {
+    if (compact.matches === wasCompact) return;
+    wasCompact = compact.matches;
+    if (wasCompact) closeSheet();
+    else syncPanels();
+  }
+  compact.addEventListener('change', syncBreakpoint);
+  // Belt and braces: a rotation fires both, and some environments deliver the
+  // resize but not the media-query change. The state compare makes the extra
+  // call free on every other resize.
+  window.addEventListener('resize', syncBreakpoint);
 
   // ------------------------------------------------------------- resizing
 

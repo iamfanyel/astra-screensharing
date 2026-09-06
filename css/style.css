@@ -440,9 +440,12 @@ body.room {
 }
 
 /* Closing both panels should give the space back to the stage, not leave an
-   empty column behind. */
-body.room.sidebar-hidden {
-  grid-template-columns: 1fr 0;
+   empty column behind. Below the breakpoint there is no column to give back -
+   the panels are a sheet - and this would outrank the single-column rule. */
+@media (min-width: 861px) {
+  body.room.sidebar-hidden {
+    grid-template-columns: 1fr 0;
+  }
 }
 
 body.resizing {
@@ -2236,43 +2239,94 @@ body.sidebar-hidden .toasts {
     grid-template-areas:
       "top"
       "stage";
-    /* The bottom sheet and the floating dock, named once: the sheet sizes
-       itself from these and the stage keeps its tiles clear of both. */
-    --sheet-h: 40dvh;
     --dock-h: 88px;
-    --sheet-block: calc(var(--sheet-h) + var(--dock-h));
-  }
-
-  /* With no panels open the sheet takes no room, and every measurement below
-     follows from that on its own. */
-  body.room.sidebar-hidden {
-    --sheet-h: 0px;
   }
 
   .topbar-right {
     width: auto;
   }
 
-  /* Ride the stage cell so the sheet can never cover the floating dock. */
+  /* People and Chat become one sheet that rises from the bottom and covers
+     most of the screen, a panel at a time. It is an overlay, so the stage
+     underneath keeps its full height and only has to clear the dock. */
   .sidebar {
-    grid-area: stage;
-    align-self: end;
-    z-index: 20;
-    /* A definite height matters: panels flex from a 0 basis, and a 0 basis
-       cannot share out a container whose own height is auto - they would
-       collapse to their headings. */
-    height: var(--sheet-block);
-    max-height: 100%;
-    padding: 0 10px var(--dock-h);
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    /* svh, not dvh: the dynamic viewport re-resolves as the URL bar collapses,
+       which would relayout the sheet - and the list inside it - mid-scroll. */
+    height: 88svh;
+    gap: 0;
+    padding: 0;
+    background: var(--panel);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+    animation: sheetIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
+  @keyframes sheetIn {
+    from {
+      transform: translateY(100%);
+    }
+  }
+
+  /* The grab handle at the top of the sheet. */
+  .sidebar::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 44px;
+    height: 4px;
+    margin: 10px auto 2px;
+    border-radius: 999px;
+    background: hsl(var(--tint-h) var(--tint-s) 28.24%);
+  }
+
+  body.room.sheet-open .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.6);
+    animation: sheetBackdropIn 0.2s ease;
+  }
+
+  @keyframes sheetBackdropIn {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* Inside the sheet the panel is the sheet - no card of its own. */
   .panel {
-    box-shadow: var(--shadow);
+    background: none;
+    border-radius: 0;
+    padding: 0 14px 14px;
   }
 
-  /* Keep the tiles above the sheet and the dock rather than behind them. */
+  /* Centred title, the way a sheet announces itself. */
+  .panel h2 {
+    margin: 6px 0 12px;
+    text-align: center;
+    font-size: 16px;
+    color: var(--text);
+  }
+
+  /* The sheet covers the dock, so the stage only clears the dock itself. */
   .stage {
-    padding-bottom: var(--sheet-block);
+    padding-bottom: var(--dock-h);
+  }
+
+  /* The dock would sit over the composer, so it stands down while the sheet
+     is up. Toasts move above the sheet rather than vanish - hiding them would
+     silently swallow the chat notifications the sheet exists to show. */
+  body.room.sheet-open .dock {
+    display: none;
+  }
+
+  body.room.sheet-open .toasts {
+    bottom: calc(88svh + 12px);
   }
 
   /* One column on a phone, centred in whatever space is left, and free to
@@ -2317,6 +2371,10 @@ body.sidebar-hidden .toasts {
     left: 50%;
     bottom: 86px;
   }
+}
+
+.sheet-backdrop {
+  display: none;
 }
 
 /* ------------------------------------------------ In-Room Profile Modal (Discord-style) */
