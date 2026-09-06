@@ -17,6 +17,12 @@
     errorEl.hidden = false;
   }
 
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.has('deleted') || urlParams.has('expired')) {
+    fail('That room has expired or no longer exists.');
+    history.replaceState(null, '', location.pathname);
+  }
+
   nameInput.value = AstraProfile.getName();
 
   const picker = AstraProfile.mountPicker({
