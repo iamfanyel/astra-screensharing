@@ -108,6 +108,8 @@
     profileModalDiscord: $('profile-modal-discord'),
     profileModalDiscordUser: $('profile-modal-discord-user'),
     profileModalSave: $('profile-modal-save'),
+    themeHue: $('theme-hue'),
+    themeReset: $('theme-reset'),
   };
 
   const params = new URLSearchParams(location.search);
@@ -417,12 +419,34 @@
       modalBanner = AstraProfile.getBanner();
       modalAvatar = AstraProfile.getAvatar();
       el.profileModalName.value = AstraProfile.getName();
+      syncThemeUI();
       renderModalBadgesAndDiscord();
       renderModalPreview();
       el.profileModal.hidden = false;
       if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'true');
       document.addEventListener('keydown', handleModalKey);
       setTimeout(() => el.profileModalName.focus(), 50);
+    }
+
+    /** Slider position and the grey swatch's ring both follow the stored hue. */
+    function syncThemeUI() {
+      const hue = window.AstraTheme.getHue();
+      if (el.themeHue) el.themeHue.value = String(hue === null ? 0 : hue);
+      if (el.themeReset) el.themeReset.classList.toggle('is-active', hue === null);
+    }
+
+    if (el.themeHue) {
+      el.themeHue.addEventListener('input', () => {
+        window.AstraTheme.setHue(Number(el.themeHue.value));
+        syncThemeUI();
+      });
+    }
+
+    if (el.themeReset) {
+      el.themeReset.addEventListener('click', () => {
+        window.AstraTheme.setHue(null);
+        syncThemeUI();
+      });
     }
 
     openProfileModal = openModal;

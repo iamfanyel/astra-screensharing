@@ -327,12 +327,19 @@
     return { repaint, open: () => fileInput.click() };
   }
 
-  /** A stable grey per name, so people without a picture stay recognisable. */
+  /**
+   * A stable shade per name, so people without a picture stay recognisable.
+   * Only the lightness comes from the name - the hue is the app tint, so these
+   * follow the theme like every other grey.
+   */
   function tint(name) {
     let hash = 0;
     for (const char of name) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
     const light = 38 + (hash % 26);
-    return 'linear-gradient(135deg, hsl(0 0% ' + light + '%), hsl(0 0% ' + (light - 14) + '%))';
+    return (
+      'linear-gradient(135deg, hsl(var(--tint-h) var(--tint-s) ' + light + '%),' +
+      ' hsl(var(--tint-h) var(--tint-s) ' + (light - 14) + '%))'
+    );
   }
 
   /**

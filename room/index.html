@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Room — Astra</title>
   <meta name="color-scheme" content="dark light" />
-  <link rel="stylesheet" href="../css/style.css?v=10" />
+  <link rel="stylesheet" href="../css/style.css?v=11" />
+  <script src="../js/theme.js"></script>
   <link rel="icon" type="image/png" href="../astralogo.png" />
 </head>
 <body class="room">
@@ -382,6 +383,16 @@
             <span>Display Name</span>
             <input id="profile-modal-name" type="text" maxlength="32" placeholder="Your name" />
           </label>
+
+          <div class="field theme-field">
+            <span>App colour</span>
+            <div class="theme-row">
+              <button type="button" id="theme-reset" class="theme-swatch"
+                      title="No colour" aria-label="No colour"></button>
+              <input id="theme-hue" class="theme-hue" type="range" min="0" max="359" value="0"
+                     aria-label="App colour" />
+            </div>
+          </div>
 
           <div id="profile-modal-discord" class="discord-auth profile-modal-discord" hidden>
             <div class="discord-badge">
