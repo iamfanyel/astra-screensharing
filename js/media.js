@@ -19,7 +19,6 @@
 
   const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
 
-
   class AudioMixer {
     constructor() {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -43,7 +42,9 @@
 
     /** Browsers start the audio graph suspended until a user gesture. */
     resume() {
-      if (this.ctx.state === 'suspended') return this.ctx.resume().catch(() => {});
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
       return Promise.resolve();
     }
 
@@ -123,15 +124,20 @@
     return { stream, quality, hint };
   }
 
-  /** Fallback for phones and tablets, where getDisplayMedia does not exist. */
-  async function captureCamera(qualityKey) {
-    const quality = QUALITY[qualityKey] || QUALITY['1080'];
+  /** Capture camera video (front/user facing by default, or specific deviceId). */
+  async function captureCamera(qualityKey, facingMode = 'user', deviceId = null) {
+    const quality = QUALITY[qualityKey] || QUALITY['720'];
+    const video = {
+      frameRate: { ideal: quality.frameRate || 30 },
+    };
+    if (deviceId) {
+      video.deviceId = { ideal: deviceId };
+    } else if (facingMode) {
+      video.facingMode = { ideal: facingMode };
+    }
+    if (quality.height) video.height = { ideal: quality.height };
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        height: { ideal: quality.height || 1080 },
-        frameRate: { ideal: quality.frameRate },
-      },
+      video,
       audio: false,
     });
     const track = stream.getVideoTracks()[0];

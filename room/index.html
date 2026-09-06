@@ -199,7 +199,7 @@
       <p class="dock-menu-hint">Keeps motion smooth by lowering resolution during network slowdowns.</p>
     </div>
 
-    <div class="dock-group">
+    <div class="dock-group" id="share-group">
       <button id="share-options" class="dock-btn dock-caret" aria-expanded="false" aria-controls="share-menu" title="Sharing options">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
         <span class="sr-only">Sharing options</span>
@@ -212,6 +212,32 @@
           <rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8M12 17v4M3 3l18 18" />
         </svg>
         <span class="sr-only" id="share-label">Share screen</span>
+      </button>
+    </div>
+
+    <div id="camera-menu" class="dock-menu" hidden>
+      <div class="dock-menu-header">
+        <span class="dock-menu-label-header">Camera Device</span>
+      </div>
+      <div id="camera-devices-list" class="dock-menu-list"></div>
+    </div>
+
+    <div class="dock-group" id="camera-group">
+      <button id="camera-options" class="dock-btn dock-caret" aria-expanded="false" aria-controls="camera-menu" title="Camera options">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+        <span class="sr-only">Camera options</span>
+      </button>
+      <button id="camera" class="dock-btn dock-wide" aria-pressed="false" title="Turn on camera (C)">
+        <svg class="icon-live" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22.5 7.5l-6 4.5 6 4.5V7.5z" />
+          <rect x="2.5" y="5" width="14" height="14" rx="2" ry="2" />
+        </svg>
+        <svg class="icon-idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22.5 7.5l-6 4.5 6 4.5V7.5z" />
+          <rect x="2.5" y="5" width="14" height="14" rx="2" ry="2" />
+          <line x1="2.5" y1="2" x2="22.5" y2="22" />
+        </svg>
+        <span class="sr-only" id="camera-label">Camera off</span>
       </button>
     </div>
 

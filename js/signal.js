@@ -41,11 +41,11 @@
    * only edit needed: the patch filter, new members, rejoins and host migration
    * all read from this list.
    */
-  const PEER_FLAGS = ['sharing', 'mic', 'deafened', 'dev'];
+  const PEER_FLAGS = ['sharing', 'camera', 'mic', 'deafened', 'dev'];
 
   /** A peer as it looks the moment it joins. */
   function newMember(id, name, host, dev = false) {
-    const member = { id, name: cleanName(name), avatar: null, banner: null, host: !!host };
+    const member = { id, name: cleanName(name), avatar: null, banner: null, host: !!host, screenTrackId: null, cameraTrackId: null };
     for (const flag of PEER_FLAGS) member[flag] = false;
     member.dev = !!dev;
     return member;
@@ -70,6 +70,12 @@
     }
     if ('banner' in patch) {
       out.banner = window.AstraProfile && window.AstraProfile.isBanner(patch.banner) ? patch.banner : null;
+    }
+    if ('screenTrackId' in patch) {
+      out.screenTrackId = typeof patch.screenTrackId === 'string' ? patch.screenTrackId : null;
+    }
+    if ('cameraTrackId' in patch) {
+      out.cameraTrackId = typeof patch.cameraTrackId === 'string' ? patch.cameraTrackId : null;
     }
     return out;
   }
@@ -165,6 +171,7 @@
             id: peer.id,
             name,
             sharing: false,
+            camera: false,
             mic: false,
             deafened: false,
             dev: selfDev,

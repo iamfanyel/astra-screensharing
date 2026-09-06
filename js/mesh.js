@@ -82,9 +82,6 @@
       pc.ontrack = ({ track, streams }) => {
         const stream = streams[0];
         if (!stream) return;
-        if (track.kind === 'video' && 'contentHint' in track) {
-          track.contentHint = 'motion';
-        }
         this.emit('stream', { id, stream, track });
         track.addEventListener('ended', () => this.emit('trackended', { id, track }));
         track.addEventListener('mute', () => this.emit('trackmuted', { id, track }));

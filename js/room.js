@@ -50,10 +50,17 @@
     messages: $('messages'),
     chatForm: $('chat-form'),
     chatInput: $('chat-input'),
+    shareGroup: $('share-group'),
     share: $('share'),
     shareLabel: $('share-label'),
     shareOptions: $('share-options'),
     shareMenu: $('share-menu'),
+    cameraGroup: $('camera-group'),
+    cameraOptions: $('camera-options'),
+    cameraMenu: $('camera-menu'),
+    cameraDevicesList: $('camera-devices-list'),
+    camera: $('camera'),
+    cameraLabel: $('camera-label'),
     mic: $('mic'),
     micLabel: $('mic-label'),
     deafen: $('deafen'),
@@ -121,9 +128,6 @@
     return;
   }
 
-  // Phones and tablets have no getDisplayMedia; the camera is the closest thing.
-  const shareMode = window.AstraMedia.canShareScreen ? 'screen' : 'camera';
-
   const state = {
     signal: null,
     mesh: null,
@@ -131,12 +135,19 @@
     localStream: null, // what we publish: mixed audio + (optionally) a video track
     videoStream: null, // the raw capture, kept so we can stop its tracks
     videoTrack: null,
+    cameraStream: null,
+    cameraTrack: null,
     micStream: null,
     sharing: false,
+    cameraOn: false,
+    cameraDeviceId: (() => {
+      try { return localStorage.getItem('astra:camera-device') || null; } catch (_) { return null; }
+    })(),
     micOn: false,
     deafened: false,
     remote: new Map(), // peer id -> MediaStream
-    tiles: new Map(), // peer id -> { slot, root, video, label }
+    remoteVideoTracks: new Map(), // peer id -> Set<MediaStreamTrack>
+    tiles: new Map(), // tile key -> { slot, root, video, label, ... }
     audios: new Map(), // peer id -> HTMLAudioElement
     speakingPeers: new Set(), // peer IDs currently speaking
     peopleAvatars: new Map(), // peer id -> HTML element (.avatar)
@@ -596,13 +607,11 @@
     notifyRoomApi('create', signal.code, signal.roster ? signal.roster.size : 1);
     startRoomApiHeartbeat(signal.code);
 
-    if (shareMode === 'camera') {
-      el.systemAudio.checked = false;
-      el.systemAudio.disabled = true;
-      el.systemAudioRow.title =
-        'This browser cannot capture screen audio. Use the microphone instead.';
+    if (!window.AstraMedia.canShareScreen && el.shareGroup) {
+      el.shareGroup.hidden = true;
     }
     setShareUI(false);
+    setCameraUI(false);
     setMicUI(false);
 
     // One outgoing stream for the whole session. Its audio track is the mixer
@@ -643,8 +652,7 @@
       if (e.detail.patch && e.detail.patch.mic === false) {
         setSpeaking(e.detail.id, false);
       }
-      if (e.detail.patch.sharing === false) removeTile(e.detail.id);
-      else refreshTile(e.detail.id);
+      refreshPeerTiles(e.detail.id);
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
@@ -658,32 +666,58 @@
     signal.addEventListener('error', (e) => toast(friendlyError(e.detail), 'bad'));
 
     state.mesh.addEventListener('stream', (e) => {
-      const { id, stream } = e.detail;
+      const { id, stream, track } = e.detail;
       state.remote.set(id, stream);
-      attachAudio(id, stream);
+      if (stream.getAudioTracks().length > 0) {
+        attachAudio(id, stream);
+      }
+      if (track && track.kind === 'video') {
+        let set = state.remoteVideoTracks.get(id);
+        if (!set) {
+          set = new Set();
+          state.remoteVideoTracks.set(id, set);
+        }
+        set.add(track);
+      }
       // Tracks can join or leave this stream long after we first see it - when
       // the peer starts or stops sharing - so re-check the tile every time.
       if (!stream.__astraWatched) {
         stream.__astraWatched = true;
-        stream.addEventListener('addtrack', () => {
-          refreshTile(id);
+        stream.addEventListener('addtrack', (ev) => {
+          if (ev.track && ev.track.kind === 'video') {
+            let set = state.remoteVideoTracks.get(id);
+            if (!set) {
+              set = new Set();
+              state.remoteVideoTracks.set(id, set);
+            }
+            set.add(ev.track);
+          }
+          refreshPeerTiles(id);
           vad.attach(id, stream);
         });
-        stream.addEventListener('removetrack', () => {
-          refreshTile(id);
+        stream.addEventListener('removetrack', (ev) => {
+          if (ev.track && ev.track.kind === 'video') {
+            const set = state.remoteVideoTracks.get(id);
+            if (set) set.delete(ev.track);
+          }
+          refreshPeerTiles(id);
           vad.attach(id, stream);
         });
       }
-      refreshTile(id);
+      refreshPeerTiles(id);
     });
     state.mesh.addEventListener('trackended', (e) => {
-      if (e.detail.track.kind === 'video') removeTile(e.detail.id);
+      if (e.detail.track.kind === 'video') {
+        const set = state.remoteVideoTracks.get(e.detail.id);
+        if (set) set.delete(e.detail.track);
+        refreshPeerTiles(e.detail.id);
+      }
     });
     state.mesh.addEventListener('trackmuted', (e) => {
-      if (e.detail.track.kind === 'video') refreshTile(e.detail.id);
+      if (e.detail.track.kind === 'video') refreshPeerTiles(e.detail.id);
     });
     state.mesh.addEventListener('trackunmuted', (e) => {
-      if (e.detail.track.kind === 'video') refreshTile(e.detail.id);
+      if (e.detail.track.kind === 'video') refreshPeerTiles(e.detail.id);
     });
     state.mesh.addEventListener('connectionstate', (e) => {
       if (e.detail.state !== 'failed') return;
@@ -705,17 +739,25 @@
 
   // --------------------------------------------------------------- sharing
 
-  el.share.addEventListener('click', () => (state.sharing ? stopSharing() : startSharing()));
+  el.share.addEventListener('click', () => toggleSharing());
+
+  function toggleSharing() {
+    if (el.share.disabled) return;
+    if (state.sharing) stopSharing();
+    else startSharing();
+  }
 
   async function startSharing() {
+    if (!state.signal || !state.mesh) return;
+    if (!window.AstraMedia.canShareScreen) {
+      toast('Screen sharing is not supported on this device/browser', 'bad');
+      return;
+    }
     el.share.disabled = true;
     try {
-      await state.mixer.resume();
+      if (state.mixer) await state.mixer.resume();
       const prioritizeFluidity = el.fluidity ? el.fluidity.checked : true;
-      const capture =
-        shareMode === 'screen'
-          ? await captureScreen(el.quality.value, el.systemAudio.checked, prioritizeFluidity)
-          : await captureCamera(el.quality.value);
+      const capture = await captureScreen(el.quality.value, el.systemAudio.checked, prioritizeFluidity);
 
       state.videoStream = capture.stream;
       state.videoTrack = capture.stream.getVideoTracks()[0];
@@ -723,11 +765,12 @@
 
       // The browser's own "Stop sharing" bar ends the track behind our back.
       state.videoTrack.addEventListener('ended', () => stopSharing());
+      state.videoTrack.contentHint = 'detail';
 
       state.localStream.addTrack(state.videoTrack);
       if (state.mixer.add('system', capture.stream)) {
         setStatus('Sharing with system audio.');
-      } else if (el.systemAudio.checked && shareMode === 'screen') {
+      } else if (el.systemAudio.checked) {
         // The browser remembers the picker's audio tick box per site, so this
         // sticks until it is turned back on - worth flagging, not whispering.
         setStatus('Sharing without audio — tick “Share audio” in the picker.', 'bad');
@@ -740,14 +783,14 @@
       state.mesh.publish();
 
       state.sharing = true;
-      state.signal.setState({ sharing: true });
+      if (state.signal) state.signal.setState({ sharing: true, screenTrackId: state.videoTrack.id });
       setShareUI(true);
       el.systemAudio.disabled = true;
       el.quality.disabled = true;
       if (el.qualityTrigger) el.qualityTrigger.classList.add('is-disabled');
       if (el.systemAudioRow) el.systemAudioRow.classList.add('is-disabled');
       hideQualityDropdown(0);
-      showSelfTile();
+      updateSelfTiles();
       renderPeople();
     } catch (err) {
       if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
@@ -766,25 +809,27 @@
     if (!state.sharing) return cleanUpCapture();
     cleanUpCapture();
     if (state.mesh) {
-      state.mesh.setDegradationPreference('maintain-framerate');
+      if (!state.cameraOn) {
+        state.mesh.setDegradationPreference('maintain-framerate');
+      }
       state.mesh.publish();
     }
     state.sharing = false;
-    state.signal.setState({ sharing: false });
-    removeTile(state.signal.selfId);
+    if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null });
+    updateSelfTiles();
     setShareUI(false);
-    el.systemAudio.disabled = shareMode !== 'screen';
+    el.systemAudio.disabled = false;
     el.quality.disabled = false;
     if (el.qualityTrigger) el.qualityTrigger.classList.remove('is-disabled');
-    if (el.systemAudioRow) el.systemAudioRow.classList.toggle('is-disabled', shareMode !== 'screen');
+    if (el.systemAudioRow) el.systemAudioRow.classList.remove('is-disabled');
     setStatus('Stopped sharing.');
     renderPeople();
     updateEmptyState();
   }
 
   function cleanUpCapture() {
-    state.mixer.remove('system');
-    if (state.videoTrack && state.localStream.getTracks().includes(state.videoTrack)) {
+    if (state.mixer) state.mixer.remove('system');
+    if (state.videoTrack && state.localStream && state.localStream.getTracks().includes(state.videoTrack)) {
       state.localStream.removeTrack(state.videoTrack);
     }
     stopStream(state.videoStream);
@@ -793,18 +838,302 @@
   }
 
   function setShareUI(active) {
-    const noun = shareMode === 'screen' ? 'screen' : 'camera';
-    const label = active ? 'Stop sharing your ' + noun : 'Share your ' + noun;
+    const label = active ? 'Stop sharing screen' : 'Share your screen';
     el.share.classList.toggle('is-live', active);
     el.share.title = label;
     el.shareLabel.textContent = label;
   }
+
+  // ---------------------------------------------------------------- camera
+
+  if (el.camera) {
+    el.camera.addEventListener('click', () => toggleCamera());
+  }
+
+  function setCameraUI(active) {
+    if (!el.camera) return;
+    const label = active ? 'Turn off camera (C)' : 'Turn on camera (C)';
+    el.camera.classList.toggle('is-live', active);
+    el.camera.setAttribute('aria-pressed', String(active));
+    el.camera.title = label;
+    if (el.cameraLabel) {
+      el.cameraLabel.textContent = active ? 'Camera on' : 'Camera off';
+    }
+  }
+
+  async function startCamera() {
+    if (!state.signal || !state.mesh) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Camera is not supported on this device/browser', 'bad');
+      return;
+    }
+    if (el.camera) el.camera.disabled = true;
+    try {
+      if (state.mixer) await state.mixer.resume();
+      const capture = await captureCamera(el.quality ? el.quality.value : '720', 'user', state.cameraDeviceId);
+
+      if (state.cameraStream) {
+        cleanUpCamera();
+      }
+
+      state.cameraStream = capture.stream;
+      state.cameraTrack = capture.stream.getVideoTracks()[0];
+      if (!state.cameraTrack) throw new Error('No camera video track found.');
+
+      state.cameraTrack.contentHint = 'motion';
+      const trackSettings = state.cameraTrack.getSettings ? state.cameraTrack.getSettings() : null;
+      if (trackSettings && trackSettings.deviceId) {
+        state.cameraDeviceId = trackSettings.deviceId;
+        try { localStorage.setItem('astra:camera-device', state.cameraDeviceId); } catch (_) {}
+      }
+
+      state.cameraTrack.addEventListener('ended', () => stopCamera());
+
+      state.localStream.addTrack(state.cameraTrack);
+      if (!state.sharing) {
+        state.mesh.setMaxVideoBitrate(capture.quality.bitrate || 2000000, capture.quality.frameRate || 30);
+        state.mesh.setDegradationPreference('maintain-framerate');
+      }
+      state.mesh.publish();
+
+      state.cameraOn = true;
+      if (state.signal) state.signal.setState({ camera: true, cameraTrackId: state.cameraTrack.id });
+      setCameraUI(true);
+      updateSelfTiles();
+      renderPeople();
+      setStatus('Camera on.');
+      populateCameraDevices();
+    } catch (err) {
+      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+        setStatus('Camera permission denied or cancelled.');
+      } else {
+        console.error(err);
+        setStatus('Could not start camera: ' + (err.message || err.name), 'bad');
+      }
+      cleanUpCamera();
+    } finally {
+      if (el.camera) el.camera.disabled = false;
+    }
+  }
+
+  function stopCamera() {
+    if (!state.cameraOn) return cleanUpCamera();
+    cleanUpCamera();
+    if (state.mesh) {
+      state.mesh.publish();
+    }
+    state.cameraOn = false;
+    if (state.signal) state.signal.setState({ camera: false, cameraTrackId: null });
+    updateSelfTiles();
+    setCameraUI(false);
+    setStatus('Camera off.');
+    renderPeople();
+    updateEmptyState();
+  }
+
+  function cleanUpCamera() {
+    if (state.cameraTrack && state.localStream && state.localStream.getTracks().includes(state.cameraTrack)) {
+      state.localStream.removeTrack(state.cameraTrack);
+    }
+    stopStream(state.cameraStream);
+    state.cameraStream = null;
+    state.cameraTrack = null;
+  }
+
+  function toggleCamera() {
+    if (el.camera?.disabled) return;
+    if (state.cameraOn) stopCamera();
+    else startCamera();
+  }
+
+  // ---------------------------------------------------- camera settings menu
+
+  let cachedCameraDevices = [];
+  let cameraDevicesPromise = null;
+  let cameraDeviceChangeTimer = null;
+
+  const checkSvgTemplate = (() => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'dock-dropdown-check');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = '<polyline points="20 6 9 17 4 12" />';
+    return svg;
+  })();
+
+  function updateCameraDeviceSelection() {
+    if (!el.cameraDevicesList) return;
+    const items = el.cameraDevicesList.querySelectorAll('.dock-menu-item');
+    items.forEach((item) => {
+      const isSelected = item.dataset.deviceId === state.cameraDeviceId;
+      item.classList.toggle('is-selected', isSelected);
+      item.setAttribute('aria-selected', String(isSelected));
+    });
+  }
+
+  async function populateCameraDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      if (el.cameraDevicesList) {
+        el.cameraDevicesList.innerHTML = '<div class="dock-menu-empty">Camera selection not supported</div>';
+      }
+      return;
+    }
+
+    if (cameraDevicesPromise) return cameraDevicesPromise;
+
+    cameraDevicesPromise = (async () => {
+      let devices = [];
+      try {
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        devices = allDevices.filter((d) => d.kind === 'videoinput');
+      } catch (_) {
+        devices = [];
+      } finally {
+        cameraDevicesPromise = null;
+      }
+
+      if (!el.cameraDevicesList) return;
+
+      const deviceSignature = devices.map((d) => d.deviceId + ':' + d.label).join('|');
+      const prevSignature = cachedCameraDevices.map((d) => d.deviceId + ':' + d.label).join('|');
+      cachedCameraDevices = devices;
+
+      if (!state.cameraDeviceId && devices.length > 0) {
+        state.cameraDeviceId = devices[0].deviceId;
+      }
+
+      if (deviceSignature === prevSignature && el.cameraDevicesList.children.length > 0) {
+        updateCameraDeviceSelection();
+        return;
+      }
+
+      el.cameraDevicesList.textContent = '';
+
+      if (devices.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'dock-menu-empty';
+        empty.textContent = 'No cameras found';
+        el.cameraDevicesList.appendChild(empty);
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      devices.forEach((device, index) => {
+        const item = document.createElement('div');
+        item.className = 'dock-menu-item dock-menu-action';
+        item.setAttribute('role', 'button');
+        item.setAttribute('tabindex', '0');
+        item.dataset.deviceId = device.deviceId;
+
+        const isSelected = state.cameraDeviceId === device.deviceId;
+        if (isSelected) item.classList.add('is-selected');
+        item.setAttribute('aria-selected', String(isSelected));
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'dock-menu-label';
+        labelSpan.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; font-size:13px;';
+        labelSpan.textContent = device.label || ('Camera ' + (index + 1));
+
+        item.append(labelSpan, checkSvgTemplate.cloneNode(true));
+
+        const choose = async (e) => {
+          e.stopPropagation();
+          await selectCameraDevice(device.deviceId);
+          toggleCameraMenu(false);
+        };
+
+        item.addEventListener('click', choose);
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            choose(e);
+          }
+        });
+
+        fragment.appendChild(item);
+      });
+
+      el.cameraDevicesList.appendChild(fragment);
+    })();
+
+    return cameraDevicesPromise;
+  }
+
+  async function selectCameraDevice(deviceId) {
+    if (state.cameraDeviceId === deviceId && state.cameraOn) return;
+    state.cameraDeviceId = deviceId;
+    try { localStorage.setItem('astra:camera-device', deviceId); } catch (_) {}
+    updateCameraDeviceSelection();
+    if (state.cameraOn) {
+      await startCamera();
+    }
+  }
+
+  function repositionCameraMenu() {
+    if (!el.cameraMenu || el.cameraMenu.hidden) return;
+    if (window.innerWidth > 860 && el.controls && (el.cameraGroup || el.camera)) {
+      const dockRect = el.controls.getBoundingClientRect();
+      const target = el.cameraGroup || el.camera;
+      const groupRect = target.getBoundingClientRect();
+      const leftOffset = Math.max(0, Math.min(groupRect.left - dockRect.left, Math.max(0, dockRect.width - 240)));
+      el.cameraMenu.style.left = leftOffset + 'px';
+    } else {
+      el.cameraMenu.style.left = '';
+    }
+  }
+
+  function toggleCameraMenu(force) {
+    if (!el.cameraMenu || !el.cameraOptions) return;
+    const open = force === undefined ? el.cameraMenu.hidden : force;
+    el.cameraMenu.hidden = !open;
+    el.cameraOptions.setAttribute('aria-expanded', String(open));
+    if (open) {
+      toggleShareMenu(false);
+      populateCameraDevices();
+      repositionCameraMenu();
+    }
+  }
+
+  if (el.cameraOptions) {
+    el.cameraOptions.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleCameraMenu();
+    });
+  }
+
+  if (el.cameraMenu) {
+    el.cameraMenu.addEventListener('click', (event) => event.stopPropagation());
+  }
+
+  const onDeviceChange = () => {
+    if (cameraDeviceChangeTimer) clearTimeout(cameraDeviceChangeTimer);
+    cameraDeviceChangeTimer = setTimeout(() => {
+      cameraDeviceChangeTimer = null;
+      populateCameraDevices();
+    }, 250);
+  };
+
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+  }
+
+  const onCameraWindowResize = () => {
+    repositionCameraMenu();
+  };
+  window.addEventListener('resize', onCameraWindowResize);
 
   function toggleShareMenu(force) {
     const open = force === undefined ? el.shareMenu.hidden : force;
     el.shareMenu.hidden = !open;
     el.shareOptions.setAttribute('aria-expanded', String(open));
     if (!open) hideQualityDropdown(0);
+    else toggleCameraMenu(false);
   }
 
   el.shareOptions.addEventListener('click', (event) => {
@@ -813,15 +1142,25 @@
   });
 
   el.shareMenu.addEventListener('click', (event) => event.stopPropagation());
-  document.addEventListener('click', () => toggleShareMenu(false));
+  document.addEventListener('click', () => {
+    toggleShareMenu(false);
+    toggleCameraMenu(false);
+  });
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') toggleShareMenu(false);
+    if (event.key === 'Escape') {
+      toggleShareMenu(false);
+      toggleCameraMenu(false);
+    }
     const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
-    if (!inInput && (event.key === 'd' || event.key === 'D')) {
+    if (inInput || !state.signal) return;
+    if (event.key === 'd' || event.key === 'D') {
       toggleDeafen();
     }
-    if (!inInput && (event.key === 'm' || event.key === 'M')) {
+    if (event.key === 'm' || event.key === 'M') {
       toggleMic();
+    }
+    if (event.key === 'c' || event.key === 'C') {
+      toggleCamera();
     }
   });
 
@@ -947,13 +1286,6 @@
     if (quality && state.mesh) state.mesh.setMaxVideoBitrate(quality.bitrate);
   });
   updateQualitySelection(el.quality.value);
-
-  if (shareMode === 'camera' && el.shareMenuTitle) {
-    el.shareMenuTitle.textContent = 'Camera';
-  }
-  if (shareMode !== 'screen' && el.systemAudioRow) {
-    el.systemAudioRow.classList.add('is-disabled');
-  }
 
   // -------------------------------------------------------------- microphone
 
@@ -1107,21 +1439,22 @@
       audio.muted = state.deafened || data.muted;
     }
 
-    const tile = state.tiles.get(id);
-    if (tile && tile.updateVolumeUI) {
-      tile.updateVolumeUI();
+    for (const tile of state.tiles.values()) {
+      if (tile.peerId === id && tile.updateVolumeUI) {
+        tile.updateVolumeUI();
+      }
     }
     if (activePopupPeerId === id && typeof updatePopupVolumeUI === 'function') {
       updatePopupVolumeUI(id);
     }
   }
 
-  function setTileWatching(id, isWatching) {
-    state.peerWatching.set(id, isWatching);
-    const tile = state.tiles.get(id);
+  function setTileWatching(tileKey, isWatching) {
+    state.peerWatching.set(tileKey, isWatching);
+    const tile = state.tiles.get(tileKey);
     if (!tile) return;
 
-    const stream = id === state.signal?.selfId ? state.localStream : state.remote.get(id);
+    const stream = tile.video.srcObject;
     if (stream) {
       stream.getVideoTracks().forEach((track) => {
         track.enabled = isWatching;
@@ -1133,8 +1466,8 @@
     }
     if (tile.watchBtn) {
       tile.watchBtn.classList.toggle('is-paused', !isWatching);
-      tile.watchBtn.title = isWatching ? 'Stop watching screen' : 'Start watching screen';
-      tile.watchBtn.setAttribute('aria-label', isWatching ? 'Stop watching screen' : 'Start watching screen');
+      tile.watchBtn.title = isWatching ? 'Stop watching' : 'Start watching';
+      tile.watchBtn.setAttribute('aria-label', isWatching ? 'Stop watching' : 'Start watching');
       tile.watchBtn.innerHTML = isWatching ? WATCHING_ICON : NOT_WATCHING_ICON;
     }
 
@@ -1145,19 +1478,23 @@
       tile.video.pause();
       tile.video.style.visibility = 'hidden';
       if (tile.pausedAvatar && tile.pausedName) {
-        const peer = state.signal?.roster.get(id);
-        const name = peer ? peer.name : (id === state.signal?.selfId ? 'You' : 'Guest');
+        const peer = state.signal?.roster.get(tile.peerId);
+        const name = peer ? peer.name : (tile.peerId === state.signal?.selfId ? 'You' : 'Guest');
         tile.pausedName.textContent = name;
         AstraProfile.paint(tile.pausedAvatar, name, peer ? peer.avatar : null);
       }
     }
   }
 
-  function tileFor(id, name) {
-    let tile = state.tiles.get(id);
-    if (tile) return tile;
+  function tileFor(tileKey, name, peerId, kind) {
+    let tile = state.tiles.get(tileKey);
+    if (tile) {
+      if (name && tile.label) tile.label.textContent = name;
+      return tile;
+    }
 
-    const isSelf = id === state.signal?.selfId;
+    const actualPeerId = peerId || tileKey;
+    const isSelf = actualPeerId === state.signal?.selfId;
 
     // The slot holds the share of the stage; the tile inside stays 16:9.
     const slot = document.createElement('div');
@@ -1165,7 +1502,9 @@
 
     const root = document.createElement('figure');
     root.className = 'tile';
-    root.dataset.peer = id;
+    root.dataset.peer = actualPeerId;
+    root.dataset.tileKey = tileKey;
+    if (kind) root.dataset.kind = kind;
 
     const video = document.createElement('video');
     video.autoplay = true;
@@ -1211,7 +1550,7 @@
         '<span>Watch stream</span>';
       resumeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
-        setTileWatching(id, true);
+        setTileWatching(tileKey, true);
       });
 
       pausedCard.append(pausedAvatar, pausedInfo, resumeBtn);
@@ -1251,26 +1590,23 @@
       volumeSlider.setAttribute('aria-label', 'Stream volume');
 
       sliderWrap.append(volumeSlider);
-      // The button sits last so it keeps the same spot whether the slider is
-      // collapsed or open - the control grows leftwards, away from the cursor,
-      // so the next click still lands on mute.
       volumeControl.append(sliderWrap, volumeBtn);
 
       volumeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
-        const data = getPeerVolume(id);
+        const data = getPeerVolume(actualPeerId);
         if (data.muted) {
           const restore = data.volume > 0 ? data.volume : 1.0;
-          setPeerVolume(id, restore, false);
+          setPeerVolume(actualPeerId, restore, false);
         } else {
-          setPeerVolume(id, data.volume, true);
+          setPeerVolume(actualPeerId, data.volume, true);
         }
       });
 
       volumeSlider.addEventListener('input', (event) => {
         event.stopPropagation();
         const val = parseFloat(volumeSlider.value) / 100;
-        setPeerVolume(id, val, val === 0);
+        setPeerVolume(actualPeerId, val, val === 0);
       });
 
       volumeSlider.addEventListener('click', (event) => event.stopPropagation());
@@ -1286,14 +1622,14 @@
       watchBtn = document.createElement('button');
       watchBtn.type = 'button';
       watchBtn.className = 'tile-btn tile-watch-btn';
-      watchBtn.title = 'Stop watching screen';
-      watchBtn.setAttribute('aria-label', 'Stop watching screen');
+      watchBtn.title = 'Stop watching';
+      watchBtn.setAttribute('aria-label', 'Stop watching');
       watchBtn.innerHTML = WATCHING_ICON;
 
       watchBtn.addEventListener('click', (event) => {
         event.stopPropagation();
-        const currentWatching = state.peerWatching.get(id) !== false;
-        setTileWatching(id, !currentWatching);
+        const currentWatching = state.peerWatching.get(tileKey) !== false;
+        setTileWatching(tileKey, !currentWatching);
       });
 
       buttons.appendChild(watchBtn);
@@ -1310,7 +1646,6 @@
       'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
       '<span class="sr-only">Fullscreen</span>';
     fullBtn.addEventListener('click', (event) => {
-      // Without this the click would also toggle focus on the tile below it.
       event.stopPropagation();
       if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
       else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
@@ -1321,12 +1656,15 @@
     root.appendChild(caption);
 
     // One click anywhere on the tile focuses it, and another gives the grid back.
-    root.addEventListener('click', () => toggleFocus(id));
+    root.addEventListener('click', () => toggleFocus(tileKey));
 
     slot.appendChild(root);
     el.grid.appendChild(slot);
 
     tile = {
+      tileKey,
+      peerId: actualPeerId,
+      kind: kind || 'screen',
       slot,
       root,
       video,
@@ -1339,7 +1677,7 @@
       volumeSlider,
       updateVolumeUI: () => {
         if (!volumeBtn || !volumeSlider) return;
-        const data = getPeerVolume(id);
+        const data = getPeerVolume(actualPeerId);
         const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
         volumeSlider.value = String(displayVol);
 
@@ -1358,62 +1696,196 @@
 
     if (tile.updateVolumeUI) tile.updateVolumeUI();
 
-    state.tiles.set(id, tile);
+    state.tiles.set(tileKey, tile);
     updateEmptyState();
     return tile;
   }
 
-  function showSelfTile() {
-    const tile = tileFor(state.signal.selfId, 'You');
-    tile.root.classList.add('self');
-    tile.video.srcObject = state.localStream;
-    tile.video.play().catch(() => {});
+  function updateSelfTiles() {
+    if (!state.signal) return;
+    const selfId = state.signal.selfId;
+    const selfName = state.signal.self?.name || AstraProfile.getName() || 'Guest';
+    const selfLabel = `${selfName} (You)`;
+
+    // Screen tile
+    const screenKey = selfId + ':screen';
+    if (state.sharing && state.videoTrack && state.videoTrack.readyState === 'live') {
+      const tile = tileFor(screenKey, selfLabel, selfId, 'screen');
+      tile.root.classList.add('self');
+      tile.root.classList.remove('is-camera');
+      tile.label.textContent = selfLabel;
+      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== state.videoTrack) {
+        tile.video.srcObject = new MediaStream([state.videoTrack]);
+        tile.video.play().catch(() => {});
+      }
+    } else {
+      removeTile(screenKey);
+    }
+
+    // Camera tile
+    const cameraKey = selfId + ':camera';
+    if (state.cameraOn && state.cameraTrack && state.cameraTrack.readyState === 'live') {
+      const tile = tileFor(cameraKey, selfLabel, selfId, 'camera');
+      tile.root.classList.add('self', 'is-camera');
+      tile.label.textContent = selfLabel;
+      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== state.cameraTrack) {
+        tile.video.srcObject = new MediaStream([state.cameraTrack]);
+        tile.video.play().catch(() => {});
+      }
+    } else {
+      removeTile(cameraKey);
+    }
+
+    if (state.tiles.has(selfId)) {
+      removeTile(selfId);
+    }
+
     updateEmptyState();
   }
 
-  /** Show a remote tile when that peer actually has live video, hide it otherwise. */
-  function refreshTile(id) {
-    if (id === state.signal.selfId) return;
-    const stream = state.remote.get(id);
-    const peer = state.signal.roster.get(id);
-    // A freshly negotiated track is often still muted while the first frames are
-    // in flight; that is not a reason to hide it.
-    const track = stream && stream.getVideoTracks().find((t) => t.readyState === 'live');
+  function showSelfTile() {
+    updateSelfTiles();
+  }
 
-    if (!stream || !track) {
-      // A peer that says it is sharing may still be negotiating; keep any tile
-      // we already have and wait for the track.
-      if (!peer || !peer.sharing) removeTile(id);
+  /** Show remote tile(s) when that peer has live video, hide otherwise. */
+  function refreshPeerTiles(id) {
+    if (!state.signal || id === state.signal.selfId) return;
+    const peer = state.signal.roster.get(id);
+    const peerName = peer ? peer.name : 'Guest';
+
+    let trackSet = state.remoteVideoTracks.get(id);
+    const stream = state.remote.get(id);
+    if (stream) {
+      if (!trackSet) {
+        trackSet = new Set();
+        state.remoteVideoTracks.set(id, trackSet);
+      }
+      for (const t of stream.getVideoTracks()) {
+        trackSet.add(t);
+      }
+    }
+
+    if (trackSet) {
+      for (const t of trackSet) {
+        if (t.readyState === 'ended') trackSet.delete(t);
+      }
+    }
+
+    const liveTracks = trackSet ? Array.from(trackSet).filter((t) => t.readyState === 'live') : [];
+
+    const wantsSharing = !!(peer && peer.sharing);
+    const wantsCamera = !!(peer && peer.camera);
+
+    if (!wantsSharing && !wantsCamera && liveTracks.length === 0) {
+      removeTile(id + ':screen');
+      removeTile(id + ':camera');
+      removeTile(id);
+      updateEmptyState();
       return;
     }
 
-    const tile = tileFor(id, peer ? peer.name : 'Guest');
-    if (tile.video.srcObject !== stream) tile.video.srcObject = stream;
-    tile.label.textContent = peer ? peer.name : 'Guest';
+    let screenTrack = null;
+    let cameraTrack = null;
 
-    const isWatching = state.peerWatching.get(id) !== false;
-    setTileWatching(id, isWatching);
+    if (liveTracks.length === 1) {
+      const track = liveTracks[0];
+      if (wantsCamera && !wantsSharing) {
+        cameraTrack = track;
+      } else if (wantsSharing && !wantsCamera) {
+        screenTrack = track;
+      } else if (peer && peer.cameraTrackId === track.id) {
+        cameraTrack = track;
+      } else if (peer && peer.screenTrackId === track.id) {
+        screenTrack = track;
+      } else if (wantsCamera) {
+        cameraTrack = track;
+      } else {
+        screenTrack = track;
+      }
+    } else if (liveTracks.length >= 2) {
+      for (const track of liveTracks) {
+        if (peer && peer.cameraTrackId && track.id === peer.cameraTrackId) {
+          cameraTrack = track;
+        } else if (peer && peer.screenTrackId && track.id === peer.screenTrackId) {
+          screenTrack = track;
+        }
+      }
+      if (!cameraTrack && !screenTrack) {
+        if (liveTracks[0].contentHint === 'detail') {
+          screenTrack = liveTracks[0];
+          cameraTrack = liveTracks[1];
+        } else if (liveTracks[1].contentHint === 'detail') {
+          screenTrack = liveTracks[1];
+          cameraTrack = liveTracks[0];
+        } else {
+          screenTrack = liveTracks[0];
+          cameraTrack = liveTracks[1];
+        }
+      } else if (!cameraTrack && screenTrack) {
+        cameraTrack = liveTracks.find((t) => t !== screenTrack) || null;
+      } else if (!screenTrack && cameraTrack) {
+        screenTrack = liveTracks.find((t) => t !== cameraTrack) || null;
+      }
+    }
+
+    const screenTileKey = id + ':screen';
+    if (screenTrack && wantsSharing !== false) {
+      const tile = tileFor(screenTileKey, peerName, id, 'screen');
+      tile.label.textContent = peerName;
+      tile.root.classList.remove('is-camera');
+      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== screenTrack) {
+        tile.video.srcObject = new MediaStream([screenTrack]);
+        tile.video.play().catch(() => {});
+      }
+      const isWatching = state.peerWatching.get(screenTileKey) !== false;
+      setTileWatching(screenTileKey, isWatching);
+    } else if (!wantsSharing) {
+      removeTile(screenTileKey);
+    }
+
+    const cameraTileKey = id + ':camera';
+    if (cameraTrack && wantsCamera !== false) {
+      const tile = tileFor(cameraTileKey, peerName, id, 'camera');
+      tile.label.textContent = peerName;
+      tile.root.classList.add('is-camera');
+      if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== cameraTrack) {
+        tile.video.srcObject = new MediaStream([cameraTrack]);
+        tile.video.play().catch(() => {});
+      }
+      const isWatching = state.peerWatching.get(cameraTileKey) !== false;
+      setTileWatching(cameraTileKey, isWatching);
+    } else if (!wantsCamera) {
+      removeTile(cameraTileKey);
+    }
+
+    if (state.tiles.has(id)) {
+      removeTile(id);
+    }
 
     updateEmptyState();
   }
 
-  function removeTile(id) {
-    const tile = state.tiles.get(id);
+  function refreshTile(id) {
+    refreshPeerTiles(id);
+  }
+
+  function removeTile(tileKey) {
+    const tile = state.tiles.get(tileKey);
     if (!tile) return;
     tile.video.srcObject = null;
     tile.slot.remove();
-    state.tiles.delete(id);
-    state.peerWatching.delete(id);
-    if (state.focused === id) toggleFocus(id);
+    state.tiles.delete(tileKey);
+    state.peerWatching.delete(tileKey);
+    if (state.focused === tileKey) toggleFocus(tileKey);
     updateEmptyState();
   }
 
-  function toggleFocus(id) {
-    const wasFocused = state.focused === id;
-    state.focused = wasFocused ? null : id;
+  function toggleFocus(tileKey) {
+    const wasFocused = state.focused === tileKey;
+    state.focused = wasFocused ? null : tileKey;
     el.grid.classList.toggle('has-focus', !!state.focused);
-    for (const [peerId, tile] of state.tiles) {
-      tile.slot.classList.toggle('focused', peerId === state.focused);
+    for (const [key, tile] of state.tiles) {
+      tile.slot.classList.toggle('focused', key === state.focused);
     }
   }
 
@@ -1585,7 +2057,10 @@
   });
 
   function dropPeerMedia(id) {
+    removeTile(id + ':screen');
+    removeTile(id + ':camera');
     removeTile(id);
+    state.remoteVideoTracks.delete(id);
     state.remote.delete(id);
     const audio = state.audios.get(id);
     if (audio) {
@@ -1595,6 +2070,8 @@
     }
     vad.detach(id);
     state.peerVolumes.delete(id);
+    state.peerWatching.delete(id + ':screen');
+    state.peerWatching.delete(id + ':camera');
     state.peerWatching.delete(id);
   }
 
@@ -1693,10 +2170,19 @@
     const label = peer.name + (row.isSelf ? ' (you)' : '');
     if (row.name.textContent !== label) row.name.textContent = label;
 
-    const tile = state.tiles.get(peer.id);
-    if (tile && tile.pausedOverlay && !tile.pausedOverlay.hidden) {
-      if (tile.pausedName) tile.pausedName.textContent = peer.name;
-      if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+    for (const tile of state.tiles.values()) {
+      if (tile.peerId === peer.id) {
+        if (tile.pausedOverlay && !tile.pausedOverlay.hidden) {
+          if (tile.pausedName) tile.pausedName.textContent = peer.name;
+          if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
+        }
+        if (tile.label) {
+          const expectedLabel = row.isSelf ? `${peer.name} (You)` : peer.name;
+          if (tile.label.textContent !== expectedLabel) {
+            tile.label.textContent = expectedLabel;
+          }
+        }
+      }
     }
 
     if (activePopupPeerId === peer.id && el.profilePopup && !el.profilePopup.hidden && typeof renderPopupContent === 'function') {
@@ -1705,17 +2191,22 @@
 
     // Badges are cheap to compare and comparatively costly to build.
     const isDevPeer = row.isSelf ? !!(window.AstraDiscord && window.AstraDiscord.isDev()) : !!peer.dev;
-    const canKick = !row.isSelf && !!state.signal.self?.host;
-    const tagKey = [peer.host, isDevPeer, peer.sharing, peer.deafened, peer.mic, canKick, peer.name].join('|');
+    const canKick = !row.isSelf && !!state.signal?.self?.host;
+    const isSharing = row.isSelf ? !!state.sharing : !!peer.sharing;
+    const isCamera = row.isSelf ? !!state.cameraOn : !!peer.camera;
+    const isMic = row.isSelf ? !!state.micOn : !!peer.mic;
+    const isDeafened = row.isSelf ? !!state.deafened : !!peer.deafened;
+    const tagKey = [peer.host, isDevPeer, isSharing, isCamera, isDeafened, isMic, canKick, peer.name].join('|');
     if (row.tagKey === tagKey) return;
     row.tagKey = tagKey;
 
     row.tags.textContent = '';
     if (peer.host) row.tags.appendChild(tag('HOST', 'tag-host'));
     if (isDevPeer) row.tags.appendChild(devTag());
-    if (peer.sharing) row.tags.appendChild(iconTag(PEOPLE_ICONS.sharing));
-    if (peer.deafened) row.tags.appendChild(iconTag(PEOPLE_ICONS.deafened));
-    else if (!peer.mic) row.tags.appendChild(iconTag(PEOPLE_ICONS.micMuted));
+    if (isSharing) row.tags.appendChild(iconTag(PEOPLE_ICONS.sharing));
+    if (isCamera) row.tags.appendChild(iconTag(PEOPLE_ICONS.camera));
+    if (isDeafened) row.tags.appendChild(iconTag(PEOPLE_ICONS.deafened));
+    else if (!isMic) row.tags.appendChild(iconTag(PEOPLE_ICONS.micMuted));
     if (canKick) {
       const kick = document.createElement('button');
       kick.type = 'button';
@@ -1737,6 +2228,13 @@
       paths:
         '<rect x="2" y="4" width="20" height="13" rx="2" />' +
         '<path d="M8 21h8M12 17v4M12 13.5V7m0 0L9.6 9.4M12 7l2.4 2.4" />',
+    },
+    camera: {
+      cls: 'tag-camera',
+      title: 'Camera on',
+      paths:
+        '<path d="M22.5 7.5l-6 4.5 6 4.5V7.5z" />' +
+        '<rect x="2.5" y="5" width="14" height="14" rx="2" ry="2" />',
     },
     micMuted: {
       cls: 'tag-mic-muted',
@@ -1866,6 +2364,7 @@
     let isHost = false;
     let isDevUser = false;
     let isSharing = false;
+    let isCamera = false;
     let isMic = false;
     let isDeafened = false;
 
@@ -1876,6 +2375,7 @@
       isHost = !!state.signal?.self?.host;
       isDevUser = !!(window.AstraDiscord && window.AstraDiscord.isDev());
       isSharing = !!state.sharing;
+      isCamera = !!state.cameraOn;
       isMic = !!state.micOn;
       isDeafened = !!state.deafened;
     } else {
@@ -1890,6 +2390,7 @@
       isHost = !!peer.host;
       isDevUser = !!peer.dev;
       isSharing = !!peer.sharing;
+      isCamera = !!peer.camera;
       isMic = !!peer.mic;
       isDeafened = !!peer.deafened;
     }
@@ -1904,12 +2405,13 @@
     }
 
     // Badges: avoid rebuilding DOM if status flags haven't changed
-    const tagKey = [isHost, isSharing, isDeafened, isMic].join('|');
+    const tagKey = [isHost, isSharing, isCamera, isDeafened, isMic].join('|');
     if (lastPopupTagKey !== tagKey) {
       lastPopupTagKey = tagKey;
       el.profilePopupBadges.textContent = '';
       if (isHost) el.profilePopupBadges.appendChild(tag('HOST', 'tag-host'));
       if (isSharing) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.sharing));
+      if (isCamera) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.camera));
       if (isDeafened) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.deafened));
       else if (!isMic) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.micMuted));
     }
@@ -2251,6 +2753,16 @@
     if (tornDown) return;
     tornDown = true;
     closeProfilePopup();
+    toggleShareMenu(false);
+    toggleCameraMenu(false);
+    if (cameraDeviceChangeTimer) {
+      clearTimeout(cameraDeviceChangeTimer);
+      cameraDeviceChangeTimer = null;
+    }
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.removeEventListener === 'function') {
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+    }
+    window.removeEventListener('resize', onCameraWindowResize);
     if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'false');
     if (el.profileModal) el.profileModal.hidden = true;
     if (localOfflineTimer) {
@@ -2259,9 +2771,25 @@
     }
     if (state.mesh) state.mesh.close();
     cleanUpCapture();
+    cleanUpCamera();
     stopStream(state.micStream);
     vad.destroy();
     if (state.mixer) state.mixer.close();
+    for (const trackSet of state.remoteVideoTracks.values()) {
+      trackSet.clear();
+    }
+    state.remoteVideoTracks.clear();
+    for (const tile of state.tiles.values()) {
+      if (tile.video) tile.video.srcObject = null;
+      if (tile.slot) tile.slot.remove();
+    }
+    state.tiles.clear();
+    for (const audio of state.audios.values()) {
+      audio.srcObject = null;
+      audio.remove();
+    }
+    state.audios.clear();
+    state.remote.clear();
     state.peerWatching.clear();
     state.peerVolumes.clear();
     stopRoomApiHeartbeat();

@@ -693,6 +693,10 @@ body.sidebar-hidden .topbar-right {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
+.tile.self.is-camera video {
+  transform: scaleX(-1);
+}
+
 .tile video {
   width: 100%;
   height: 100%;
@@ -1655,6 +1659,11 @@ button.tag-danger:hover {
   background: none;
 }
 
+.tag-camera {
+  color: #7abaff;
+  background: none;
+}
+
 .messages {
   list-style: none;
   margin: 0 0 10px;
@@ -1838,6 +1847,7 @@ button.tag-danger:hover {
   color: #7abaff;
 }
 
+
 .dock-round.is-live {
   background: var(--ok);
   color: var(--accent-ink);
@@ -1889,6 +1899,23 @@ button.tag-danger:hover {
   z-index: 35;
 }
 
+.dock-menu-header {
+  padding: 6px 10px 4px;
+}
+
+.dock-menu-label-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--tint-h) var(--tint-s-text) 55%);
+}
+
+.dock-menu-empty {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
 .dock-menu-item {
   position: relative;
   display: flex;
@@ -1899,6 +1926,16 @@ button.tag-danger:hover {
   cursor: pointer;
   user-select: none;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dock-menu-item.is-selected {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.dock-menu-item.is-selected .dock-dropdown-check {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .dock-menu-item:hover {
@@ -2288,7 +2325,7 @@ body.sidebar-hidden .toasts {
   }
 
   .dock-menu {
-    left: 50%;
+    left: 50% !important;
     transform: translateX(-50%);
     width: min(300px, calc(100vw - 32px));
   }
