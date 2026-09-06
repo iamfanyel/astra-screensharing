@@ -35,9 +35,7 @@
 
     /** Browsers start the audio graph suspended until a user gesture. */
     resume() {
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
+      if (this.ctx.state === 'suspended') return this.ctx.resume().catch(() => {});
       return Promise.resolve();
     }
 
