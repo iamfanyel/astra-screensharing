@@ -45,7 +45,7 @@
 
   /** A peer as it looks the moment it joins. */
   function newMember(id, name, host, dev = false) {
-    const member = { id, name: cleanName(name), avatar: null, banner: null, host: !!host, screenTrackId: null, cameraTrackId: null };
+    const member = { id, name: cleanName(name), avatar: null, banner: null, discord: null, host: !!host, screenTrackId: null, cameraTrackId: null };
     for (const flag of PEER_FLAGS) member[flag] = false;
     member.dev = !!dev;
     return member;
@@ -70,6 +70,12 @@
     }
     if ('banner' in patch) {
       out.banner = window.AstraProfile && window.AstraProfile.isBanner(patch.banner) ? patch.banner : null;
+    }
+    if ('discord' in patch) {
+      // A short label from someone else's browser: trimmed and capped, and
+      // rendered as text, never as markup.
+      const label = typeof patch.discord === 'string' ? patch.discord.trim().slice(0, 80) : '';
+      out.discord = label || null;
     }
     if ('screenTrackId' in patch) {
       out.screenTrackId = typeof patch.screenTrackId === 'string' ? patch.screenTrackId : null;
@@ -167,6 +173,7 @@
           this.selfId = peer.id;
           this.hostId = peer.id;
           const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
+          const selfDiscord = window.AstraDiscord ? window.AstraDiscord.accountLabel() || null : null;
           this.roster.set(peer.id, {
             id: peer.id,
             name,
@@ -175,6 +182,7 @@
             mic: false,
             deafened: false,
             dev: selfDev,
+            discord: selfDiscord,
             avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
             banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
             host: true,
@@ -390,6 +398,7 @@
             metadata: {
               name: cleanName(name),
               dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
+              discord: window.AstraDiscord ? window.AstraDiscord.accountLabel() : '',
             },
             reliable: true,
           });
@@ -663,6 +672,7 @@
             mic: me ? me.mic : false,
             deafened: me ? me.deafened : false,
             dev: me ? !!me.dev : false,
+            discord: me ? me.discord : null,
           },
           reliable: true,
         });

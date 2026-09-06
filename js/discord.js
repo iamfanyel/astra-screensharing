@@ -66,6 +66,18 @@ window.AstraDiscord = (function () {
 
   let devBadgeTemplate = null;
 
+  /**
+   * How a connected account is written wherever it is shown - the profile
+   * editor, your own popup, and now other people's popups, which read it from
+   * the roster rather than from storage they cannot see. Empty when no account
+   * is connected.
+   */
+  function accountLabel(user) {
+    const u = user === undefined ? getUser() : user;
+    if (!u || !u.username) return '';
+    return '@' + (u.global_name ? u.global_name + ' (' + u.username + ')' : u.username);
+  }
+
   function isDev(user) {
     const u = user || getUser();
     if (!u) return false;
@@ -598,6 +610,7 @@ window.AstraDiscord = (function () {
     syncBanner: syncBanner,
     syncProfileToCloud: syncProfileToCloud,
     fetchCloudProfile: fetchCloudProfile,
+    accountLabel: accountLabel,
     isDev: isDev,
     createDevBadge: createDevBadge,
     DEV_BADGE_SVG: DEV_BADGE_SVG,

@@ -399,7 +399,10 @@
           const avatar = AstraProfile.getAvatar();
           const name = AstraProfile.getName();
           const dev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
-          state.signal.setState({ name, avatar, banner, dev });
+          // Connecting or disconnecting mid-room: tell the others either way,
+          // so the account shows up and stops showing up when it should.
+          const discord = window.AstraDiscord.accountLabel() || null;
+          state.signal.setState({ name, avatar, banner, dev, discord });
           renderPeople();
         }
       },
@@ -432,9 +435,8 @@
       }
 
       if (window.AstraDiscord && el.profileModalDiscord && el.profileModalDiscordUser) {
-        const user = window.AstraDiscord.getUser();
-        if (user && user.username) {
-          const discordLabel = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
+        const discordLabel = window.AstraDiscord.accountLabel();
+        if (discordLabel) {
           if (el.profileModalDiscordUser.textContent !== discordLabel) {
             el.profileModalDiscordUser.textContent = discordLabel;
           }
@@ -2407,6 +2409,9 @@
     let isCamera = false;
     let isMic = false;
     let isDeafened = false;
+    // Yours comes from storage so it is right the instant you connect;
+    // everyone else's rides along in the roster.
+    let discordLabel = '';
 
     if (isSelf) {
       name = AstraProfile.getName() || 'Guest';
@@ -2418,6 +2423,7 @@
       isCamera = !!state.cameraOn;
       isMic = !!state.micOn;
       isDeafened = !!state.deafened;
+      discordLabel = window.AstraDiscord ? window.AstraDiscord.accountLabel() : '';
     } else {
       const peer = state.signal?.roster?.get(peerId);
       if (!peer) {
@@ -2433,6 +2439,7 @@
       isCamera = !!peer.camera;
       isMic = !!peer.mic;
       isDeafened = !!peer.deafened;
+      discordLabel = peer.discord || '';
     }
 
     AstraProfile.paintBanner(el.profilePopupBanner, bannerData, name);
@@ -2468,18 +2475,11 @@
       }
     }
 
-    // Discord info
-    if (isSelf && window.AstraDiscord) {
-      const user = window.AstraDiscord.getUser();
-      if (user && user.username) {
-        const discordLabel = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
-        if (el.profilePopupDiscordUser.textContent !== discordLabel) {
-          el.profilePopupDiscordUser.textContent = discordLabel;
-        }
-        el.profilePopupDiscord.hidden = false;
-      } else {
-        el.profilePopupDiscord.hidden = true;
+    if (discordLabel) {
+      if (el.profilePopupDiscordUser.textContent !== discordLabel) {
+        el.profilePopupDiscordUser.textContent = discordLabel;
       }
+      el.profilePopupDiscord.hidden = false;
     } else {
       el.profilePopupDiscord.hidden = true;
     }
