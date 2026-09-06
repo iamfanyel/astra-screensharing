@@ -185,6 +185,8 @@
       target.fillStyle = '#161616';
       target.fillRect(0, 0, size, size);
       target.save();
+      target.imageSmoothingEnabled = true;
+      target.imageSmoothingQuality = 'high';
       target.translate(size / 2 + view.x * k, size / 2 + view.y * k);
       target.rotate((view.rotation * Math.PI) / 180);
       const scale = baseScale() * view.zoom * k;
@@ -286,13 +288,13 @@
   function encode(canvas) {
     // Try WebP first: significantly higher fidelity, zero block artifacts, compact payload
     try {
-      for (const quality of [0.88, 0.78, 0.65]) {
+      for (const quality of [0.90, 0.82, 0.72, 0.60, 0.50]) {
         const url = canvas.toDataURL('image/webp', quality);
         if (url && url.startsWith('data:image/webp') && url.length <= MAX_LENGTH) return url;
       }
     } catch (_) {}
     // Fallback to JPEG
-    for (const quality of [0.85, 0.75, 0.65, 0.5]) {
+    for (const quality of [0.85, 0.75, 0.65, 0.50, 0.40]) {
       const url = canvas.toDataURL('image/jpeg', quality);
       if (url.length <= MAX_LENGTH) return url;
     }
@@ -396,14 +398,17 @@
    * Only the lightness comes from the name - the hue is the app tint, so these
    * follow the theme like every other grey.
    */
+  const tintCache = new Map();
   function tint(name) {
+    const key = String(name || '');
+    if (tintCache.has(key)) return tintCache.get(key);
     let hash = 0;
-    for (const char of name) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-    const light = 38 + (hash % 26);
-    return (
-      'linear-gradient(135deg, hsl(var(--tint-h) var(--tint-s) ' + light + '%),' +
-      ' hsl(var(--tint-h) var(--tint-s) ' + (light - 14) + '%))'
-    );
+    for (const char of key) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    const light = 32 + (hash % 20);
+    const color = 'hsl(var(--tint-h) var(--tint-s) ' + light + '%)';
+    if (tintCache.size > 100) tintCache.clear();
+    tintCache.set(key, color);
+    return color;
   }
 
   /**
@@ -429,8 +434,8 @@
       element.appendChild(img);
       return;
     }
-    element.style.background = tint(String(name || ''));
-    element.textContent = (String(name || '').trim()[0] || '?').toUpperCase();
+    element.style.background = tint(paintedName);
+    element.textContent = (paintedName.trim()[0] || '?').toUpperCase();
   }
 
   function tintBanner(seed) {

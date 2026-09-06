@@ -273,6 +273,8 @@ window.AstraDiscord = (function () {
           canvas.width = size;
           canvas.height = size;
           const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
 
           // Fill neutral background in case of transparency
           ctx.fillStyle = '#161616';
@@ -285,12 +287,21 @@ window.AstraDiscord = (function () {
 
           ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
 
-          resolve(window.AstraProfile.encode(canvas));
+          const dataUrl = window.AstraProfile.encode(canvas);
+          img.onload = null;
+          img.onerror = null;
+          resolve(dataUrl);
         } catch (err) {
+          img.onload = null;
+          img.onerror = null;
           reject(err);
         }
       };
-      img.onerror = () => reject(new Error('Failed to load avatar image from Discord CDN'));
+      img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+        reject(new Error('Failed to load avatar image from Discord CDN'));
+      };
       img.src = hiResUrl;
     });
   }
@@ -311,6 +322,8 @@ window.AstraDiscord = (function () {
           canvas.width = w;
           canvas.height = h;
           const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
 
           ctx.fillStyle = '#161616';
           ctx.fillRect(0, 0, w, h);
@@ -324,12 +337,21 @@ window.AstraDiscord = (function () {
 
           ctx.drawImage(img, sx, sy, bw, bh);
 
-          resolve(window.AstraProfile ? window.AstraProfile.encodeBanner(canvas) : null);
+          const bannerUrl = window.AstraProfile ? window.AstraProfile.encodeBanner(canvas) : null;
+          img.onload = null;
+          img.onerror = null;
+          resolve(bannerUrl);
         } catch (err) {
+          img.onload = null;
+          img.onerror = null;
           reject(err);
         }
       };
-      img.onerror = () => reject(new Error('Failed to load banner image from Discord CDN'));
+      img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+        reject(new Error('Failed to load banner image from Discord CDN'));
+      };
       img.src = url;
     });
   }

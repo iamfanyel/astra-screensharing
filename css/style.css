@@ -853,16 +853,14 @@ body.sidebar-hidden .topbar-right {
 
 .tile.user-tile,
 .tile.user-tile.self {
-  background-color: hsl(var(--tint-h) var(--tint-s) 7%);
-  background-image:
-    radial-gradient(ellipse 90% 70% at 50% 50%, var(--tile-user-glow, transparent) 0%, transparent 80%),
-    linear-gradient(160deg, var(--tile-user-color, transparent) 0%, transparent 70%);
+  background-color: var(--tile-user-color, hsl(var(--tint-h) var(--tint-s) 11%));
+  background-image: none;
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease, background-color 0.2s ease;
 }
 
 .tile.user-tile.is-speaking,
@@ -1449,6 +1447,7 @@ input.theme-hue::-moz-range-track {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: box-shadow 0.15s ease-out;
+  background-image: none;
 }
 
 .avatar.is-speaking,

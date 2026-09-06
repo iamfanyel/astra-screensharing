@@ -1626,11 +1626,17 @@
     return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
   }
 
+  const fallbackColorCache = new Map();
   function getFallbackColor(name) {
+    const key = String(name || '');
+    if (fallbackColorCache.has(key)) return fallbackColorCache.get(key);
     let hash = 0;
-    for (const char of String(name || '')) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    for (const char of key) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
     const hue = hash % 360;
-    return hslToRgb(hue, 58, 48);
+    const color = hslToRgb(hue, 58, 48);
+    if (fallbackColorCache.size > 100) fallbackColorCache.clear();
+    fallbackColorCache.set(key, color);
+    return color;
   }
 
   const userColorCache = new Map();
@@ -1704,12 +1710,20 @@
           }
           if (userColorCache.size > 200) userColorCache.clear();
           userColorCache.set(avatar, color);
+          img.onload = null;
+          img.onerror = null;
           callback(color);
         } catch (_) {
+          img.onload = null;
+          img.onerror = null;
           callback(getFallbackColor(name));
         }
       };
-      img.onerror = () => callback(getFallbackColor(name));
+      img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+        callback(getFallbackColor(name));
+      };
       img.src = avatar;
       return;
     }
@@ -1723,9 +1737,7 @@
     tile.root.__colorKey = colorKey;
     getUserColor(name, avatar, (color) => {
       if (!color || !tile.root) return;
-      tile.root.style.setProperty('--tile-user-color', `rgba(${color.r}, ${color.g}, ${color.b}, 0.16)`);
-      tile.root.style.setProperty('--tile-user-glow', `rgba(${color.r}, ${color.g}, ${color.b}, 0.12)`);
-      tile.root.style.setProperty('--tile-user-border', `rgba(${color.r}, ${color.g}, ${color.b}, 0.26)`);
+      tile.root.style.setProperty('--tile-user-color', `rgba(${color.r}, ${color.g}, ${color.b}, 0.20)`);
     });
   }
 
