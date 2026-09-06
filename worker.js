@@ -78,7 +78,7 @@ async function handleProfile(request, env) {
     });
   }
 
-  const kv = env.PROFILES_KV || env.KV;
+  const kv = getKvNamespace(env);
 
 
   if (request.method === 'GET') {
@@ -184,7 +184,21 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-// Multi-tiered room store: In-memory Map + Cloudflare Cache API + Cloudflare KV
+function getKvNamespace(env) {
+  if (!env) return null;
+  if (env.PROFILES_KV && typeof env.PROFILES_KV.get === 'function') return env.PROFILES_KV;
+  if (env.KV && typeof env.KV.get === 'function') return env.KV;
+  if (env.sync && typeof env.sync.get === 'function') return env.sync;
+  if (env.SYNC && typeof env.SYNC.get === 'function') return env.SYNC;
+  for (const key of Object.keys(env)) {
+    if (env[key] && typeof env[key].get === 'function' && typeof env[key].put === 'function') {
+      return env[key];
+    }
+  }
+  return null;
+}
+
+// In-memory Map for fast local responses within the worker isolate
 const memoryRooms = new Map();
 
 function pruneMemoryRooms() {
@@ -199,35 +213,22 @@ function pruneMemoryRooms() {
   }
 }
 
-function getCacheKey(origin, code) {
-  return new Request(`${origin}/api/room-internal/${code}`, { method: 'GET' });
-}
-
 async function getStoredRoom(request, env, code) {
-  // 1. In-memory Map (per worker instance)
+  // 1. In-memory Map (local isolate)
   let room = memoryRooms.get(code) || null;
 
-  // 2. Cloudflare Cache API (unlimited free edge cache across Cloudflare)
-  if (!room && typeof caches !== 'undefined' && caches.default) {
-    try {
-      const cache = caches.default;
-      const cached = await cache.match(getCacheKey(new URL(request.url).origin, code));
-      if (cached) {
-        room = await cached.json();
-      }
-    } catch (_) {}
-  }
-
-  // 3. Cloudflare KV
+  // 2. Cloudflare KV (global persistence)
   if (!room) {
-    const kv = env.PROFILES_KV || env.KV;
+    const kv = getKvNamespace(env);
     if (kv) {
       try {
         const raw = await kv.get('room:' + code);
         if (raw) {
           room = JSON.parse(raw);
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn('KV get failed:', err);
+      }
     }
   }
 
@@ -237,66 +238,28 @@ async function getStoredRoom(request, env, code) {
   return room;
 }
 
-function putStoredRoom(request, env, ctx, code, room) {
+async function putStoredRoom(request, env, ctx, code, room) {
   memoryRooms.set(code, room);
   pruneMemoryRooms();
 
-  const persist = async () => {
-    // 1. Cloudflare Edge Cache (free & unlimited)
-    if (typeof caches !== 'undefined' && caches.default) {
-      try {
-        const cache = caches.default;
-        const cacheKey = getCacheKey(new URL(request.url).origin, code);
-        const cacheRes = new Response(JSON.stringify(room), {
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=3600',
-          },
-        });
-        await cache.put(cacheKey, cacheRes);
-      } catch (_) {}
+  const kv = getKvNamespace(env);
+  if (kv) {
+    try {
+      await kv.put('room:' + code, JSON.stringify(room), { expirationTtl: 86400 });
+    } catch (err) {
+      console.warn('KV put failed (rate limited or unavailable):', err);
     }
-
-    // 2. Cloudflare KV (best-effort, does not fail if rate limited)
-    const kv = env.PROFILES_KV || env.KV;
-    if (kv) {
-      try {
-        await kv.put('room:' + code, JSON.stringify(room), { expirationTtl: 86400 });
-      } catch (err) {
-        console.warn('KV put failed (rate limited or unavailable):', err);
-      }
-    }
-  };
-
-  if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(persist());
-  } else {
-    return persist();
   }
 }
 
-function deleteStoredRoom(request, env, ctx, code) {
+async function deleteStoredRoom(request, env, ctx, code) {
   memoryRooms.delete(code);
 
-  const purge = async () => {
-    if (typeof caches !== 'undefined' && caches.default) {
-      try {
-        const cache = caches.default;
-        await cache.delete(getCacheKey(new URL(request.url).origin, code));
-      } catch (_) {}
-    }
-    const kv = env.PROFILES_KV || env.KV;
-    if (kv) {
-      try {
-        await kv.delete('room:' + code);
-      } catch (_) {}
-    }
-  };
-
-  if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(purge());
-  } else {
-    return purge();
+  const kv = getKvNamespace(env);
+  if (kv) {
+    try {
+      await kv.delete('room:' + code);
+    } catch (_) {}
   }
 }
 
@@ -308,6 +271,31 @@ async function handleRoom(request, env, ctx) {
   const url = new URL(request.url);
 
   if (request.method === 'GET') {
+    if (url.searchParams.get('diag') === '1') {
+      const kv = getKvNamespace(env);
+      let kvWriteOk = false;
+      let kvError = null;
+      let kvKeys = [];
+      if (kv) {
+        try {
+          await kv.put('__diag_test__', JSON.stringify({ at: Date.now() }), { expirationTtl: 60 });
+          kvWriteOk = true;
+          const listRes = await kv.list({ prefix: 'room:', limit: 10 });
+          kvKeys = (listRes && listRes.keys ? listRes.keys.map((k) => k.name) : []);
+        } catch (err) {
+          kvError = String(err && err.message ? err.message : err);
+        }
+      }
+      return jsonResponse({
+        kvDetected: !!kv,
+        kvWriteOk,
+        kvError,
+        kvKeys,
+        envKeys: Object.keys(env || {}),
+        memoryRooms: Array.from(memoryRooms.keys()),
+      });
+    }
+
     const code = (url.searchParams.get('code') || '').trim().toUpperCase();
     if (!ROOM_CODE_REGEX.test(code)) {
       return jsonResponse({ error: 'Invalid room code format' }, 400);
@@ -320,7 +308,7 @@ async function handleRoom(request, env, ctx) {
 
     const state = checkRoomState(room);
     if (state.expired) {
-      deleteStoredRoom(request, env, ctx, code);
+      await deleteStoredRoom(request, env, ctx, code);
       return jsonResponse({ exists: true, expired: true, error: 'This room has expired (empty for more than 5 minutes).' });
     }
 
@@ -386,7 +374,7 @@ async function handleRoom(request, env, ctx) {
     }
 
     if (room) {
-      putStoredRoom(request, env, ctx, code, room);
+      await putStoredRoom(request, env, ctx, code, room);
     }
 
     return jsonResponse({ success: true, room });

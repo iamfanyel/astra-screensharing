@@ -250,11 +250,11 @@
     }
   }
 
-  // Pre-check room status on load; auto-redirect if room does not exist or has expired
+  // Pre-check room status on load; only auto-redirect if the room was explicitly marked expired
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
-      if (status && !status.fallback && (status.expired || status.exists === false)) {
+      if (status && !status.fallback && status.expired) {
         location.replace('../?deleted=1');
       }
     });
@@ -276,7 +276,7 @@
       let roomStatus = null;
       if (!wantsCreate && roomCode) {
         roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && !roomStatus.fallback && (roomStatus.expired || roomStatus.exists === false)) {
+        if (roomStatus && !roomStatus.fallback && roomStatus.expired) {
           location.replace('../?deleted=1');
           return;
         }
@@ -293,9 +293,15 @@
         try {
           state.signal = await Signal.join(roomCode, name);
         } catch (err) {
-          // If no host is in the room, reclaim the empty room if still valid:
-          if (err && err.type === 'peer-unavailable' && (!roomStatus || !roomStatus.expired)) {
-            state.signal = await Signal.reclaim(roomCode, name);
+          // If no host responded (host closed tab or tab refresh):
+          // Only reclaim if the room is still within the 5-minute valid window
+          const canReclaim = !roomStatus || (!roomStatus.expired && roomStatus.exists !== false);
+          if (err && err.type === 'peer-unavailable' && canReclaim) {
+            try {
+              state.signal = await Signal.reclaim(roomCode, name);
+            } catch (_) {
+              throw err;
+            }
           } else {
             throw err;
           }
