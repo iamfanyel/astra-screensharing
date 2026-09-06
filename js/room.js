@@ -250,11 +250,11 @@
     }
   }
 
-  // Pre-check room status on load; only redirect if the room was explicitly marked expired
+  // Pre-check room status on load; auto-redirect if room does not exist or has expired
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
-      if (status && !status.fallback && status.expired) {
+      if (status && !status.fallback && (status.expired || status.exists === false)) {
         location.replace('../?deleted=1');
       }
     });
@@ -276,7 +276,7 @@
       let roomStatus = null;
       if (!wantsCreate && roomCode) {
         roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && !roomStatus.fallback && roomStatus.expired) {
+        if (roomStatus && !roomStatus.fallback && (roomStatus.expired || roomStatus.exists === false)) {
           location.replace('../?deleted=1');
           return;
         }
@@ -290,7 +290,16 @@
       } else if (roomStatus && roomStatus.needsHost) {
         state.signal = await Signal.reclaim(roomCode, name);
       } else {
-        state.signal = await Signal.join(roomCode, name);
+        try {
+          state.signal = await Signal.join(roomCode, name);
+        } catch (err) {
+          // If no host is in the room, reclaim the empty room if still valid:
+          if (err && err.type === 'peer-unavailable' && (!roomStatus || !roomStatus.expired)) {
+            state.signal = await Signal.reclaim(roomCode, name);
+          } else {
+            throw err;
+          }
+        }
       }
 
       enterRoom();
@@ -610,7 +619,9 @@
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
     history.replaceState(null, '', '?room=' + encodeURIComponent(signal.code));
-    notifyRoomApi('create', signal.code, signal.roster ? signal.roster.size : 1);
+    if (signal.isHub) {
+      notifyRoomApi('create', signal.code, signal.roster ? signal.roster.size : 1);
+    }
     startRoomApiHeartbeat(signal.code);
 
     if (!window.AstraMedia.canShareScreen && el.shareGroup) {
