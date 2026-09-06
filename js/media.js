@@ -26,6 +26,14 @@
       this.ctx = new Ctx();
       this.destination = this.ctx.createMediaStreamDestination();
       this.sources = new Map(); // key -> { node, gain, stream }
+
+      // A context can be suspended out from under us: a device change, or the
+      // OS handing the endpoint to something else. Nothing surfaces that - the
+      // outgoing track simply goes quiet - so pick it back up when it happens.
+      // The first-gesture case is already covered by wakeAudio in room.js.
+      this.ctx.addEventListener('statechange', () => {
+        if (this.ctx.state === 'suspended') this.resume();
+      });
     }
 
     /** The single audio track every peer sends. Silent until something is added. */
@@ -78,10 +86,33 @@
     const video = { frameRate: { ideal: quality.frameRate } };
     if (quality.height) video.height = { ideal: quality.height };
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video,
-      audio: !!systemAudio,
-    });
+    const request = { video, audio: false };
+    if (systemAudio) {
+      request.audio = {
+        // Screen audio is not a voice signal. Left on, the microphone
+        // processing chain gates and ducks music, and on a loopback feed the
+        // echo canceller sees a copy of what is playing out and removes it.
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        // Keep the audio audible on this machine while it is being shared.
+        suppressLocalAudioPlayback: false,
+        // Leave out whatever this tab is playing - otherwise the voices of the
+        // other people in the room are captured and sent straight back to them.
+        restrictOwnAudio: true,
+      };
+      // Ask for system audio by name rather than leaving the choice to the
+      // browser's default.
+      request.systemAudio = 'include';
+      // The one that decides *which* audio arrives. Without it the browser
+      // picks a per-surface feed, which on Windows is a loopback of the default
+      // playback device alone - so an app routed to any other output (a
+      // separate Sonar / Voicemeeter channel, say) is silent in the share.
+      // 'system' asks for the whole machine's audio instead.
+      request.windowAudio = 'system';
+    }
+
+    const stream = await navigator.mediaDevices.getDisplayMedia(request);
 
     const track = stream.getVideoTracks()[0];
     const hint = prioritizeFluidity ? 'motion' : (quality.hint || 'detail');

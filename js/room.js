@@ -704,7 +704,9 @@
       if (state.mixer.add('system', capture.stream)) {
         setStatus('Sharing with system audio.');
       } else if (el.systemAudio.checked && shareMode === 'screen') {
-        setStatus('Sharing. No system audio — tick “Share audio” in the picker next time.');
+        // The browser remembers the picker's audio tick box per site, so this
+        // sticks until it is turned back on - worth flagging, not whispering.
+        setStatus('Sharing without audio — tick “Share audio” in the picker.', 'bad');
       } else {
         setStatus('Sharing.');
       }
