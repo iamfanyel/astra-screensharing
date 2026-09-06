@@ -724,6 +724,10 @@ body.sidebar-hidden .topbar-right {
   transition: border-color 0.15s;
 }
 
+.grid[data-count="1"] .tile {
+  cursor: default;
+}
+
 .tile:hover {
   border-color: hsl(var(--tint-h) var(--tint-s) 23.92%);
 }
@@ -2654,6 +2658,7 @@ body.sidebar-hidden .toasts {
 .profile-banner {
   width: 100%;
   height: 100%;
+  background-image: none;
   background-size: cover;
   background-position: center;
   transition: background-image 0.2s ease, filter 0.2s ease;
@@ -2821,6 +2826,7 @@ body.sidebar-hidden .toasts {
 .profile-popup-banner {
   width: 100%;
   height: 100%;
+  background-image: none;
   background-size: cover;
   background-position: center;
 }

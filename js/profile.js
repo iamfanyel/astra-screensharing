@@ -438,12 +438,17 @@
     element.textContent = (paintedName.trim()[0] || '?').toUpperCase();
   }
 
+  const bannerTintCache = new Map();
   function tintBanner(seed) {
+    const key = String(seed || '');
+    if (bannerTintCache.has(key)) return bannerTintCache.get(key);
     let hash = 0;
-    for (const char of String(seed || '')) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-    const h1 = hash % 360;
-    const h2 = (h1 + 45) % 360;
-    return 'linear-gradient(135deg, hsl(' + h1 + ' 35% 24%), hsl(' + h2 + ' 45% 14%))';
+    for (const char of key) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    const hue = hash % 360;
+    const color = 'hsl(' + hue + ' 35% 20%)';
+    if (bannerTintCache.size > 100) bannerTintCache.clear();
+    bannerTintCache.set(key, color);
+    return color;
   }
 
   function paintBanner(element, banner, fallbackSeed) {
@@ -460,7 +465,7 @@
       element.style.backgroundPosition = 'center';
       element.classList.add('has-image');
     } else {
-      element.style.backgroundImage = '';
+      element.style.backgroundImage = 'none';
       element.style.background = tintBanner(fallbackSeed);
       element.classList.remove('has-image');
     }

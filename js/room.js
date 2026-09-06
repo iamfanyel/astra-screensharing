@@ -1831,10 +1831,10 @@
       const isDeafened = isSelf ? !!state.deafened : !!peer?.deafened;
       updateTileUserBadge({ badgeName, badgeIcons }, name || peerName, isHost, isMuted, isDeafened);
 
-      const userActions = document.createElement('div');
-      userActions.className = 'tile-user-actions';
-
       if (!isSelf) {
+        const userActions = document.createElement('div');
+        userActions.className = 'tile-user-actions';
+
         const volumeControl = document.createElement('div');
         volumeControl.className = 'tile-volume-control';
 
@@ -1879,25 +1879,8 @@
         volumeControl.addEventListener('click', (event) => event.stopPropagation());
 
         userActions.appendChild(volumeControl);
+        root.appendChild(userActions);
       }
-
-      const fullBtn = document.createElement('button');
-      fullBtn.className = 'tile-btn';
-      fullBtn.title = 'Fullscreen';
-      fullBtn.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
-        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-        '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3' +
-        'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
-        '<span class="sr-only">Fullscreen</span>';
-      fullBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
-        else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
-      });
-      userActions.appendChild(fullBtn);
-
-      root.appendChild(userActions);
     } else {
       if (!isSelf) {
         pausedOverlay = document.createElement('div');
@@ -2029,8 +2012,10 @@
       root.appendChild(caption);
     }
 
-    // One click anywhere on the tile focuses it, and another gives the grid back.
-    root.addEventListener('click', () => toggleFocus(tileKey));
+    // One click anywhere on the tile focuses it, and another gives the grid back (only when 2+ tiles are present).
+    root.addEventListener('click', () => {
+      if (state.tiles.size > 1) toggleFocus(tileKey);
+    });
 
     slot.appendChild(root);
     el.grid.appendChild(slot);
@@ -2283,6 +2268,16 @@
   }
 
   function toggleFocus(tileKey) {
+    if (state.tiles.size <= 1) {
+      if (state.focused) {
+        state.focused = null;
+        el.grid.classList.remove('has-focus');
+        for (const [, tile] of state.tiles) {
+          tile.slot.classList.remove('focused');
+        }
+      }
+      return;
+    }
     const wasFocused = state.focused === tileKey;
     state.focused = wasFocused ? null : tileKey;
     el.grid.classList.toggle('has-focus', !!state.focused);
@@ -2296,6 +2291,13 @@
     // Drives the share-out rules in the stylesheet: 1 fills, 2 stack, 3 is a
     // pair over a centred tile, 4 is a 2x2, and so on.
     el.grid.dataset.count = String(Math.min(state.tiles.size, 16));
+    if (state.tiles.size <= 1 && state.focused) {
+      state.focused = null;
+      el.grid.classList.remove('has-focus');
+      for (const [, t] of state.tiles) {
+        t.slot.classList.remove('focused');
+      }
+    }
   }
 
   // ------------------------------------------------ voice activity detection
