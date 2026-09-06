@@ -81,7 +81,6 @@
     profilePopupClose: $('profile-popup-close'),
     profilePopupBanner: $('profile-popup-banner'),
     profilePopupAvatar: $('profile-popup-avatar'),
-    profilePopupUserBadges: $('profile-popup-user-badges'),
     profilePopupName: $('profile-popup-name'),
     profilePopupBadges: $('profile-popup-badges'),
     profilePopupDiscord: $('profile-popup-discord'),
@@ -100,7 +99,6 @@
     bannerClearBtn: $('banner-clear-btn'),
     bannerFile: $('banner-file'),
     profileModalAvatar: $('profile-modal-avatar'),
-    profileModalUserBadges: $('profile-modal-user-badges'),
     profileAvatarChange: $('profile-avatar-change'),
     profileAvatarClear: $('profile-avatar-clear'),
     profileAvatarFile: $('profile-avatar-file'),
@@ -358,8 +356,7 @@
           const banner = AstraProfile.getBanner();
           const avatar = AstraProfile.getAvatar();
           const name = AstraProfile.getName();
-          const dev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
-          state.signal.setState({ name, avatar, banner, dev });
+          state.signal.setState({ name, avatar, banner });
           renderPeople();
         }
       },
@@ -377,27 +374,17 @@
     let modalBanner = AstraProfile.getBanner();
     let modalAvatar = AstraProfile.getAvatar();
 
-    function renderModalBadgesAndDiscord() {
-      if (el.profileModalUserBadges) {
-        const isDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
-        if (isDev) {
-          if (!el.profileModalUserBadges.hasChildNodes()) {
-            el.profileModalUserBadges.appendChild(window.AstraDiscord.createDevBadge('Developer'));
-          }
-          el.profileModalUserBadges.hidden = false;
-        } else {
-          el.profileModalUserBadges.textContent = '';
-          el.profileModalUserBadges.hidden = true;
-        }
-      }
+    function renderModalPreview() {
+      const name = (el.profileModalName.value || AstraProfile.getName() || 'Guest').trim();
+      AstraProfile.paintBanner(el.profileModalBanner, modalBanner, name);
+      AstraProfile.paint(el.profileModalAvatar, name, modalAvatar);
+      if (el.bannerClearBtn) el.bannerClearBtn.hidden = !modalBanner;
+      if (el.profileAvatarClear) el.profileAvatarClear.hidden = !modalAvatar;
 
       if (window.AstraDiscord && el.profileModalDiscord && el.profileModalDiscordUser) {
         const user = window.AstraDiscord.getUser();
         if (user && user.username) {
-          const discordLabel = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
-          if (el.profileModalDiscordUser.textContent !== discordLabel) {
-            el.profileModalDiscordUser.textContent = discordLabel;
-          }
+          el.profileModalDiscordUser.textContent = '@' + (user.global_name ? `${user.global_name} (${user.username})` : user.username);
           el.profileModalDiscord.hidden = false;
         } else {
           el.profileModalDiscord.hidden = true;
@@ -405,19 +392,10 @@
       }
     }
 
-    function renderModalPreview() {
-      const name = (el.profileModalName.value || AstraProfile.getName() || 'Guest').trim();
-      AstraProfile.paintBanner(el.profileModalBanner, modalBanner, name);
-      AstraProfile.paint(el.profileModalAvatar, name, modalAvatar);
-      if (el.bannerClearBtn) el.bannerClearBtn.hidden = !modalBanner;
-      if (el.profileAvatarClear) el.profileAvatarClear.hidden = !modalAvatar;
-    }
-
     function openModal() {
       modalBanner = AstraProfile.getBanner();
       modalAvatar = AstraProfile.getAvatar();
       el.profileModalName.value = AstraProfile.getName();
-      renderModalBadgesAndDiscord();
       renderModalPreview();
       el.profileModal.hidden = false;
       if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'true');
@@ -1682,15 +1660,13 @@
     }
 
     // Badges are cheap to compare and comparatively costly to build.
-    const isDevPeer = row.isSelf ? !!(window.AstraDiscord && window.AstraDiscord.isDev()) : !!peer.dev;
     const canKick = !row.isSelf && !!state.signal.self?.host;
-    const tagKey = [peer.host, isDevPeer, peer.sharing, peer.deafened, peer.mic, canKick, peer.name].join('|');
+    const tagKey = [peer.host, peer.sharing, peer.deafened, peer.mic, canKick, peer.name].join('|');
     if (row.tagKey === tagKey) return;
     row.tagKey = tagKey;
 
     row.tags.textContent = '';
     if (peer.host) row.tags.appendChild(tag('HOST', 'tag-host'));
-    if (isDevPeer) row.tags.appendChild(devTag());
     if (peer.sharing) row.tags.appendChild(iconTag(PEOPLE_ICONS.sharing));
     if (peer.deafened) row.tags.appendChild(iconTag(PEOPLE_ICONS.deafened));
     else if (!peer.mic) row.tags.appendChild(iconTag(PEOPLE_ICONS.micMuted));
@@ -1766,26 +1742,6 @@
     return span;
   }
 
-  const DEV_TAG_ICON_SVG =
-    '<svg class="tag-dev-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M8 8.5L4.5 12L8 15.5"/>' +
-    '<path d="M16 8.5L19.5 12L16 15.5"/>' +
-    '<path d="M13.5 6L10.5 18"/>' +
-    '</svg>';
-
-  const devTagTemplate = (() => {
-    const span = document.createElement('span');
-    span.className = 'tag tag-dev';
-    span.title = 'Developer';
-    span.setAttribute('aria-label', 'Developer');
-    span.innerHTML = DEV_TAG_ICON_SVG;
-    return span;
-  })();
-
-  function devTag() {
-    return devTagTemplate.cloneNode(true);
-  }
-
   el.copyLink.addEventListener('click', async () => {
     const link = location.origin + location.pathname + '?room=' + state.signal.code;
     try {
@@ -1801,7 +1757,6 @@
   let activePopupPeerId = null;
   let activePopupAnchor = null;
   let lastPopupTagKey = null;
-  let lastPopupDev = null;
 
   function closeProfilePopup() {
     if (!el.profilePopup || el.profilePopup.hidden) return;
@@ -1809,7 +1764,6 @@
     activePopupPeerId = null;
     activePopupAnchor = null;
     lastPopupTagKey = null;
-    lastPopupDev = null;
     document.removeEventListener('keydown', handlePopupKey);
   }
 
@@ -1842,7 +1796,6 @@
     let avatarData = null;
     let bannerData = null;
     let isHost = false;
-    let isDevUser = false;
     let isSharing = false;
     let isMic = false;
     let isDeafened = false;
@@ -1852,7 +1805,6 @@
       avatarData = AstraProfile.getAvatar();
       bannerData = AstraProfile.getBanner();
       isHost = !!state.signal?.self?.host;
-      isDevUser = !!(window.AstraDiscord && window.AstraDiscord.isDev());
       isSharing = !!state.sharing;
       isMic = !!state.micOn;
       isDeafened = !!state.deafened;
@@ -1866,7 +1818,6 @@
       avatarData = peer.avatar;
       bannerData = peer.banner;
       isHost = !!peer.host;
-      isDevUser = !!peer.dev;
       isSharing = !!peer.sharing;
       isMic = !!peer.mic;
       isDeafened = !!peer.deafened;
@@ -1890,18 +1841,6 @@
       if (isSharing) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.sharing));
       if (isDeafened) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.deafened));
       else if (!isMic) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.micMuted));
-    }
-
-    // User badges (Developer) right next to profile picture
-    if (el.profilePopupUserBadges && lastPopupDev !== isDevUser) {
-      lastPopupDev = isDevUser;
-      el.profilePopupUserBadges.textContent = '';
-      if (isDevUser && window.AstraDiscord) {
-        el.profilePopupUserBadges.appendChild(window.AstraDiscord.createDevBadge('Developer'));
-        el.profilePopupUserBadges.hidden = false;
-      } else {
-        el.profilePopupUserBadges.hidden = true;
-      }
     }
 
     // Discord info
@@ -1972,10 +1911,6 @@
       return;
     }
 
-    if (activePopupPeerId !== peerId) {
-      lastPopupTagKey = null;
-      lastPopupDev = null;
-    }
     activePopupPeerId = peerId;
     activePopupAnchor = anchorEl;
 

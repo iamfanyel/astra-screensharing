@@ -54,39 +54,6 @@ window.AstraDiscord = (function () {
     } catch (_) {}
   }
 
-  const DEV_USERNAMES = new Set(['imraphy', 'raphy']);
-
-  const DEV_BADGE_SVG =
-    '<svg class="badge-dev-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true">' +
-    '<path d="M12 2L3 6.5V12C3 17.5 6.8 22.1 12 23.5C17.2 22.1 21 17.5 21 12V6.5L12 2Z" fill="#23A55A"/>' +
-    '<path d="M8.5 10L6.5 12L8.5 14" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M15.5 10L17.5 12L15.5 14" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M13 9L11 15" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>' +
-    '</svg>';
-
-  let devBadgeTemplate = null;
-
-  function isDev(user) {
-    const u = user || getUser();
-    if (!u) return false;
-    const username = String(u.username || '').trim().toLowerCase();
-    const globalName = String(u.global_name || '').trim().toLowerCase();
-    const displayName = String(u.displayName || '').trim().toLowerCase();
-    return DEV_USERNAMES.has(username) || DEV_USERNAMES.has(globalName) || DEV_USERNAMES.has(displayName);
-  }
-
-  function createDevBadge(title = 'Developer') {
-    if (!devBadgeTemplate) {
-      devBadgeTemplate = document.createElement('span');
-      devBadgeTemplate.className = 'badge-dev';
-      devBadgeTemplate.innerHTML = DEV_BADGE_SVG;
-    }
-    const span = devBadgeTemplate.cloneNode(true);
-    span.title = title;
-    span.setAttribute('aria-label', title);
-    return span;
-  }
-
   /**
    * Pushes profile updates (name and/or photo) to Cloudflare.
    */
@@ -598,8 +565,5 @@ window.AstraDiscord = (function () {
     syncBanner: syncBanner,
     syncProfileToCloud: syncProfileToCloud,
     fetchCloudProfile: fetchCloudProfile,
-    isDev: isDev,
-    createDevBadge: createDevBadge,
-    DEV_BADGE_SVG: DEV_BADGE_SVG,
   };
 })();
