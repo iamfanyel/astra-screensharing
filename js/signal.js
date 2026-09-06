@@ -115,6 +115,10 @@
         } catch (err) {
           lastError = err;
           if (err && err.type === 'unavailable-id') continue; // code taken, roll another
+          if (attempt < 4 && (err && (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error'))) {
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
+          }
           throw err;
         }
       }
@@ -126,8 +130,18 @@
         const peer = new Peer(window.ASTRA.idPrefix + code, peerOptions());
         let settled = false;
 
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            try { peer.destroy(); } catch (_) {}
+            reject(Object.assign(new Error('Broker connection timed out'), { type: 'network' }));
+          }
+        }, JOIN_TIMEOUT_MS);
+
         peer.on('open', () => {
+          if (settled) return;
           settled = true;
+          clearTimeout(timer);
           this.peer = peer;
           this.isHub = true;
           this.code = code;
@@ -168,6 +182,7 @@
         peer.on('error', (err) => {
           if (settled) return this.emit('error', err);
           settled = true;
+          clearTimeout(timer);
           peer.destroy();
           reject(err);
         });
@@ -310,9 +325,10 @@
 
     // ------------------------------------------------------------------ join
 
-    static join(code, name) {
+    static join(code, name, _attempt) {
       const signal = new Signal();
       const roomCode = String(code || '').trim().toUpperCase();
+      const attempt = _attempt || 0;
 
       return new Promise((resolve, reject) => {
         const peer = new Peer(undefined, peerOptions());
@@ -382,6 +398,18 @@
         });
 
         peer.on('error', (err) => {
+          if (!settled && attempt < 2 && err && (
+            err.type === 'network' || err.type === 'server-error' ||
+            err.type === 'socket-error' || err.type === 'socket-closed'
+          )) {
+            settled = true;
+            clearTimeout(timer);
+            try { peer.destroy(); } catch (_) {}
+            setTimeout(() => {
+              Signal.join(roomCode, name, attempt + 1).then(resolve, reject);
+            }, 800);
+            return;
+          }
           const friendly =
             err && err.type === 'peer-unavailable'
               ? new Error('No room with that code. It may have expired.')
