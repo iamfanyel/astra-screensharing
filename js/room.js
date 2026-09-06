@@ -250,11 +250,11 @@
     }
   }
 
-  // Pre-check room status on load; reuse the same promise if startSession runs immediately
+  // Pre-check room status on load; only redirect if the room was explicitly marked expired
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
-      if (status && !status.fallback && (status.expired || status.exists === false)) {
+      if (status && !status.fallback && status.expired) {
         location.replace('../?deleted=1');
       }
     });
@@ -276,7 +276,7 @@
       let roomStatus = null;
       if (!wantsCreate && roomCode) {
         roomStatus = await (roomStatusPromise || checkRoomStatus(roomCode));
-        if (roomStatus && !roomStatus.fallback && (roomStatus.expired || roomStatus.exists === false)) {
+        if (roomStatus && !roomStatus.fallback && roomStatus.expired) {
           location.replace('../?deleted=1');
           return;
         }
