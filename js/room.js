@@ -166,6 +166,7 @@
     peopleAvatars: new Map(), // peer id -> HTML element (.avatar)
     peopleRows: new Map(), // peer id -> { item, avatar, name, tags, ... }
     peerVolumes: new Map(), // peer id -> { volume: 1.0, muted: false }
+    streamVolumes: new Map(), // peer id -> { volume: 1.0, muted: false }
     peerWatching: new Map(), // peer id -> boolean
     focused: null,
   };
@@ -1546,12 +1547,36 @@
     }
 
     for (const tile of state.tiles.values()) {
-      if (tile.peerId === id && tile.updateVolumeUI) {
+      if (tile.peerId === id && tile.kind !== 'screen' && tile.updateVolumeUI) {
         tile.updateVolumeUI();
       }
     }
     if (activePopupPeerId === id && typeof updatePopupVolumeUI === 'function') {
       updatePopupVolumeUI(id);
+    }
+  }
+
+  function getStreamVolume(id) {
+    if (!state.streamVolumes.has(id)) {
+      state.streamVolumes.set(id, { volume: 1.0, muted: false });
+    }
+    return state.streamVolumes.get(id);
+  }
+
+  function setStreamVolume(id, vol, muted) {
+    const data = getStreamVolume(id);
+    if (vol !== undefined) data.volume = Math.max(0, Math.min(1, vol));
+    if (muted !== undefined) data.muted = muted;
+
+    for (const tile of state.tiles.values()) {
+      if (tile.peerId === id && tile.kind === 'screen') {
+        if (tile.video) {
+          tile.video.volume = data.muted ? 0 : data.volume;
+        }
+        if (tile.updateVolumeUI) {
+          tile.updateVolumeUI();
+        }
+      }
     }
   }
 
@@ -1886,57 +1911,6 @@
       const isMuted = isSelf ? !state.micOn : peer?.mic === false;
       const isDeafened = isSelf ? !!state.deafened : !!peer?.deafened;
       updateTileUserBadge({ badgePrefixIcons, badgeName, badgeIcons }, name || peerName, isHost, isMuted, isDeafened);
-
-      if (!isSelf) {
-        const userActions = document.createElement('div');
-        userActions.className = 'tile-user-actions';
-
-        const volumeControl = document.createElement('div');
-        volumeControl.className = 'tile-volume-control';
-
-        volumeBtn = document.createElement('button');
-        volumeBtn.type = 'button';
-        volumeBtn.className = 'tile-btn tile-volume-btn';
-        volumeBtn.title = 'Mute stream';
-
-        const sliderWrap = document.createElement('div');
-        sliderWrap.className = 'tile-volume-slider-wrap';
-
-        volumeSlider = document.createElement('input');
-        volumeSlider.type = 'range';
-        volumeSlider.className = 'tile-volume-slider';
-        volumeSlider.min = '0';
-        volumeSlider.max = '100';
-        volumeSlider.value = '100';
-        volumeSlider.setAttribute('aria-label', 'Peer volume');
-
-        sliderWrap.append(volumeSlider);
-        volumeControl.append(sliderWrap, volumeBtn);
-
-        volumeBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          const data = getPeerVolume(actualPeerId);
-          if (data.muted) {
-            const restore = data.volume > 0 ? data.volume : 1.0;
-            setPeerVolume(actualPeerId, restore, false);
-          } else {
-            setPeerVolume(actualPeerId, data.volume, true);
-          }
-        });
-
-        volumeSlider.addEventListener('input', (event) => {
-          event.stopPropagation();
-          const val = parseFloat(volumeSlider.value) / 100;
-          setPeerVolume(actualPeerId, val, val === 0);
-        });
-
-        volumeSlider.addEventListener('click', (event) => event.stopPropagation());
-        volumeSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
-        volumeControl.addEventListener('click', (event) => event.stopPropagation());
-
-        userActions.appendChild(volumeControl);
-        root.appendChild(userActions);
-      }
     } else {
       if (!isSelf) {
         pausedOverlay = document.createElement('div');
@@ -2011,19 +1985,19 @@
 
         volumeBtn.addEventListener('click', (event) => {
           event.stopPropagation();
-          const data = getPeerVolume(actualPeerId);
+          const data = getStreamVolume(actualPeerId);
           if (data.muted) {
             const restore = data.volume > 0 ? data.volume : 1.0;
-            setPeerVolume(actualPeerId, restore, false);
+            setStreamVolume(actualPeerId, restore, false);
           } else {
-            setPeerVolume(actualPeerId, data.volume, true);
+            setStreamVolume(actualPeerId, data.volume, true);
           }
         });
 
         volumeSlider.addEventListener('input', (event) => {
           event.stopPropagation();
           const val = parseFloat(volumeSlider.value) / 100;
-          setPeerVolume(actualPeerId, val, val === 0);
+          setStreamVolume(actualPeerId, val, val === 0);
         });
 
         volumeSlider.addEventListener('click', (event) => event.stopPropagation());
@@ -2118,7 +2092,7 @@
       volumeSlider,
       updateVolumeUI: () => {
         if (!volumeBtn || !volumeSlider) return;
-        const data = getPeerVolume(actualPeerId);
+        const data = actualKind === 'screen' ? getStreamVolume(actualPeerId) : getPeerVolume(actualPeerId);
         const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
         volumeSlider.value = String(displayVol);
 
@@ -2575,6 +2549,7 @@
     }
     vad.detach(id);
     state.peerVolumes.delete(id);
+    state.streamVolumes.delete(id);
     for (const kind of TILE_KINDS) state.peerWatching.delete(tileKey(id, kind));
     state.peerWatching.delete(id);
   }
@@ -3352,6 +3327,7 @@
     state.remote.clear();
     state.peerWatching.clear();
     state.peerVolumes.clear();
+    state.streamVolumes.clear();
     stopRoomApiHeartbeat();
   }
 

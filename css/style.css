@@ -994,24 +994,6 @@ body.sidebar-hidden .topbar-right {
   color: #f59e0b; /* Discord gold */
 }
 
-/* User tile action buttons (top-right, hover) */
-.tile-user-actions {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 6;
-}
-
-.tile.user-tile:hover .tile-user-actions,
-.tile.user-tile:focus-within .tile-user-actions {
-  opacity: 1;
-}
-
 /* Screen Tile Specifics */
 .tile.screen-tile video {
   object-fit: contain;
