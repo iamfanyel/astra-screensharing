@@ -28,6 +28,7 @@
   --ok: hsl(var(--tint-h) var(--tint-s-text) 83.92%);
   --danger: #ff6b6b; /* readable on dark: error text, warning borders */
   --speaking: #23a55a; /* the ring and dot that mean "this person is talking" */
+  --wife: #ff3da6; /* the Developer's Wife badge */
   --live: #7abaff; /* sharing a screen or camera right now */
   --danger-strong: #c62828; /* the hang-up disc */
   --danger-strong-hover: #d93636;
@@ -1581,6 +1582,11 @@ input.theme-hue::-moz-range-track {
   color: #ffffff;
 }
 
+.person.has-banner .tag-wife {
+  background: var(--wife);
+  color: #ffffff;
+}
+
 .person.has-banner button.tag-danger {
   background: rgba(255, 107, 107, 0.25);
   color: #ff8585;
@@ -1983,8 +1989,8 @@ button.tag-danger:hover {
   text-transform: uppercase;
 }
 
-.tag-dev {
-  background: var(--speaking);
+.tag-dev,
+.tag-wife {
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -1993,7 +1999,15 @@ button.tag-danger:hover {
   cursor: default;
 }
 
-.tag-dev .tag-dev-icon {
+.tag-dev {
+  background: var(--speaking);
+}
+
+.tag-wife {
+  background: var(--wife);
+}
+
+.tag-badge-icon {
   display: block;
   width: 13px;
   height: 13px;
@@ -3405,6 +3419,7 @@ body.sidebar-hidden .toasts {
 }
 
 /* Developer Badge */
+.badge-account,
 .badge-dev {
   display: inline-flex;
   align-items: center;
@@ -3416,10 +3431,12 @@ body.sidebar-hidden .toasts {
   cursor: pointer;
 }
 
+.badge-account:hover,
 .badge-dev:hover {
   transform: scale(1.12);
 }
 
+.badge-account .badge-dev-icon,
 .badge-dev-icon {
   display: block;
   width: 26px;

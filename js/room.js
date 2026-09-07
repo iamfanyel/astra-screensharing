@@ -418,11 +418,12 @@
           const banner = AstraProfile.getBanner();
           const avatar = AstraProfile.getAvatar();
           const name = AstraProfile.getName();
-          const dev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
           // Connecting or disconnecting mid-room: tell the others either way,
-          // so the account shows up and stops showing up when it should.
+          // so the account and its badge show up and stop showing up with it.
+          const dev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
+          const badge = window.AstraDiscord.badgeFor();
           const discord = window.AstraDiscord.accountLabel() || null;
-          state.signal.setState({ name, avatar, banner, dev, discord });
+          state.signal.setState({ name, avatar, banner, dev, badge, discord });
           renderPeople();
         }
       },
@@ -441,18 +442,7 @@
     let modalAvatar = AstraProfile.getAvatar();
 
     function renderModalBadgesAndDiscord() {
-      if (el.profileModalUserBadges) {
-        const isDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
-        if (isDev) {
-          if (!el.profileModalUserBadges.hasChildNodes()) {
-            el.profileModalUserBadges.appendChild(window.AstraDiscord.createDevBadge('Developer'));
-          }
-          el.profileModalUserBadges.hidden = false;
-        } else {
-          el.profileModalUserBadges.textContent = '';
-          el.profileModalUserBadges.hidden = true;
-        }
-      }
+      paintBadge(el.profileModalUserBadges, badgeOf(null, true));
 
       if (window.AstraDiscord && el.profileModalDiscord && el.profileModalDiscordUser) {
         const discordLabel = window.AstraDiscord.accountLabel();
@@ -891,6 +881,22 @@
     } finally {
       el.share.disabled = false;
     }
+  }
+
+  /** The badge id to show for a peer, or '' for none. */
+  function badgeOf(peer, isSelf) {
+    if (isSelf) return window.AstraDiscord ? window.AstraDiscord.badgeFor() : '';
+    if (!peer) return '';
+    return peer.badge || (peer.dev ? 'dev' : '');
+  }
+
+  /** Fill a badge holder, hiding it when there is nothing to show. */
+  function paintBadge(holder, badgeId) {
+    if (!holder) return;
+    holder.textContent = '';
+    const badge = badgeId && window.AstraDiscord ? window.AstraDiscord.createBadge(badgeId) : null;
+    if (badge) holder.appendChild(badge);
+    holder.hidden = !badge;
   }
 
   const fluidityOn = () => (el.fluidity ? el.fluidity.checked : true);
@@ -3199,17 +3205,18 @@
     }
 
     // Badges are cheap to compare and comparatively costly to build.
-    const isDevPeer = row.isSelf ? !!(window.AstraDiscord && window.AstraDiscord.isDev()) : !!peer.dev;
+    const peerBadge = badgeOf(peer, row.isSelf);
     const canKick = !row.isSelf && !!state.signal?.self?.host;
     const isSharing = row.isSelf ? !!state.sharing : !!peer.sharing;
     const isCamera = row.isSelf ? !!state.cameraOn : !!peer.camera;
-    const tagKey = [peer.host, isDevPeer, isSharing, isCamera, isDeafened, isMic, canKick, peer.name].join('|');
+    const tagKey = [peer.host, peerBadge, isSharing, isCamera, isDeafened, isMic, canKick, peer.name].join('|');
     if (row.tagKey === tagKey) return;
     row.tagKey = tagKey;
 
     row.tags.textContent = '';
     if (peer.host) row.tags.appendChild(tag('HOST', 'tag-host'));
-    if (isDevPeer) row.tags.appendChild(devTag());
+    const badgeChip = badgeTag(peerBadge);
+    if (badgeChip) row.tags.appendChild(badgeChip);
     if (isSharing) row.tags.appendChild(iconTag(PEOPLE_ICONS.sharing));
     if (isCamera) row.tags.appendChild(iconTag(PEOPLE_ICONS.camera));
     if (isDeafened) row.tags.appendChild(iconTag(PEOPLE_ICONS.deafened));
@@ -3293,24 +3300,46 @@
     return span;
   }
 
-  const DEV_TAG_ICON_SVG =
-    '<svg class="tag-dev-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M8 8.5L4.5 12L8 15.5"/>' +
-    '<path d="M16 8.5L19.5 12L16 15.5"/>' +
-    '<path d="M13.5 6L10.5 18"/>' +
-    '</svg>';
+  /**
+   * The compact badge worn in the people list, one per badge id. The larger
+   * version beside a profile picture lives in js/discord.js - these two are the
+   * only places a badge is drawn.
+   */
+  const BADGE_TAGS = {
+    dev: {
+      title: 'Developer',
+      cls: 'tag-dev',
+      svg:
+        '<path d="M8 8.5L4.5 12L8 15.5"/>' +
+        '<path d="M16 8.5L19.5 12L16 15.5"/>' +
+        '<path d="M13.5 6L10.5 18"/>',
+    },
+    wife: {
+      title: "Developer's Wife",
+      cls: 'tag-wife',
+      svg:
+        '<path d="M12 19s-6-3.9-6-8a3.6 3.6 0 0 1 6-2.2A3.6 3.6 0 0 1 18 11c0 4.1-6 8-6 8Z" fill="#ffffff" stroke="none"/>',
+    },
+  };
 
-  const devTagTemplate = (() => {
-    const span = document.createElement('span');
-    span.className = 'tag tag-dev';
-    span.title = 'Developer';
-    span.setAttribute('aria-label', 'Developer');
-    span.innerHTML = DEV_TAG_ICON_SVG;
-    return span;
-  })();
+  const badgeTagTemplates = new Map();
 
-  function devTag() {
-    return devTagTemplate.cloneNode(true);
+  /** The people-list tag for a badge id, or null when there is none. */
+  function badgeTag(badgeId) {
+    const def = BADGE_TAGS[badgeId];
+    if (!def) return null;
+    if (!badgeTagTemplates.has(badgeId)) {
+      const span = document.createElement('span');
+      span.className = 'tag ' + def.cls;
+      span.title = def.title;
+      span.setAttribute('aria-label', def.title);
+      span.innerHTML =
+        '<svg class="tag-badge-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+        'stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" ' +
+        'aria-hidden="true">' + def.svg + '</svg>';
+      badgeTagTemplates.set(badgeId, span);
+    }
+    return badgeTagTemplates.get(badgeId).cloneNode(true);
   }
 
   el.copyLink.addEventListener('click', async () => {
@@ -3369,7 +3398,7 @@
     let avatarData = null;
     let bannerData = null;
     let isHost = false;
-    let isDevUser = false;
+    let badgeId = '';
     let isSharing = false;
     let isCamera = false;
     let isMic = false;
@@ -3383,7 +3412,7 @@
       avatarData = AstraProfile.getAvatar();
       bannerData = AstraProfile.getBanner();
       isHost = !!state.signal?.self?.host;
-      isDevUser = !!(window.AstraDiscord && window.AstraDiscord.isDev());
+      badgeId = badgeOf(null, true);
       isSharing = !!state.sharing;
       isCamera = !!state.cameraOn;
       isMic = !!state.micOn;
@@ -3399,7 +3428,7 @@
       avatarData = peer.avatar;
       bannerData = peer.banner;
       isHost = !!peer.host;
-      isDevUser = !!peer.dev;
+      badgeId = badgeOf(peer, false);
       isSharing = !!peer.sharing;
       isCamera = !!peer.camera;
       isMic = !!peer.mic;
@@ -3428,16 +3457,10 @@
       else if (!isMic) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.micMuted));
     }
 
-    // User badges (Developer) right next to profile picture
-    if (el.profilePopupUserBadges && lastPopupDev !== isDevUser) {
-      lastPopupDev = isDevUser;
-      el.profilePopupUserBadges.textContent = '';
-      if (isDevUser && window.AstraDiscord) {
-        el.profilePopupUserBadges.appendChild(window.AstraDiscord.createDevBadge('Developer'));
-        el.profilePopupUserBadges.hidden = false;
-      } else {
-        el.profilePopupUserBadges.hidden = true;
-      }
+    // Account badge, right next to the profile picture.
+    if (lastPopupDev !== badgeId) {
+      lastPopupDev = badgeId;
+      paintBadge(el.profilePopupUserBadges, badgeId);
     }
 
     if (discordLabel) {

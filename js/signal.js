@@ -45,9 +45,10 @@
 
   /** A peer as it looks the moment it joins. */
   function newMember(id, name, host, dev = false) {
-    const member = { id, name: cleanName(name), avatar: null, banner: null, discord: null, host: !!host, screenTrackId: null, cameraTrackId: null, screenAudioTrackId: null, watching: [] };
+    const member = { id, name: cleanName(name), avatar: null, banner: null, discord: null, badge: '', host: !!host, screenTrackId: null, cameraTrackId: null, screenAudioTrackId: null, watching: [] };
     for (const flag of PEER_FLAGS) member[flag] = false;
     member.dev = !!dev;
+    if (dev) member.badge = 'dev';
     return member;
   }
 
@@ -70,6 +71,13 @@
     }
     if ('banner' in patch) {
       out.banner = window.AstraProfile && window.AstraProfile.isBanner(patch.banner) ? patch.banner : null;
+    }
+    if ('badge' in patch) {
+      // Only ids this build can draw; anything else is treated as no badge.
+      out.badge = window.AstraDiscord && window.AstraDiscord.isBadge(patch.badge) ? patch.badge : '';
+    } else if (typeof patch.dev === 'boolean') {
+      // A peer on the older build announces `dev` and nothing else.
+      out.badge = patch.dev ? 'dev' : '';
     }
     if ('discord' in patch) {
       // A short label from someone else's browser: trimmed and capped, and
@@ -182,6 +190,7 @@
           this.hostId = peer.id;
           const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
           const selfDiscord = window.AstraDiscord ? window.AstraDiscord.accountLabel() || null : null;
+          const selfBadge = window.AstraDiscord ? window.AstraDiscord.badgeFor() : '';
           this.roster.set(peer.id, {
             id: peer.id,
             name,
@@ -190,6 +199,7 @@
             mic: false,
             deafened: false,
             dev: selfDev,
+            badge: selfBadge,
             discord: selfDiscord,
             avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
             banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
@@ -407,6 +417,7 @@
             metadata: {
               name: cleanName(name),
               dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
+              badge: window.AstraDiscord ? window.AstraDiscord.badgeFor() : '',
               discord: window.AstraDiscord ? window.AstraDiscord.accountLabel() : '',
             },
             reliable: true,
@@ -682,6 +693,7 @@
             mic: me ? me.mic : false,
             deafened: me ? me.deafened : false,
             dev: me ? !!me.dev : false,
+            badge: me ? me.badge || '' : '',
             discord: me ? me.discord : null,
           },
           reliable: true,

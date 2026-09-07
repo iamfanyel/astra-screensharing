@@ -54,8 +54,6 @@ window.AstraDiscord = (function () {
     } catch (_) {}
   }
 
-  const DEV_USERNAMES = new Set(['imraphy', 'raphy']);
-
   const DEV_BADGE_SVG =
     '<svg class="badge-dev-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true">' +
     '<path d="M12 2L3 6.5V12C3 17.5 6.8 22.1 12 23.5C17.2 22.1 21 17.5 21 12V6.5L12 2Z" fill="#23A55A"/>' +
@@ -64,7 +62,66 @@ window.AstraDiscord = (function () {
     '<path d="M13 9L11 15" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>' +
     '</svg>';
 
-  let devBadgeTemplate = null;
+  const WIFE_BADGE_SVG =
+    '<svg class="badge-dev-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true">' +
+    '<path d="M12 2L3 6.5V12C3 17.5 6.8 22.1 12 23.5C17.2 22.1 21 17.5 21 12V6.5L12 2Z" fill="#FF3DA6"/>' +
+    '<path d="M12 17.2c-.3 0-.6-.1-.8-.3-1.9-1.5-3.8-3.1-3.8-5.2a2.4 2.4 0 0 1 4.6-1 2.4 2.4 0 0 1 4.6 1c0 2.1-1.9 3.7-3.8 5.2-.2.2-.5.3-.8.3Z" fill="#ffffff"/>' +
+    '</svg>';
+
+  /**
+   * Account badges, by the badge id that travels between peers.
+   *
+   * Adding one is a row here plus a row in BADGE_BY_HANDLE - the signalling,
+   * the people list, the profile card and the popup all read from this.
+   */
+  const BADGES = {
+    dev: { title: 'Developer', svg: DEV_BADGE_SVG },
+    wife: { title: "Developer's Wife", svg: WIFE_BADGE_SVG },
+  };
+
+  /** Discord handles that earn a badge, lower-cased. */
+  const BADGE_BY_HANDLE = new Map([
+    ['imraphy', 'dev'],
+    ['raphy', 'dev'],
+    ['___soso___', 'wife'],
+  ]);
+
+  const badgeTemplates = new Map();
+
+  /** Which badge this account carries, or '' for none. */
+  function badgeFor(user) {
+    const u = user === undefined ? getUser() : user;
+    if (!u) return '';
+    for (const field of ['username', 'global_name', 'displayName']) {
+      const handle = String(u[field] || '').trim().toLowerCase();
+      if (handle && BADGE_BY_HANDLE.has(handle)) return BADGE_BY_HANDLE.get(handle);
+    }
+    return '';
+  }
+
+  /** A badge id is only worth carrying if this build knows how to draw it. */
+  function isBadge(id) {
+    return typeof id === 'string' && Object.prototype.hasOwnProperty.call(BADGES, id);
+  }
+
+  function isDev(user) {
+    return badgeFor(user) === 'dev';
+  }
+
+  /** Build a badge element, or null when the id means nothing here. */
+  function createBadge(id) {
+    if (!isBadge(id)) return null;
+    if (!badgeTemplates.has(id)) {
+      const template = document.createElement('span');
+      template.className = 'badge-account';
+      template.innerHTML = BADGES[id].svg;
+      badgeTemplates.set(id, template);
+    }
+    const span = badgeTemplates.get(id).cloneNode(true);
+    span.title = BADGES[id].title;
+    span.setAttribute('aria-label', BADGES[id].title);
+    return span;
+  }
 
   /**
    * How a connected account is written wherever it is shown - the profile
@@ -76,27 +133,6 @@ window.AstraDiscord = (function () {
     const u = user === undefined ? getUser() : user;
     if (!u || !u.username) return '';
     return '@' + (u.global_name ? u.global_name + ' (' + u.username + ')' : u.username);
-  }
-
-  function isDev(user) {
-    const u = user || getUser();
-    if (!u) return false;
-    const username = String(u.username || '').trim().toLowerCase();
-    const globalName = String(u.global_name || '').trim().toLowerCase();
-    const displayName = String(u.displayName || '').trim().toLowerCase();
-    return DEV_USERNAMES.has(username) || DEV_USERNAMES.has(globalName) || DEV_USERNAMES.has(displayName);
-  }
-
-  function createDevBadge(title = 'Developer') {
-    if (!devBadgeTemplate) {
-      devBadgeTemplate = document.createElement('span');
-      devBadgeTemplate.className = 'badge-dev';
-      devBadgeTemplate.innerHTML = DEV_BADGE_SVG;
-    }
-    const span = devBadgeTemplate.cloneNode(true);
-    span.title = title;
-    span.setAttribute('aria-label', title);
-    return span;
   }
 
   /**
@@ -658,7 +694,9 @@ window.AstraDiscord = (function () {
     fetchCloudProfile: fetchCloudProfile,
     accountLabel: accountLabel,
     isDev: isDev,
-    createDevBadge: createDevBadge,
+    createBadge: createBadge,
+    badgeFor: badgeFor,
+    isBadge: isBadge,
     DEV_BADGE_SVG: DEV_BADGE_SVG,
   };
 })();
