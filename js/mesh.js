@@ -200,6 +200,23 @@
       for (const id of Array.from(this.peers.keys())) this.remove(id);
     }
 
+    /**
+     * The video tracks this peer is sending us right now, read from the
+     * connection rather than from anything we cached.
+     *
+     * ontrack fires once per transceiver, and slots are reused rather than torn
+     * down, so a cache built from those events can never be rebuilt from them
+     * if it is lost. The receivers are the standing truth and always answer.
+     */
+    videoTracksFor(id) {
+      const peer = this.peers.get(id);
+      if (!peer) return [];
+      return peer.pc
+        .getReceivers()
+        .map((receiver) => receiver.track)
+        .filter((track) => track && track.kind === 'video' && track.readyState === 'live');
+    }
+
     /** Swap what everybody receives from us. Pass null to publish nothing. */
     setLocalStream(stream) {
       this.localStream = stream;

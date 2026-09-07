@@ -2614,6 +2614,14 @@
         trackSet.add(t);
       }
     }
+    // Ask the connection what it is actually receiving, every time. The set
+    // above is only ever filled by ontrack and the stream's addtrack, and
+    // neither fires again once a transceiver exists - so anything that empties
+    // it (a roster gap during host migration reaches dropPeerMedia) would
+    // otherwise lose this peer's screen until the page reloads.
+    if (state.mesh) {
+      for (const t of state.mesh.videoTracksFor(id)) trackSet.add(t);
+    }
 
     // Drop what has ended - the only place this set shrinks - and collect what
     // can actually be shown. `muted` is the browser saying no data is arriving
