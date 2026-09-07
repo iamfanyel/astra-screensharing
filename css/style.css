@@ -1149,6 +1149,13 @@ body.sidebar-hidden .topbar-right {
 }
 
 /* Screen Tile Specifics */
+.tile.screen-tile,
+.tile.screen-tile:hover,
+.tile.screen-tile.self {
+  border: none;
+  outline: none;
+}
+
 .tile.screen-tile video {
   object-fit: contain;
 }

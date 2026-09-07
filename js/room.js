@@ -1683,6 +1683,9 @@
       if (!tile.video.paused) tile.video.pause();
       if (tile.video.srcObject) tile.video.srcObject = null;
       tile.video.style.visibility = 'hidden';
+      if (state.focused === tileKey) {
+        clearFocus();
+      }
     }
 
     if (!tile.screenAudioTrack && watching) {
