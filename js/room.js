@@ -2162,13 +2162,18 @@
       }
     }
 
+    // Drop what has ended - the only place this set shrinks - and collect what
+    // can actually be shown. `muted` is the browser saying no data is arriving
+    // on that track: a parked sender, or one still coming up. Either way it can
+    // only render black, so it must never win the choice below; `trackunmuted`
+    // runs this again the moment frames start arriving.
+    const liveTracks = [];
     if (trackSet) {
       for (const t of trackSet) {
-        if (t.readyState === 'ended') trackSet.delete(t);
+        if (t.readyState !== 'live') trackSet.delete(t);
+        else if (!t.muted) liveTracks.push(t);
       }
     }
-
-    const liveTracks = trackSet ? Array.from(trackSet).filter((t) => t.readyState === 'live') : [];
 
     const wantsSharing = !!peer.sharing;
     const wantsCamera = !!peer.camera;
@@ -2182,6 +2187,10 @@
         cameraTrack = track;
       } else if (wantsSharing && !wantsCamera) {
         screenTrack = track;
+      // The ids below only match on a peer's first share: reusing a sender
+      // slot deliberately skips renegotiation, so the receiver's track keeps
+      // the id it was created with while the sender mints a new one each time.
+      // The flags above carry the answer in every ordinary case.
       } else if (peer.cameraTrackId === track.id) {
         cameraTrack = track;
       } else if (peer.screenTrackId === track.id) {
@@ -2200,16 +2209,9 @@
         }
       }
       if (!cameraTrack && !screenTrack) {
-        if (liveTracks[0].contentHint === 'detail') {
-          screenTrack = liveTracks[0];
-          cameraTrack = liveTracks[1];
-        } else if (liveTracks[1].contentHint === 'detail') {
-          screenTrack = liveTracks[1];
-          cameraTrack = liveTracks[0];
-        } else {
-          screenTrack = liveTracks[0];
-          cameraTrack = liveTracks[1];
-        }
+        // Nothing to go on but arrival order.
+        screenTrack = liveTracks[0];
+        cameraTrack = liveTracks[1];
       } else if (!cameraTrack && screenTrack) {
         cameraTrack = liveTracks.find((t) => t !== screenTrack) || null;
       } else if (!screenTrack && cameraTrack) {
@@ -2218,7 +2220,7 @@
     }
 
     // Camera attached to user square
-    if (cameraTrack && wantsCamera !== false) {
+    if (cameraTrack && wantsCamera) {
       userTile.root.classList.add('has-camera');
       if (!userTile.video.srcObject || userTile.video.srcObject.getVideoTracks()[0] !== cameraTrack) {
         userTile.video.srcObject = new MediaStream([cameraTrack]);
@@ -2233,7 +2235,9 @@
 
     // Screen share tile
     const screenTileKey = tileKey(id, 'screen');
-    if (screenTrack && wantsSharing !== false) {
+    if (!wantsSharing) {
+      removeTile(screenTileKey);
+    } else if (screenTrack) {
       const screenTitle = `${peerName}'s Screen`;
       const screenTile = tileFor(screenTileKey, screenTitle, id, 'screen');
       if (screenTile.label) screenTile.label.textContent = screenTitle;
@@ -2245,9 +2249,9 @@
       }
       const isWatching = state.peerWatching.get(screenTileKey) !== false;
       setTileWatching(screenTileKey, isWatching);
-    } else {
-      removeTile(screenTileKey);
     }
+    // Still sharing but nothing showable yet - a stalled or still-arriving
+    // track. Leave whatever tile is there rather than destroying it.
 
     // Clean up legacy tiles if any
     removeTile(tileKey(id, 'camera'));

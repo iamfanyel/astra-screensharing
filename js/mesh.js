@@ -58,7 +58,14 @@
         makingOffer: false,
         ignoreOffer: false,
         settingRemoteAnswer: false,
-        senders: [],
+        /**
+         * One { sender, track, kind } per outgoing slot. `track` shadows
+         * sender.track deliberately: replaceTrack updates sender.track in a
+         * queued task, so within a single _sync the park pass and the fill
+         * pass would not see each other's work through the platform's copy.
+         * A parked slot holds null, which is how the next share finds a spare.
+         */
+        slots: [],
         // Tracks already wired for end/mute events, so a renegotiation that
         // re-fires ontrack does not subscribe to the same track twice.
         boundTracks: new WeakSet(),
@@ -133,46 +140,69 @@
       this.maxVideoBitrate = bitrate;
       if (maxFramerate) this.maxVideoFramerate = maxFramerate;
       for (const peer of this.peers.values()) {
-        for (const sender of peer.senders) this._applyBitrate(sender);
+        for (const slot of peer.slots) this._applyBitrate(slot);
       }
     }
 
     setDegradationPreference(preference) {
       this.degradationPreference = preference;
       for (const peer of this.peers.values()) {
-        for (const sender of peer.senders) this._applyBitrate(sender);
+        for (const slot of peer.slots) this._applyBitrate(slot);
       }
     }
 
+    /**
+     * Reconcile what this connection sends with localStream.
+     *
+     * Slots are parked with replaceTrack(null) rather than torn down with
+     * removeTrack. removeTrack leaves behind a transceiver that the next
+     * addTrack will not reuse, so every stop/start of a share added another
+     * video m-line - and another track on every receiver that stays
+     * `readyState: "live"` while permanently muted. Reusing the slot keeps the
+     * connection's shape fixed however many times sharing is toggled, and
+     * swapping a track of the same kind needs no renegotiation at all.
+     */
     _sync(peer) {
       if (peer.closed) return;
-      const wanted = this.localStream ? this.localStream.getTracks() : [];
+      // Tracks still looking for a slot. The park pass claims the ones already
+      // on the wire, so the fill pass only sees what actually changed.
+      const missing = new Set(this.localStream ? this.localStream.getTracks() : []);
 
-      for (const sender of peer.senders.slice()) {
-        if (!sender.track || !wanted.includes(sender.track)) {
-          try {
-            peer.pc.removeTrack(sender);
-          } catch (_) {
-            /* connection already closed */
-          }
-          peer.senders.splice(peer.senders.indexOf(sender), 1);
-        }
+      for (const slot of peer.slots) {
+        if (missing.delete(slot.track)) continue;
+        if (slot.track) this._carry(slot, null);
       }
 
-      for (const track of wanted) {
-        if (peer.senders.some((s) => s.track === track)) continue;
+      for (const track of missing) {
+        const spare = peer.slots.find((slot) => !slot.track && slot.kind === track.kind);
+        if (spare) {
+          this._carry(spare, track);
+          continue;
+        }
         try {
           const sender = peer.pc.addTrack(track, this.localStream);
-          peer.senders.push(sender);
-          this._applyBitrate(sender);
+          const slot = { sender, track, kind: track.kind };
+          peer.slots.push(slot);
+          this._applyBitrate(slot);
         } catch (err) {
           console.warn('[mesh] could not publish track', err);
         }
       }
     }
 
-    async _applyBitrate(sender) {
-      if (!sender.track || sender.track.kind !== 'video') return;
+    /** Put a track on a slot, or null to park it. */
+    _carry(slot, track) {
+      slot.track = track;
+      slot.sender.replaceTrack(track).catch((err) => {
+        // Parking races with teardown often enough not to be worth reporting.
+        if (track) console.warn('[mesh] could not swap track', err);
+      });
+      if (track) this._applyBitrate(slot);
+    }
+
+    async _applyBitrate(slot) {
+      if (slot.kind !== 'video' || !slot.track) return;
+      const sender = slot.sender;
       try {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
