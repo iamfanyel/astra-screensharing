@@ -29,6 +29,19 @@
     };
   }
 
+  /**
+   * Below this a screen share is not worth watching, so a very full room stops
+   * dividing the budget rather than grinding everyone down to nothing.
+   */
+  const MIN_VIDEO_BITRATE = 400000;
+
+  /**
+   * How long a connection may sit in 'disconnected' before we go looking for a
+   * new candidate pair. Long enough that an ordinary blip settles by itself,
+   * short enough that a real route change is not a long stall.
+   */
+  const DISCONNECT_GRACE_MS = 4000;
+
   class Mesh extends EventTarget {
     constructor({ selfId, signal, iceServers }) {
       super();
@@ -69,9 +82,12 @@
         // Tracks already wired for end/mute events, so a renegotiation that
         // re-fires ontrack does not subscribe to the same track twice.
         boundTracks: new WeakSet(),
+        recoverTimer: null,
         closed: false,
       };
       this.peers.set(id, peer);
+      // One more person to send to, so everyone's share of the uplink shrinks.
+      this._reapplyBitrates();
 
       pc.onnegotiationneeded = async () => {
         try {
@@ -102,7 +118,21 @@
 
       pc.onconnectionstatechange = () => {
         this.emit('connectionstate', { id, state: pc.connectionState });
-        if (pc.connectionState === 'failed') pc.restartIce();
+        if (pc.connectionState === 'failed') {
+          clearTimeout(peer.recoverTimer);
+          pc.restartIce();
+          return;
+        }
+        if (pc.connectionState === 'disconnected') {
+          // Give it a moment to come back by itself - most blips do - and only
+          // then go looking for a new path.
+          clearTimeout(peer.recoverTimer);
+          peer.recoverTimer = setTimeout(() => {
+            if (!peer.closed && pc.connectionState === 'disconnected') pc.restartIce();
+          }, DISCONNECT_GRACE_MS);
+          return;
+        }
+        clearTimeout(peer.recoverTimer);
       };
 
       this._sync(peer);
@@ -113,12 +143,14 @@
       const peer = this.peers.get(id);
       if (!peer) return;
       peer.closed = true;
+      clearTimeout(peer.recoverTimer);
       try {
         peer.pc.close();
       } catch (_) {
         /* already closed */
       }
       this.peers.delete(id);
+      this._reapplyBitrates();
     }
 
     close() {
@@ -139,13 +171,30 @@
     setMaxVideoBitrate(bitrate, maxFramerate) {
       this.maxVideoBitrate = bitrate;
       if (maxFramerate) this.maxVideoFramerate = maxFramerate;
-      for (const peer of this.peers.values()) {
-        for (const slot of peer.slots) this._applyBitrate(slot);
-      }
+      this._reapplyBitrates();
     }
 
     setDegradationPreference(preference) {
       this.degradationPreference = preference;
+      this._reapplyBitrates();
+    }
+
+    /**
+     * The per-connection cap: the quality that was picked, unless sending that
+     * much to everyone would exceed the room-wide upload ceiling.
+     *
+     * A mesh sends one copy of the same video per peer, so a per-connection cap
+     * quietly multiplies by the room size. One-to-one is untouched; only a room
+     * big enough to overrun the line gets clamped, and never below the point
+     * where a share stops being worth watching.
+     */
+    _videoBitrate() {
+      const viewers = Math.max(1, this.peers.size);
+      const share = Math.round((window.ASTRA.maxUploadBitrate || Infinity) / viewers);
+      return Math.max(MIN_VIDEO_BITRATE, Math.min(this.maxVideoBitrate, share));
+    }
+
+    _reapplyBitrates() {
       for (const peer of this.peers.values()) {
         for (const slot of peer.slots) this._applyBitrate(slot);
       }
@@ -206,7 +255,7 @@
       try {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
-        params.encodings[0].maxBitrate = this.maxVideoBitrate;
+        params.encodings[0].maxBitrate = this._videoBitrate();
         if (this.maxVideoFramerate) {
           params.encodings[0].maxFramerate = this.maxVideoFramerate;
         }

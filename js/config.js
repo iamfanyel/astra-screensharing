@@ -44,6 +44,17 @@ window.ASTRA = {
   /** A mesh gets expensive fast: every peer sends its stream to every other. */
   maxPeers: 8,
 
+  /**
+   * Ceiling on what this machine uploads in video, across the whole room.
+   *
+   * A mesh sends one copy of your screen to every other person, so the quality
+   * you pick is multiplied by the number of viewers. Left unbounded, a full
+   * room asks the line for more than it can carry and the streams take turns
+   * stalling and recovering. Raise it if you have plenty of upload; lower it if
+   * sharing makes your connection struggle.
+   */
+  maxUploadBitrate: 6000000,
+
   /** Discord OAuth2 Client ID for account connection. */
   discordClientId: '1545790115236945940',
 };

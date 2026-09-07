@@ -833,7 +833,7 @@
 
       // The browser's own "Stop sharing" bar ends the track behind our back.
       state.videoTrack.addEventListener('ended', () => stopSharing());
-      state.videoTrack.contentHint = 'detail';
+      state.videoTrack.contentHint = prioritizeFluidity ? 'motion' : 'detail';
 
       state.localStream.addTrack(state.videoTrack);
 
