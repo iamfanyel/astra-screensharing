@@ -1121,7 +1121,7 @@
 
   function repositionCameraMenu() {
     if (!el.cameraMenu || el.cameraMenu.hidden) return;
-    if (window.innerWidth > 860 && el.controls && (el.cameraGroup || el.camera)) {
+    if (!compact.matches && el.controls && (el.cameraGroup || el.camera)) {
       const dockRect = el.controls.getBoundingClientRect();
       const target = el.cameraGroup || el.camera;
       const groupRect = target.getBoundingClientRect();
@@ -2896,7 +2896,7 @@
   function positionProfilePopup(anchorEl) {
     if (!el.profilePopupCard || !anchorEl) return;
 
-    if (window.innerWidth <= 860) {
+    if (compact.matches) {
       el.profilePopupCard.style.left = '50%';
       el.profilePopupCard.style.top = '50%';
       el.profilePopupCard.style.transform = 'translate(-50%, -50%)';
@@ -3033,13 +3033,24 @@
     }
   }
 
+  /** Every panel with the chip that opens it, so nothing has to name a pair. */
+  const PANELS = [
+    { panel: el.peoplePanel, button: el.togglePeople },
+    { panel: el.chatPanel, button: el.toggleChat },
+  ];
+
+  /**
+   * A soft keyboard would fight the sheet for the screen. That is a fact about
+   * the input, not about the width - a big tablet has the same problem and a
+   * small desktop window does not.
+   */
+  const touch = window.matchMedia('(pointer: coarse)');
+
   el.togglePeople.addEventListener('click', () => togglePanel(el.peoplePanel, el.togglePeople));
   el.toggleChat.addEventListener('click', () => {
     togglePanel(el.chatPanel, el.toggleChat);
     el.toggleChat.classList.remove('chip-accent');
-    // Opening the keyboard under the sheet fights the sheet for the screen, so
-    // only reach for the composer where there is room for both.
-    if (!el.chatPanel.hidden && !compact.matches) el.chatInput.focus();
+    if (!el.chatPanel.hidden && !touch.matches) el.chatInput.focus();
   });
 
   function setPanel(panel, button, open) {
@@ -3047,24 +3058,24 @@
     button.setAttribute('aria-pressed', String(open));
   }
 
+  function closePanels() {
+    for (const entry of PANELS) setPanel(entry.panel, entry.button, false);
+  }
+
   function togglePanel(panel, button) {
     const open = panel.hidden;
-    setPanel(panel, button, open);
     // The sheet shows one panel at a time; a side column can show both.
-    if (open && compact.matches) {
-      if (panel === el.peoplePanel) setPanel(el.chatPanel, el.toggleChat, false);
-      else setPanel(el.peoplePanel, el.togglePeople, false);
-    }
+    if (open && compact.matches) closePanels();
+    setPanel(panel, button, open);
     syncPanels();
   }
 
   function closeSheet() {
-    setPanel(el.peoplePanel, el.togglePeople, false);
-    setPanel(el.chatPanel, el.toggleChat, false);
+    closePanels();
     syncPanels();
   }
 
-  if (el.sheetBackdrop) el.sheetBackdrop.addEventListener('click', closeSheet);
+  el.sheetBackdrop.addEventListener('click', closeSheet);
 
   function syncPanels() {
     el.sidebar.hidden = el.peoplePanel.hidden && el.chatPanel.hidden;
@@ -3075,26 +3086,18 @@
     const split = !el.peoplePanel.hidden && !el.chatPanel.hidden;
     el.resizeY.hidden = !split;
     el.sidebar.classList.toggle('split', split);
-
-    const sheetOpen = compact.matches && !el.sidebar.hidden;
-    document.body.classList.toggle('sheet-open', sheetOpen);
-    if (el.sheetBackdrop) el.sheetBackdrop.hidden = !sheetOpen;
+    // The backdrop and the stood-down dock follow this class in the stylesheet.
+    document.body.classList.toggle('sheet-open', compact.matches && !el.sidebar.hidden);
   }
 
-  // A sheet that covers the room should not be waiting there when the phone is
-  // first picked up, and should not survive a rotation into phone width.
-  let wasCompact = compact.matches;
-  function syncBreakpoint() {
-    if (compact.matches === wasCompact) return;
-    wasCompact = compact.matches;
-    if (wasCompact) closeSheet();
-    else syncPanels();
-  }
-  compact.addEventListener('change', syncBreakpoint);
-  // Belt and braces: a rotation fires both, and some environments deliver the
-  // resize but not the media-query change. The state compare makes the extra
-  // call free on every other resize.
-  window.addEventListener('resize', syncBreakpoint);
+  // Escape closes the sheet, the way it closes every other overlay here.
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.body.classList.contains('sheet-open')) closeSheet();
+  });
+
+  // A sheet that covers the room should not survive a rotation into phone
+  // width, and a side column should be re-derived on the way back out.
+  compact.addEventListener('change', (e) => (e.matches ? closeSheet() : syncPanels()));
 
   // ------------------------------------------------------------- resizing
 
@@ -3200,6 +3203,7 @@
 
   // A window that shrank can leave the sidebar wider than the room allows.
   window.addEventListener('resize', () => {
+    if (compact.matches) return; // the sheet reads none of this
     const width = el.sidebar.getBoundingClientRect().width;
     if (width) document.body.style.setProperty('--sidebar-w', clampSidebar(width) + 'px');
     if (activePopupAnchor && el.profilePopup && !el.profilePopup.hidden) {
