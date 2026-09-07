@@ -296,7 +296,7 @@
       }
 
       state.mixer = new AudioMixer();
-      await state.mixer.resume();
+      const mixerReady = state.mixer.resume();
 
       if (wantsCreate) {
         state.signal = await Signal.create(name);
@@ -321,6 +321,7 @@
         }
       }
 
+      await mixerReady;
       enterRoom();
     } catch (err) {
       console.error(err);

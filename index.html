@@ -8,6 +8,13 @@
   <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="css/style.css" />
   <script src="js/theme.js"></script>
+  <!-- The room needs PeerJS from a CDN and a socket to the signalling broker.
+       Warming both here means the lobby pays the DNS and TLS cost while someone
+       is still reading the page, instead of it landing on the join. -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://0.peerjs.com" />
+  <link rel="preload" as="script" crossorigin
+        href="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" />
   <link rel="icon" type="image/png" href="astralogo.png" />
 </head>
 <body class="lobby">
