@@ -1768,6 +1768,38 @@ button.tag-danger:hover {
   40% { background: rgba(255, 255, 255, 0.85); }
 }
 
+/* A stream that is connected but has not painted a frame yet. */
+.tile-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: hsl(var(--tint-h) var(--tint-s) 5.49%);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tile-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.16);
+  border-top-color: rgba(255, 255, 255, 0.75);
+  animation: tileSpin 0.8s linear infinite;
+}
+
+@keyframes tileSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 /* ------------------------------------------------------------- discord auth */
 
 .discord-auth {

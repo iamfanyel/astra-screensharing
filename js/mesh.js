@@ -15,8 +15,56 @@
    * native RTCSessionDescription / RTCIceCandidate objects do not survive the
    * trip.
    */
-  function plainDescription(description) {
-    return { type: description.type, sdp: description.sdp };
+  /** Real video codecs in an m=video section - not the repair/FEC payloads. */
+  const VIDEO_CODEC = /^a=rtpmap:(\d+) (VP8|VP9|AV1|H264|H265)\/90000/i;
+
+  /**
+   * Tell the far end how fast it may start sending.
+   *
+   * Left alone, the browser opens its bandwidth estimate at ~300 kbps and
+   * climbs from there, which is why a share looks soft for the first minute and
+   * then snaps into focus. `x-google-start-bitrate` is read from the
+   * description a peer receives, so putting it on everything we send is what
+   * configures *their* encoder - and since both ends run this code, both get
+   * it. It only moves the starting point; congestion control still corrects
+   * within a second or two if the line cannot take it.
+   */
+  function withStartBitrate(sdp, kbps) {
+    if (!kbps) return sdp;
+    const eol = sdp.indexOf('\r\n') === -1 ? '\n' : '\r\n';
+    const lines = sdp.split(/\r?\n/);
+
+    let inVideo = false;
+    const videoPayloads = new Map(); // payload type -> its rtpmap line index
+    const hasFmtp = new Set();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('m=')) inVideo = lines[i].startsWith('m=video');
+      if (!inVideo) continue;
+      const codec = lines[i].match(VIDEO_CODEC);
+      if (codec) videoPayloads.set(codec[1], i);
+      const fmtp = lines[i].match(/^a=fmtp:(\d+) /);
+      if (fmtp) hasFmtp.add(fmtp[1]);
+    }
+    if (!videoPayloads.size) return sdp;
+
+    const param = 'x-google-start-bitrate=' + Math.round(kbps);
+    const out = [];
+    for (const line of lines) {
+      const fmtp = line.match(/^a=fmtp:(\d+) /);
+      if (fmtp && videoPayloads.has(fmtp[1]) && line.indexOf('x-google-start-bitrate') === -1) {
+        out.push(line + ';' + param);
+        continue;
+      }
+      out.push(line);
+      // VP8 usually arrives with no fmtp line of its own, so give it one.
+      const codec = line.match(VIDEO_CODEC);
+      if (codec && !hasFmtp.has(codec[1])) out.push('a=fmtp:' + codec[1] + ' ' + param);
+    }
+    return out.join(eol);
+  }
+
+  function plainDescription(description, startKbps) {
+    return { type: description.type, sdp: withStartBitrate(description.sdp, startKbps) };
   }
 
   function plainCandidate(candidate) {
@@ -90,7 +138,7 @@
         try {
           peer.makingOffer = true;
           await pc.setLocalDescription();
-          this.signal.send(id, { description: plainDescription(pc.localDescription) });
+          this.signal.send(id, { description: plainDescription(pc.localDescription, this._videoBitrate() / 1000) });
         } catch (err) {
           console.warn('[mesh] negotiation failed', err);
         } finally {
@@ -303,7 +351,7 @@
 
           if (description.type === 'offer') {
             await pc.setLocalDescription();
-            this.signal.send(from, { description: plainDescription(pc.localDescription) });
+            this.signal.send(from, { description: plainDescription(pc.localDescription, this._videoBitrate() / 1000) });
           }
         } else if (data.candidate) {
           try {

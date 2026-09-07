@@ -1673,6 +1673,14 @@
     }
   }
 
+  /** Spin while this tile is meant to be showing something but has no frame. */
+  function syncTileLoading(tile) {
+    if (!tile || !tile.loadingOverlay) return;
+    const watching = state.peerWatching.get(tile.tileKey) === true;
+    const waiting = watching && !!tile.video.srcObject && !tile.video.videoWidth;
+    tile.loadingOverlay.hidden = !waiting;
+  }
+
   function setTileWatching(tileKey, isWatching) {
     const watching = !!isWatching;
     state.peerWatching.set(tileKey, watching);
@@ -1704,6 +1712,8 @@
       tile.screenAudioTrack = screenAudioTrack;
     }
     syncTileStreamAudio(tile, watching);
+
+    syncTileLoading(tile);
 
     if (tile.pausedOverlay) {
       tile.pausedOverlay.hidden = watching;
@@ -2185,6 +2195,7 @@
     let badgeName = null;
     let badgeIcons = null;
     let pausedOverlay = null;
+    let loadingOverlay = null;
     let pausedAvatar = null;
     let pausedName = null;
     let pausedStatus = null;
@@ -2291,6 +2302,21 @@
         pausedCard.append(pausedAvatar, pausedInfo, resumeBtn);
         pausedOverlay.appendChild(pausedCard);
         root.appendChild(pausedOverlay);
+
+        // Shown while a stream is connected but has not painted a frame yet,
+        // so the wait reads as loading rather than as a black tile.
+        loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'tile-loading';
+        loadingOverlay.hidden = true;
+        loadingOverlay.setAttribute('aria-label', 'Loading stream');
+        loadingOverlay.innerHTML = '<span class="tile-spinner"></span>';
+        root.appendChild(loadingOverlay);
+
+        // videoWidth stays 0 until the first frame decodes; these are the
+        // events that can change that.
+        for (const type of ['loadedmetadata', 'resize', 'playing', 'emptied']) {
+          video.addEventListener(type, () => syncTileLoading(state.tiles.get(tileKey)));
+        }
       }
 
       caption = document.createElement('figcaption');
@@ -2446,6 +2472,7 @@
       viewersBadge: null,
       viewersPopover: null,
       pausedOverlay,
+      loadingOverlay,
       pausedAvatar,
       pausedName,
       pausedStatus,
