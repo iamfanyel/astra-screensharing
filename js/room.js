@@ -18,6 +18,14 @@
    */
   const TILE_KINDS = ['user', 'screen', 'camera'];
   const tileKey = (id, kind) => id + ':' + kind;
+  const getOrCreateTrackSet = (map, id) => {
+    let set = map.get(id);
+    if (!set) {
+      set = new Set();
+      map.set(id, set);
+    }
+    return set;
+  };
   /** Long enough to read as a transition, short enough not to feel like a wait. */
   const LEAVE_DELAY_MS = 450;
   let leaving = false;
@@ -148,6 +156,7 @@
     localStream: null, // what we publish: mixed audio + (optionally) a video track
     videoStream: null, // the raw capture, kept so we can stop its tracks
     videoTrack: null,
+    screenAudioTrack: null,
     cameraStream: null,
     cameraTrack: null,
     micStream: null,
@@ -160,6 +169,8 @@
     deafened: false,
     remote: new Map(), // peer id -> MediaStream
     remoteVideoTracks: new Map(), // peer id -> Set<MediaStreamTrack>
+    remoteAudioTracks: new Map(), // peer id -> Set<MediaStreamTrack>
+    peerVoiceTracks: new Map(), // peer id -> MediaStreamTrack (microphone)
     tiles: new Map(), // tile key -> { slot, root, video, label, ... }
     audios: new Map(), // peer id -> HTMLAudioElement
     speakingPeers: new Set(), // peer IDs currently speaking
@@ -674,6 +685,7 @@
       state.mesh.add(e.detail.peer.id);
       toast(e.detail.peer.name + ' joined');
       renderPeople();
+      updateStreamViewersUI();
     });
 
     signal.addEventListener('peer-left', (e) => {
@@ -683,7 +695,11 @@
       state.mesh.remove(id);
       dropPeerMedia(id);
       vad.detach(id);
+      state.peerWatching.delete(tileKey(id, 'screen'));
+      state.peerWatching.delete(id);
+      broadcastWatchingState();
       renderPeople();
+      updateStreamViewersUI();
       if (reason === 'timeout') {
         toast((name || 'A participant') + ' disconnected (connection lost)', 'bad');
       }
@@ -696,7 +712,9 @@
       if (e.detail.patch && e.detail.patch.mic === false) {
         setSpeaking(e.detail.id, false);
       }
+      refreshPeerAudio(e.detail.id);
       refreshPeerTiles(e.detail.id);
+      updateStreamViewersUI();
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
@@ -715,56 +733,60 @@
     state.mesh.addEventListener('stream', (e) => {
       const { id, stream, track } = e.detail;
       state.remote.set(id, stream);
-      if (stream.getAudioTracks().length > 0) {
-        attachAudio(id, stream);
+      if (track) {
+        getOrCreateTrackSet(track.kind === 'video' ? state.remoteVideoTracks : state.remoteAudioTracks, id).add(track);
       }
-      if (track && track.kind === 'video') {
-        let set = state.remoteVideoTracks.get(id);
-        if (!set) {
-          set = new Set();
-          state.remoteVideoTracks.set(id, set);
-        }
-        set.add(track);
-      }
+      for (const t of stream.getVideoTracks()) getOrCreateTrackSet(state.remoteVideoTracks, id).add(t);
+      for (const t of stream.getAudioTracks()) getOrCreateTrackSet(state.remoteAudioTracks, id).add(t);
+
       // Tracks can join or leave this stream long after we first see it - when
       // the peer starts or stops sharing - so re-check the tile every time.
       if (!stream.__astraWatched) {
         stream.__astraWatched = true;
         stream.addEventListener('addtrack', (ev) => {
-          if (ev.track && ev.track.kind === 'video') {
-            let set = state.remoteVideoTracks.get(id);
-            if (!set) {
-              set = new Set();
-              state.remoteVideoTracks.set(id, set);
-            }
-            set.add(ev.track);
+          if (ev.track) {
+            getOrCreateTrackSet(ev.track.kind === 'video' ? state.remoteVideoTracks : state.remoteAudioTracks, id).add(ev.track);
           }
+          refreshPeerAudio(id);
           refreshPeerTiles(id);
-          vad.attach(id, stream);
         });
         stream.addEventListener('removetrack', (ev) => {
-          if (ev.track && ev.track.kind === 'video') {
-            const set = state.remoteVideoTracks.get(id);
+          if (ev.track) {
+            const set = (ev.track.kind === 'video' ? state.remoteVideoTracks : state.remoteAudioTracks).get(id);
             if (set) set.delete(ev.track);
           }
+          refreshPeerAudio(id);
           refreshPeerTiles(id);
-          vad.attach(id, stream);
         });
       }
+      refreshPeerAudio(id);
       refreshPeerTiles(id);
     });
     state.mesh.addEventListener('trackended', (e) => {
-      if (e.detail.track.kind === 'video') {
-        const set = state.remoteVideoTracks.get(e.detail.id);
-        if (set) set.delete(e.detail.track);
-        refreshPeerTiles(e.detail.id);
+      const { id, track } = e.detail;
+      if (!track) return;
+      const set = (track.kind === 'video' ? state.remoteVideoTracks : state.remoteAudioTracks).get(id);
+      if (set) set.delete(track);
+      if (track.kind === 'video') {
+        refreshPeerTiles(id);
+      } else {
+        refreshPeerAudio(id);
+        refreshPeerTiles(id);
       }
     });
     state.mesh.addEventListener('trackmuted', (e) => {
       if (e.detail.track.kind === 'video') refreshPeerTiles(e.detail.id);
+      if (e.detail.track.kind === 'audio') {
+        refreshPeerAudio(e.detail.id);
+        refreshPeerTiles(e.detail.id);
+      }
     });
     state.mesh.addEventListener('trackunmuted', (e) => {
       if (e.detail.track.kind === 'video') refreshPeerTiles(e.detail.id);
+      if (e.detail.track.kind === 'audio') {
+        refreshPeerAudio(e.detail.id);
+        refreshPeerTiles(e.detail.id);
+      }
     });
     state.mesh.addEventListener('connectionstate', (e) => {
       if (e.detail.state !== 'failed') return;
@@ -814,7 +836,23 @@
       state.videoTrack.contentHint = 'detail';
 
       state.localStream.addTrack(state.videoTrack);
-      if (state.mixer.add('system', capture.stream)) {
+
+      const screenAudioTrack = capture.stream.getAudioTracks()[0] || null;
+      state.screenAudioTrack = screenAudioTrack;
+      if (screenAudioTrack) {
+        screenAudioTrack.addEventListener('ended', () => {
+          if (state.screenAudioTrack === screenAudioTrack) {
+            if (state.localStream && state.localStream.getTracks().includes(screenAudioTrack)) {
+              state.localStream.removeTrack(screenAudioTrack);
+            }
+            state.screenAudioTrack = null;
+            if (state.signal) {
+              state.signal.setState({ screenAudioTrackId: null });
+            }
+            state.mesh.publish();
+          }
+        });
+        state.localStream.addTrack(screenAudioTrack);
         setStatus('Sharing with system audio.');
       } else if (el.systemAudio.checked) {
         // The browser remembers the picker's audio tick box per site, so this
@@ -829,7 +867,13 @@
       state.mesh.publish();
 
       state.sharing = true;
-      if (state.signal) state.signal.setState({ sharing: true, screenTrackId: state.videoTrack.id });
+      if (state.signal) {
+        state.signal.setState({
+          sharing: true,
+          screenTrackId: state.videoTrack.id,
+          screenAudioTrackId: screenAudioTrack ? screenAudioTrack.id : null,
+        });
+      }
       setShareUI(true);
       el.systemAudio.disabled = true;
       el.quality.disabled = true;
@@ -861,7 +905,7 @@
       state.mesh.publish();
     }
     state.sharing = false;
-    if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null });
+    if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null, screenAudioTrackId: null });
     updateSelfTiles();
     setShareUI(false);
     el.systemAudio.disabled = false;
@@ -874,7 +918,13 @@
   }
 
   function cleanUpCapture() {
-    if (state.mixer) state.mixer.remove('system');
+    if (state.screenAudioTrack) {
+      if (state.localStream && state.localStream.getTracks().includes(state.screenAudioTrack)) {
+        state.localStream.removeTrack(state.screenAudioTrack);
+      }
+      try { state.screenAudioTrack.stop(); } catch (_) {}
+      state.screenAudioTrack = null;
+    }
     if (state.videoTrack && state.localStream && state.localStream.getTracks().includes(state.videoTrack)) {
       state.localStream.removeTrack(state.videoTrack);
     }
@@ -1418,6 +1468,17 @@
         audio.volume = vol.muted ? 0 : vol.volume;
       }
     }
+    for (const tile of state.tiles.values()) {
+      if (tile.kind === 'screen' && tile.audio) {
+        if (on) {
+          tile.audio.muted = true;
+        } else {
+          const vol = getStreamVolume(tile.peerId);
+          tile.audio.muted = vol.muted;
+          tile.audio.volume = vol.muted ? 0 : vol.volume;
+        }
+      }
+    }
     if (el.deafen) {
       el.deafen.classList.toggle('is-live', on);
       el.deafen.setAttribute('aria-pressed', String(on));
@@ -1494,6 +1555,12 @@
     '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />' +
     '</svg><span class="sr-only">Fullscreen</span>';
 
+  const VIEWERS_EYE_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />' +
+    '<circle cx="12" cy="12" r="3" />' +
+    '</svg>';
+
   const HOST_ICON_SVG =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
     '<path d="M2 19h20v2H2zM3 7l5 5 4-7 4 7 5-5v10H3z" />' +
@@ -1546,11 +1613,6 @@
       audio.muted = state.deafened || data.muted;
     }
 
-    for (const tile of state.tiles.values()) {
-      if (tile.peerId === id && tile.kind !== 'screen' && tile.updateVolumeUI) {
-        tile.updateVolumeUI();
-      }
-    }
     if (activePopupPeerId === id && typeof updatePopupVolumeUI === 'function') {
       updatePopupVolumeUI(id);
     }
@@ -1563,19 +1625,39 @@
     return state.streamVolumes.get(id);
   }
 
+  function syncTileStreamAudio(tile, isWatching) {
+    if (!tile || !tile.audio) return;
+    if (isWatching && tile.screenAudioTrack && tile.screenAudioTrack.readyState === 'live') {
+      if (!tile.audio.srcObject || tile.audio.srcObject.getAudioTracks()[0] !== tile.screenAudioTrack) {
+        tile.audio.srcObject = new MediaStream([tile.screenAudioTrack]);
+      }
+      const data = getStreamVolume(tile.peerId);
+      tile.audio.volume = data.muted ? 0 : data.volume;
+      tile.audio.muted = state.deafened || data.muted;
+      if (tile.audio.paused) {
+        tile.audio.play().catch(() => {
+          el.enableAudio.hidden = false;
+        });
+      }
+    } else {
+      if (!tile.audio.paused) tile.audio.pause();
+      if (tile.audio.srcObject) tile.audio.srcObject = null;
+    }
+  }
+
   function setStreamVolume(id, vol, muted) {
     const data = getStreamVolume(id);
     if (vol !== undefined) data.volume = Math.max(0, Math.min(1, vol));
     if (muted !== undefined) data.muted = muted;
 
-    for (const tile of state.tiles.values()) {
-      if (tile.peerId === id && tile.kind === 'screen') {
-        if (tile.video) {
-          tile.video.volume = data.muted ? 0 : data.volume;
-        }
-        if (tile.updateVolumeUI) {
-          tile.updateVolumeUI();
-        }
+    const screenTile = state.tiles.get(tileKey(id, 'screen'));
+    if (screenTile) {
+      if (screenTile.audio) {
+        screenTile.audio.volume = data.muted ? 0 : data.volume;
+        screenTile.audio.muted = state.deafened || data.muted;
+      }
+      if (screenTile.updateVolumeUI) {
+        screenTile.updateVolumeUI();
       }
     }
   }
@@ -1586,36 +1668,259 @@
     const tile = state.tiles.get(tileKey);
     if (!tile) return;
 
-    const stream = tile.video.srcObject;
-    if (stream) {
-      stream.getVideoTracks().forEach((track) => {
-        track.enabled = watching;
-      });
+    tile.root.classList.toggle('is-paused', !watching);
+
+    if (watching) {
+      const track = tile.screenTrack;
+      if (track && track.readyState === 'live') {
+        if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== track) {
+          tile.video.srcObject = new MediaStream([track]);
+        }
+        tile.video.style.visibility = '';
+        if (tile.video.paused) tile.video.play().catch(() => {});
+      }
+    } else {
+      if (!tile.video.paused) tile.video.pause();
+      if (tile.video.srcObject) tile.video.srcObject = null;
+      tile.video.style.visibility = 'hidden';
     }
+
+    if (!tile.screenAudioTrack && watching) {
+      const { screenAudioTrack } = resolvePeerAudioTracks(tile.peerId);
+      tile.screenAudioTrack = screenAudioTrack;
+    }
+    syncTileStreamAudio(tile, watching);
 
     if (tile.pausedOverlay) {
       tile.pausedOverlay.hidden = watching;
+      if (!watching && tile.pausedAvatar && tile.pausedName) {
+        const peer = state.signal?.roster.get(tile.peerId);
+        const name = peer ? peer.name : (tile.peerId === state.signal?.selfId ? 'You' : 'Guest');
+        tile.pausedName.textContent = `${name}'s Stream`;
+        if (tile.pausedStatus) {
+          tile.pausedStatus.textContent = 'Stream paused';
+        }
+        AstraProfile.paint(tile.pausedAvatar, name, peer ? peer.avatar : null);
+      }
     }
+
     if (tile.watchBtn && tile.watchBtn.__isWatching !== watching) {
       tile.watchBtn.__isWatching = watching;
       tile.watchBtn.classList.toggle('is-paused', !watching);
-      const label = watching ? 'Stop watching' : 'Start watching';
+      const label = watching ? 'Stop watching' : 'Watch stream';
       tile.watchBtn.title = label;
       tile.watchBtn.setAttribute('aria-label', label);
       tile.watchBtn.innerHTML = watching ? WATCHING_ICON : NOT_WATCHING_ICON;
     }
 
-    if (isWatching) {
-      tile.video.style.visibility = '';
-      tile.video.play().catch(() => {});
+    if (tile.volumeControl) {
+      tile.volumeControl.style.display = watching ? '' : 'none';
+    }
+
+    broadcastWatchingState();
+  }
+
+  let lastBroadcastedWatching = null;
+
+  function broadcastWatchingState() {
+    if (!state.signal) return;
+    const watched = [];
+    for (const [key, isWatching] of state.peerWatching.entries()) {
+      if (isWatching && key.endsWith(':screen')) {
+        const peerId = key.slice(0, -7);
+        if (peerId && peerId !== state.signal.selfId) {
+          watched.push(peerId);
+        }
+      }
+    }
+    watched.sort();
+    const hash = watched.join(',');
+    if (lastBroadcastedWatching === hash) return;
+    lastBroadcastedWatching = hash;
+    state.signal.setState({ watching: watched });
+  }
+
+  function attachSelfViewersUI(tile) {
+    if (!tile || !tile.label) return;
+    if (tile.viewersBadge && tile.viewersBadge.isConnected &&
+        tile.viewersPopover && tile.viewersPopover.isConnected) return;
+
+    if (!tile.nameText) {
+      const currentText = tile.label.textContent || '';
+      tile.label.innerHTML = '';
+      tile.nameText = document.createElement('span');
+      tile.nameText.className = 'tile-name-text';
+      tile.nameText.textContent = currentText;
+      tile.label.appendChild(tile.nameText);
+    }
+
+    if (!tile.viewersBadge) {
+      const viewersBadge = document.createElement('button');
+      viewersBadge.type = 'button';
+      viewersBadge.className = 'tile-viewers-badge';
+      viewersBadge.setAttribute('aria-label', 'Stream viewers');
+      viewersBadge.title = 'No one is watching your stream';
+      viewersBadge.innerHTML = VIEWERS_EYE_ICON + '<span class="tile-viewers-count">0</span>';
+
+      viewersBadge.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (!tile.viewersPopover) return;
+        const isOpen = tile.viewersPopover.classList.toggle('is-open');
+        viewersBadge.classList.toggle('is-active', isOpen);
+        if (tile.caption) tile.caption.classList.toggle('has-open-popover', isOpen);
+      });
+
+      let hideTimer = null;
+      const cancelHide = () => {
+        if (hideTimer) {
+          clearTimeout(hideTimer);
+          hideTimer = null;
+        }
+      };
+      const scheduleHide = () => {
+        if (!touch.matches && tile.viewersPopover) {
+          cancelHide();
+          hideTimer = setTimeout(() => {
+            tile.viewersPopover.classList.remove('is-open');
+            if (tile.viewersBadge) tile.viewersBadge.classList.remove('is-active');
+            if (tile.caption) tile.caption.classList.remove('has-open-popover');
+            hideTimer = null;
+          }, 200);
+        }
+      };
+
+      viewersBadge.addEventListener('mouseenter', () => {
+        if (!touch.matches && tile.viewersPopover) {
+          cancelHide();
+          tile.viewersPopover.classList.add('is-open');
+          viewersBadge.classList.add('is-active');
+          if (tile.caption) tile.caption.classList.add('has-open-popover');
+        }
+      });
+
+      viewersBadge.addEventListener('mouseleave', scheduleHide);
+      tile.__cancelViewersHide = cancelHide;
+      tile.__scheduleViewersHide = scheduleHide;
+      tile.viewersBadge = viewersBadge;
+    }
+
+    if (!tile.label.contains(tile.viewersBadge)) {
+      tile.label.appendChild(tile.viewersBadge);
+    }
+
+    if (!tile.viewersPopover) {
+      const viewersPopover = document.createElement('div');
+      viewersPopover.className = 'tile-viewers-popover';
+      viewersPopover.innerHTML =
+        '<div class="tile-viewers-header">' +
+        '<span class="tile-viewers-title">Watching Your Stream</span>' +
+        '</div>' +
+        '<div class="tile-viewers-empty">No one is watching right now</div>' +
+        '<div class="tile-viewers-list" hidden></div>';
+
+      viewersPopover.addEventListener('mouseenter', () => {
+        if (typeof tile.__cancelViewersHide === 'function') {
+          tile.__cancelViewersHide();
+        }
+        if (tile.viewersBadge) tile.viewersBadge.classList.add('is-active');
+        if (tile.caption) tile.caption.classList.add('has-open-popover');
+      });
+      viewersPopover.addEventListener('mouseleave', () => {
+        if (typeof tile.__scheduleViewersHide === 'function') {
+          tile.__scheduleViewersHide();
+        }
+      });
+      viewersPopover.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      tile.viewersPopover = viewersPopover;
+    }
+
+    if (tile.root && !tile.root.contains(tile.viewersPopover)) {
+      tile.root.appendChild(tile.viewersPopover);
+    }
+  }
+
+  function updateStreamViewersUI() {
+    if (!state.signal || !state.signal.selfId) return;
+    const selfId = state.signal.selfId;
+    const selfScreenKey = tileKey(selfId, 'screen');
+    const selfTile = state.tiles.get(selfScreenKey);
+    if (!selfTile) return;
+    attachSelfViewersUI(selfTile);
+    if (!selfTile.viewersBadge || !selfTile.viewersPopover) return;
+
+    // Find all peers watching selfId
+    const viewers = [];
+    if (state.signal.roster) {
+      for (const peer of state.signal.roster.values()) {
+        if (peer.id === selfId) continue;
+        if (Array.isArray(peer.watching) && peer.watching.includes(selfId)) {
+          viewers.push({
+            id: peer.id,
+            name: peer.name || 'Guest',
+            avatar: peer.avatar || null
+          });
+        }
+      }
+    }
+
+    viewers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const viewersKey = viewers.map((v) => `${v.id}:${v.name}:${v.avatar || ''}`).join('|');
+    if (selfTile.__lastViewersKey === viewersKey && selfTile.viewersBadge.isConnected) {
+      return;
+    }
+    selfTile.__lastViewersKey = viewersKey;
+
+    const count = viewers.length;
+    const countSpan = selfTile.viewersBadge.querySelector('.tile-viewers-count');
+    if (countSpan && countSpan.textContent !== String(count)) {
+      countSpan.textContent = String(count);
+    }
+
+    selfTile.viewersBadge.classList.toggle('has-viewers', count > 0);
+
+    const namesList = viewers.map((v) => v.name).join(', ');
+    const tooltip =
+      count === 0
+        ? 'No one is watching your stream'
+        : count === 1
+        ? `Watching: ${namesList}`
+        : `Watching (${count}): ${namesList}`;
+    selfTile.viewersBadge.title = tooltip;
+
+    const emptyEl = selfTile.viewersPopover.querySelector('.tile-viewers-empty');
+    const listEl = selfTile.viewersPopover.querySelector('.tile-viewers-list');
+
+    if (count === 0) {
+      if (emptyEl) emptyEl.hidden = false;
+      if (listEl) {
+        listEl.hidden = true;
+        listEl.replaceChildren();
+      }
     } else {
-      tile.video.pause();
-      tile.video.style.visibility = 'hidden';
-      if (tile.pausedAvatar && tile.pausedName) {
-        const peer = state.signal?.roster.get(tile.peerId);
-        const name = peer ? peer.name : (tile.peerId === state.signal?.selfId ? 'You' : 'Guest');
-        tile.pausedName.textContent = name;
-        AstraProfile.paint(tile.pausedAvatar, name, peer ? peer.avatar : null);
+      if (emptyEl) emptyEl.hidden = true;
+      if (listEl) {
+        listEl.hidden = false;
+        const frag = document.createDocumentFragment();
+        for (const viewer of viewers) {
+          const item = document.createElement('div');
+          item.className = 'tile-viewers-item';
+
+          const avatar = document.createElement('span');
+          avatar.className = 'avatar tile-viewers-avatar';
+          if (window.AstraProfile) {
+            window.AstraProfile.paint(avatar, viewer.name, viewer.avatar);
+          }
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tile-viewers-name';
+          nameSpan.textContent = viewer.name;
+
+          item.append(avatar, nameSpan);
+          frag.appendChild(item);
+        }
+        listEl.replaceChildren(frag);
       }
     }
   }
@@ -1818,7 +2123,13 @@
   function tileFor(tileKey, name, peerId, kind) {
     let tile = state.tiles.get(tileKey);
     if (tile) {
-      if (name && tile.label) tile.label.textContent = name;
+      if (name) {
+        if (tile.nameText) {
+          if (tile.nameText.textContent !== name) tile.nameText.textContent = name;
+        } else if (tile.label && tile.label.textContent !== name) {
+          tile.label.textContent = name;
+        }
+      }
       return tile;
     }
 
@@ -1842,6 +2153,17 @@
     video.muted = true; // audio plays through a separate element, never twice
     root.appendChild(video);
 
+    let audio = null;
+    if (actualKind === 'screen' && !isSelf) {
+      audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.className = 'sr-only';
+      const initialStreamVol = getStreamVolume(actualPeerId);
+      audio.volume = initialStreamVol.muted ? 0 : initialStreamVol.volume;
+      audio.muted = state.deafened || initialStreamVol.muted;
+      root.appendChild(audio);
+    }
+
     let avatarWrap = null;
     let avatar = null;
     let badge = null;
@@ -1851,13 +2173,17 @@
     let pausedOverlay = null;
     let pausedAvatar = null;
     let pausedName = null;
+    let pausedStatus = null;
     let watchBtn = null;
     let stopShareBtn = null;
     let focusBtn = null;
     let fullBtn = null;
+    let volumeControl = null;
     let volumeBtn = null;
     let volumeSlider = null;
+    let caption = null;
     let label = null;
+    let nameText = null;
 
     if (actualKind === 'user') {
       avatarWrap = document.createElement('div');
@@ -1930,7 +2256,7 @@
         pausedName.className = 'tile-paused-name';
         pausedName.textContent = name;
 
-        const pausedStatus = document.createElement('span');
+        pausedStatus = document.createElement('span');
         pausedStatus.className = 'tile-paused-status';
         pausedStatus.textContent = 'Stream paused';
 
@@ -1953,15 +2279,20 @@
         root.appendChild(pausedOverlay);
       }
 
-      const caption = document.createElement('figcaption');
+      caption = document.createElement('figcaption');
       label = document.createElement('span');
       label.className = 'tile-name';
-      label.textContent = name;
+
+      nameText = document.createElement('span');
+      nameText.className = 'tile-name-text';
+      nameText.textContent = name;
+      label.appendChild(nameText);
+
       const buttons = document.createElement('span');
       buttons.className = 'tile-actions';
 
       if (!isSelf) {
-        const volumeControl = document.createElement('div');
+        volumeControl = document.createElement('div');
         volumeControl.className = 'tile-volume-control';
 
         volumeBtn = document.createElement('button');
@@ -2008,14 +2339,14 @@
 
         watchBtn = document.createElement('button');
         watchBtn.type = 'button';
-        watchBtn.className = 'tile-btn tile-watch-btn';
-        watchBtn.title = 'Stop watching';
-        watchBtn.setAttribute('aria-label', 'Stop watching');
-        watchBtn.innerHTML = WATCHING_ICON;
+        watchBtn.className = 'tile-btn tile-watch-btn is-paused';
+        watchBtn.title = 'Watch stream';
+        watchBtn.setAttribute('aria-label', 'Watch stream');
+        watchBtn.innerHTML = NOT_WATCHING_ICON;
 
         watchBtn.addEventListener('click', (event) => {
           event.stopPropagation();
-          const currentWatching = state.peerWatching.get(tileKey) !== false;
+          const currentWatching = state.peerWatching.get(tileKey) === true;
           setTileWatching(tileKey, !currentWatching);
         });
 
@@ -2060,7 +2391,19 @@
     }
 
     // One click anywhere on the tile focuses it, and another gives the grid back (only when 2+ tiles are present).
+    // If the stream is not currently being watched, clicking anywhere on it starts watching and focuses on it.
     root.addEventListener('click', () => {
+      const isScreen = actualKind === 'screen' && !isSelf;
+      const isWatching = state.peerWatching.get(tileKey) === true;
+
+      if (isScreen && !isWatching) {
+        setTileWatching(tileKey, true);
+        if (state.tiles.size > 1 && state.focused !== tileKey) {
+          toggleFocus(tileKey);
+        }
+        return;
+      }
+
       if (state.tiles.size > 1) toggleFocus(tileKey);
     });
 
@@ -2074,25 +2417,34 @@
       slot,
       root,
       video,
+      audio,
+      screenTrack: null,
+      screenAudioTrack: null,
       avatarWrap,
       avatar,
       badge,
       badgePrefixIcons,
       badgeName,
       badgeIcons,
+      caption,
       label,
+      nameText,
+      viewersBadge: null,
+      viewersPopover: null,
       pausedOverlay,
       pausedAvatar,
       pausedName,
+      pausedStatus,
       watchBtn,
       stopShareBtn,
       focusBtn,
       fullBtn,
+      volumeControl,
       volumeBtn,
       volumeSlider,
       updateVolumeUI: () => {
         if (!volumeBtn || !volumeSlider) return;
-        const data = actualKind === 'screen' ? getStreamVolume(actualPeerId) : getPeerVolume(actualPeerId);
+        const data = getStreamVolume(actualPeerId);
         const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
         volumeSlider.value = String(displayVol);
 
@@ -2112,6 +2464,14 @@
     if (tile.updateVolumeUI) tile.updateVolumeUI();
 
     state.tiles.set(tileKey, tile);
+    if (actualKind === 'screen') {
+      if (!isSelf) {
+        const initialWatching = state.peerWatching.get(tileKey) === true;
+        setTileWatching(tileKey, initialWatching);
+      } else {
+        updateStreamViewersUI();
+      }
+    }
     updateEmptyState();
     return tile;
   }
@@ -2156,8 +2516,13 @@
       const screenLabel = `${selfName}'s Screen (You)`;
       const tile = tileFor(screenKey, screenLabel, selfId, 'screen');
       tile.root.classList.add('self', 'screen-tile');
-      tile.root.classList.remove('is-camera', 'user-tile');
-      if (tile.label) tile.label.textContent = screenLabel;
+      if (tile.nameText) {
+        tile.nameText.textContent = screenLabel;
+      } else if (tile.label) {
+        tile.label.textContent = screenLabel;
+      }
+      attachSelfViewersUI(tile);
+      updateStreamViewersUI();
       if (!tile.video.srcObject || tile.video.srcObject.getVideoTracks()[0] !== state.videoTrack) {
         tile.video.srcObject = new MediaStream([state.videoTrack]);
         tile.video.play().catch(() => {});
@@ -2201,13 +2566,9 @@
     applyUserTileColor(userTile, peerName, peer.avatar);
     updateTileUserBadge(userTile, peerName, isHost, isMuted, isDeafened);
 
-    let trackSet = state.remoteVideoTracks.get(id);
+    const trackSet = getOrCreateTrackSet(state.remoteVideoTracks, id);
     const stream = state.remote.get(id);
     if (stream) {
-      if (!trackSet) {
-        trackSet = new Set();
-        state.remoteVideoTracks.set(id, trackSet);
-      }
       for (const t of stream.getVideoTracks()) {
         trackSet.add(t);
       }
@@ -2291,14 +2652,18 @@
     } else if (screenTrack) {
       const screenTitle = `${peerName}'s Screen`;
       const screenTile = tileFor(screenTileKey, screenTitle, id, 'screen');
-      if (screenTile.label) screenTile.label.textContent = screenTitle;
+      if (screenTile.nameText) {
+        screenTile.nameText.textContent = screenTitle;
+      } else if (screenTile.label) {
+        screenTile.label.textContent = screenTitle;
+      }
       screenTile.root.classList.remove('is-camera', 'user-tile');
       screenTile.root.classList.add('screen-tile');
-      if (!screenTile.video.srcObject || screenTile.video.srcObject.getVideoTracks()[0] !== screenTrack) {
-        screenTile.video.srcObject = new MediaStream([screenTrack]);
-        screenTile.video.play().catch(() => {});
-      }
-      const isWatching = state.peerWatching.get(screenTileKey) !== false;
+      screenTile.screenTrack = screenTrack;
+      const { screenAudioTrack } = resolvePeerAudioTracks(id);
+      screenTile.screenAudioTrack = screenAudioTrack;
+      if (screenTile.updateVolumeUI) screenTile.updateVolumeUI();
+      const isWatching = state.peerWatching.get(screenTileKey) === true;
       setTileWatching(screenTileKey, isWatching);
     }
     // Still sharing but nothing showable yet - a stalled or still-arriving
@@ -2324,10 +2689,14 @@
   function removeTile(tileKey) {
     const tile = state.tiles.get(tileKey);
     if (!tile) return;
+    if (tile.audio) {
+      tile.audio.pause();
+      tile.audio.srcObject = null;
+      tile.audio.remove();
+    }
     tile.video.srcObject = null;
     tile.slot.remove();
     state.tiles.delete(tileKey);
-    state.peerWatching.delete(tileKey);
     if (state.focused === tileKey) clearFocus();
     updateEmptyState();
   }
@@ -2504,7 +2873,70 @@
 
   // -------------------------------------------------------------- remote audio
 
-  function attachAudio(id, stream) {
+  function resolvePeerAudioTracks(id) {
+    const trackSet = getOrCreateTrackSet(state.remoteAudioTracks, id);
+    const stream = state.remote.get(id);
+    if (stream) {
+      for (const t of stream.getAudioTracks()) {
+        trackSet.add(t);
+      }
+    }
+
+    const liveTracks = [];
+    if (trackSet) {
+      for (const t of trackSet) {
+        if (t.readyState !== 'live') trackSet.delete(t);
+        else liveTracks.push(t);
+      }
+    }
+
+    const peer = state.signal?.roster.get(id);
+    const isSharing = !!peer?.sharing;
+    let screenAudioTrack = null;
+    let voiceTrack = null;
+
+    if (liveTracks.length === 0) {
+      state.peerVoiceTracks.delete(id);
+      return { voiceTrack: null, screenAudioTrack: null };
+    }
+
+    if (!isSharing) {
+      voiceTrack = liveTracks[0];
+      screenAudioTrack = null;
+    } else if (liveTracks.length === 1) {
+      const track = liveTracks[0];
+      if (peer?.screenAudioTrackId && track.id === peer.screenAudioTrackId) {
+        screenAudioTrack = track;
+      } else if (state.peerVoiceTracks.get(id) === track) {
+        voiceTrack = track;
+      } else {
+        voiceTrack = track;
+      }
+    } else {
+      if (peer?.screenAudioTrackId) {
+        screenAudioTrack = liveTracks.find((t) => t.id === peer.screenAudioTrackId) || null;
+      }
+      const knownVoice = state.peerVoiceTracks.get(id);
+      if (knownVoice && liveTracks.includes(knownVoice) && knownVoice !== screenAudioTrack) {
+        voiceTrack = knownVoice;
+      } else {
+        voiceTrack = liveTracks.find((t) => t !== screenAudioTrack) || null;
+      }
+      if (!screenAudioTrack && voiceTrack) {
+        screenAudioTrack = liveTracks.find((t) => t !== voiceTrack) || null;
+      }
+    }
+
+    if (voiceTrack) {
+      state.peerVoiceTracks.set(id, voiceTrack);
+    } else {
+      state.peerVoiceTracks.delete(id);
+    }
+
+    return { voiceTrack, screenAudioTrack };
+  }
+
+  function attachAudio(id, voiceTrack) {
     let audio = state.audios.get(id);
     if (!audio) {
       audio = document.createElement('audio');
@@ -2516,12 +2948,33 @@
     const vol = getPeerVolume(id);
     audio.volume = vol.muted ? 0 : vol.volume;
     audio.muted = state.deafened || vol.muted;
-    if (audio.srcObject !== stream) audio.srcObject = stream;
-    audio.play().catch(() => {
-      // Autoplay policy can still bite; offer a button to unblock every element.
-      el.enableAudio.hidden = false;
-    });
-    vad.attach(id, stream);
+    if (voiceTrack && voiceTrack.readyState === 'live') {
+      if (!audio.srcObject || audio.srcObject.getAudioTracks()[0] !== voiceTrack) {
+        audio.srcObject = new MediaStream([voiceTrack]);
+      }
+      audio.play().catch(() => {
+        // Autoplay policy can still bite; offer a button to unblock every element.
+        el.enableAudio.hidden = false;
+      });
+      vad.attach(id, audio.srcObject);
+    } else {
+      audio.pause();
+      audio.srcObject = null;
+      vad.detach(id);
+    }
+  }
+
+  function refreshPeerAudio(id) {
+    if (!state.signal || id === state.signal.selfId) return;
+    const { voiceTrack, screenAudioTrack } = resolvePeerAudioTracks(id);
+    attachAudio(id, voiceTrack);
+
+    const screenTile = state.tiles.get(tileKey(id, 'screen'));
+    if (screenTile) {
+      screenTile.screenAudioTrack = screenAudioTrack;
+      const isWatching = state.peerWatching.get(tileKey(id, 'screen')) === true;
+      syncTileStreamAudio(screenTile, isWatching);
+    }
   }
 
   el.enableAudio.addEventListener('click', async () => {
@@ -2533,6 +2986,13 @@
         /* keep trying the rest */
       }
     }
+    for (const tile of state.tiles.values()) {
+      if (tile.audio) {
+        try {
+          await tile.audio.play();
+        } catch (_) {}
+      }
+    }
     el.enableAudio.hidden = true;
   });
 
@@ -2540,6 +3000,8 @@
     for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
     removeTile(id);
     state.remoteVideoTracks.delete(id);
+    state.remoteAudioTracks.delete(id);
+    state.peerVoiceTracks.delete(id);
     state.remote.delete(id);
     const audio = state.audios.get(id);
     if (audio) {
@@ -2675,7 +3137,9 @@
           if (tile.pausedAvatar) AstraProfile.paint(tile.pausedAvatar, peer.name, peer.avatar);
         }
         const screenLabel = row.isSelf ? `${peer.name}'s Screen (You)` : `${peer.name}'s Screen`;
-        if (tile.label && tile.label.textContent !== screenLabel) {
+        if (tile.nameText && tile.nameText.textContent !== screenLabel) {
+          tile.nameText.textContent = screenLabel;
+        } else if (tile.label && tile.label.textContent !== screenLabel) {
           tile.label.textContent = screenLabel;
         }
       }
@@ -3152,9 +3616,30 @@
     document.body.classList.toggle('sheet-open', compact.matches && !el.sidebar.hidden);
   }
 
-  // Escape closes the sheet, the way it closes every other overlay here.
+  // Escape closes the sheet and open overlays, the way it closes every other overlay here.
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && document.body.classList.contains('sheet-open')) closeSheet();
+    if (event.key === 'Escape') {
+      for (const tile of state.tiles.values()) {
+        if (tile.viewersPopover && tile.viewersPopover.classList.contains('is-open')) {
+          tile.viewersPopover.classList.remove('is-open');
+          if (tile.viewersBadge) tile.viewersBadge.classList.remove('is-active');
+          if (tile.caption) tile.caption.classList.remove('has-open-popover');
+        }
+      }
+      if (document.body.classList.contains('sheet-open')) closeSheet();
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    for (const tile of state.tiles.values()) {
+      if (tile.viewersPopover && tile.viewersPopover.classList.contains('is-open')) {
+        if (!tile.viewersBadge?.contains(event.target) && !tile.viewersPopover?.contains(event.target)) {
+          tile.viewersPopover.classList.remove('is-open');
+          if (tile.viewersBadge) tile.viewersBadge.classList.remove('is-active');
+          if (tile.caption) tile.caption.classList.remove('has-open-popover');
+        }
+      }
+    }
   });
 
   // A sheet that covers the room should not survive a rotation into phone
@@ -3314,7 +3799,17 @@
       trackSet.clear();
     }
     state.remoteVideoTracks.clear();
+    for (const trackSet of state.remoteAudioTracks.values()) {
+      trackSet.clear();
+    }
+    state.remoteAudioTracks.clear();
+    state.peerVoiceTracks.clear();
     for (const tile of state.tiles.values()) {
+      if (tile.audio) {
+        tile.audio.pause();
+        tile.audio.srcObject = null;
+        tile.audio.remove();
+      }
       if (tile.video) tile.video.srcObject = null;
       if (tile.slot) tile.slot.remove();
     }
@@ -3326,6 +3821,7 @@
     state.audios.clear();
     state.remote.clear();
     state.peerWatching.clear();
+    lastBroadcastedWatching = null;
     state.peerVolumes.clear();
     state.streamVolumes.clear();
     stopRoomApiHeartbeat();

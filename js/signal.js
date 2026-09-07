@@ -45,7 +45,7 @@
 
   /** A peer as it looks the moment it joins. */
   function newMember(id, name, host, dev = false) {
-    const member = { id, name: cleanName(name), avatar: null, banner: null, discord: null, host: !!host, screenTrackId: null, cameraTrackId: null };
+    const member = { id, name: cleanName(name), avatar: null, banner: null, discord: null, host: !!host, screenTrackId: null, cameraTrackId: null, screenAudioTrackId: null, watching: [] };
     for (const flag of PEER_FLAGS) member[flag] = false;
     member.dev = !!dev;
     return member;
@@ -82,6 +82,14 @@
     }
     if ('cameraTrackId' in patch) {
       out.cameraTrackId = typeof patch.cameraTrackId === 'string' ? patch.cameraTrackId : null;
+    }
+    if ('screenAudioTrackId' in patch) {
+      out.screenAudioTrackId = typeof patch.screenAudioTrackId === 'string' ? patch.screenAudioTrackId : null;
+    }
+    if ('watching' in patch) {
+      out.watching = Array.isArray(patch.watching)
+        ? patch.watching.filter((id) => typeof id === 'string').slice(0, 50)
+        : [];
     }
     return out;
   }
@@ -186,6 +194,7 @@
             avatar: window.AstraProfile ? window.AstraProfile.getAvatar() : null,
             banner: window.AstraProfile ? window.AstraProfile.getBanner() : null,
             host: true,
+            watching: [],
           });
           this._hubListening = true;
           this._startHeartbeat();
@@ -464,6 +473,7 @@
         // The hub is just another browser: check what it hands us.
         if (!window.AstraProfile.isAvatar(p.avatar)) p.avatar = null;
         if (!window.AstraProfile.isBanner(p.banner)) p.banner = null;
+        if (!Array.isArray(p.watching)) p.watching = [];
         this.roster.set(p.id, p);
       }
       const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());

@@ -764,13 +764,166 @@ body.sidebar-hidden .topbar-right {
 }
 
 .tile:hover figcaption,
-.tile:focus-within figcaption {
+.tile:focus-within figcaption,
+.tile.self.screen-tile figcaption,
+.tile figcaption.has-open-popover {
   opacity: 1;
 }
 
 .tile-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.tile-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Stream viewers indicator badge on right side of stream's name (only on streamer's tile) */
+.tile-viewers-badge {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 7px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.05s ease;
+  user-select: none;
+  flex: 0 0 auto;
+  line-height: 1;
+  outline: none;
+  font-family: inherit;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.tile-viewers-badge:hover,
+.tile-viewers-badge.is-active {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.tile-viewers-badge.has-viewers {
+  background: #23a55a;
+  color: #ffffff;
+}
+
+.tile-viewers-badge.has-viewers:hover,
+.tile-viewers-badge.has-viewers.is-active {
+  background: #1f9450;
+  color: #ffffff;
+}
+
+.tile-viewers-badge svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+}
+
+.tile-viewers-count {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Stream viewers popover floating list */
+.tile-viewers-popover {
+  position: absolute;
+  bottom: 50px;
+  left: 10px;
+  width: 220px;
+  max-width: calc(100% - 20px);
+  background: hsl(var(--tint-h) var(--tint-s) 9% / 0.95);
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 10px 10px 8px;
+  z-index: 10;
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  cursor: default;
+}
+
+.tile-viewers-popover.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.tile-viewers-header {
+  display: flex;
+  align-items: center;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tile-viewers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tile-viewers-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #fff;
+  transition: background 0.1s ease;
+}
+
+.tile-viewers-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tile-viewers-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  flex: 0 0 auto;
+}
+
+.tile-viewers-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.tile-viewers-empty {
+  padding: 8px 4px 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  font-style: italic;
 }
 
 .tile-actions {
@@ -803,9 +956,10 @@ body.sidebar-hidden .topbar-right {
   background: rgba(0, 0, 0, 0.7);
 }
 
-.tile-focus-btn.is-focused {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
+/* Stream action buttons hidden on PC, shown only on mobile */
+.tile-stop-share-btn,
+.tile-focus-btn {
+  display: none;
 }
 
 /* Stream volume control with expanding slider */
@@ -1123,23 +1277,22 @@ input.theme-hue::-moz-range-track {
 }
 
 
-/* Stop/start watching button */
-.tile-watch-btn.is-paused {
-  background: rgba(255, 255, 255, 0.22);
-  color: #ffffff;
-}
-
-/* Paused stream overlay */
+/* Paused / not watching stream card */
 .tile-paused-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 10, 10, 0.94);
-  backdrop-filter: blur(8px);
-  z-index: 2;
+  background: hsl(var(--tint-h) var(--tint-s) 7%);
+  z-index: 7;
   user-select: none;
+  cursor: pointer;
+}
+
+.tile.screen-tile.is-paused video,
+.tile.screen-tile.is-paused .tile-name {
+  display: none;
 }
 
 .tile-paused-card {
@@ -2631,16 +2784,26 @@ body.sidebar-hidden .toasts {
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border-radius: 9999px;
-    padding: 3px 10px;
+    padding: 3px 8px 3px 10px;
     font-size: 12px;
     font-weight: 600;
     color: #fff;
     max-width: calc(100% - 16px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     pointer-events: auto;
     margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tile-viewers-popover {
+    left: 50%;
+    transform: translate(-50%, 6px);
+    bottom: 40px;
+  }
+
+  .tile-viewers-popover.is-open {
+    transform: translate(-50%, 0);
   }
 
   .tile.screen-tile .tile-actions {
@@ -2699,6 +2862,37 @@ body.sidebar-hidden .toasts {
   .tile.screen-tile .tile-volume-control,
   .tile.screen-tile .tile-full-btn {
     display: none;
+  }
+
+  /* Paused screen card on mobile */
+  .tile.screen-tile .tile-paused-card {
+    padding: 6px;
+    gap: 6px;
+    max-width: 95%;
+  }
+
+  .tile.screen-tile .tile-paused-avatar {
+    width: clamp(40px, 30%, 54px);
+    height: clamp(40px, 30%, 54px);
+    font-size: 18px;
+  }
+
+  .tile.screen-tile .tile-paused-name {
+    font-size: 12px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tile.screen-tile .tile-paused-status {
+    display: none;
+  }
+
+  .tile.screen-tile .tile-resume-btn {
+    padding: 5px 12px;
+    font-size: 11.5px;
+    border-radius: 9999px;
   }
 
   /* Focus mode on mobile: expand to readable 16:9 view and fit full video */
