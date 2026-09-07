@@ -1473,6 +1473,60 @@
     '<line x1="1" y1="1" x2="23" y2="23" />' +
     '</svg><span class="sr-only">Start watching screen</span>';
 
+  const FOCUS_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />' +
+    '</svg><span class="sr-only">Focus screen</span>';
+
+  const EXIT_FOCUS_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />' +
+    '</svg><span class="sr-only">Exit focus</span>';
+
+  const STOP_SHARE_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />' +
+    '</svg><span class="sr-only">Stop sharing screen</span>';
+
+  const FULLSCREEN_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />' +
+    '</svg><span class="sr-only">Fullscreen</span>';
+
+  const HOST_ICON_SVG =
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M2 19h20v2H2zM3 7l5 5 4-7 4 7 5-5v10H3z" />' +
+    '</svg>';
+
+  const DEAFENED_ICON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+    '<path d="M3 18v-6a9 9 0 0 1 18 0v6" />' +
+    '<path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />' +
+    '<line x1="2" y1="2" x2="22" y2="22" stroke-width="2.2" />' +
+    '</svg>';
+
+  const MUTED_ICON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+    '<line x1="2" y1="2" x2="22" y2="22" />' +
+    '<path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />' +
+    '<path d="M5 10v2a7 7 0 0 0 10.5 6.07" />' +
+    '<path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />' +
+    '<path d="M9 9v3a3 3 0 0 0 5.12 2.12" />' +
+    '<line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />' +
+    '</svg>';
+
+  function setFocusBtnState(btn, isFocused) {
+    if (!btn) return;
+    const foc = !!isFocused;
+    if (btn.__isFocused === foc) return;
+    btn.__isFocused = foc;
+    btn.classList.toggle('is-focused', foc);
+    const label = foc ? 'Exit focus' : 'Focus screen';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.innerHTML = foc ? EXIT_FOCUS_ICON : FOCUS_ICON;
+  }
+
   function getPeerVolume(id) {
     if (!state.peerVolumes.has(id)) {
       state.peerVolumes.set(id, { volume: 1.0, muted: false });
@@ -1502,25 +1556,28 @@
   }
 
   function setTileWatching(tileKey, isWatching) {
-    state.peerWatching.set(tileKey, isWatching);
+    const watching = !!isWatching;
+    state.peerWatching.set(tileKey, watching);
     const tile = state.tiles.get(tileKey);
     if (!tile) return;
 
     const stream = tile.video.srcObject;
     if (stream) {
       stream.getVideoTracks().forEach((track) => {
-        track.enabled = isWatching;
+        track.enabled = watching;
       });
     }
 
     if (tile.pausedOverlay) {
-      tile.pausedOverlay.hidden = isWatching;
+      tile.pausedOverlay.hidden = watching;
     }
-    if (tile.watchBtn) {
-      tile.watchBtn.classList.toggle('is-paused', !isWatching);
-      tile.watchBtn.title = isWatching ? 'Stop watching' : 'Start watching';
-      tile.watchBtn.setAttribute('aria-label', isWatching ? 'Stop watching' : 'Start watching');
-      tile.watchBtn.innerHTML = isWatching ? WATCHING_ICON : NOT_WATCHING_ICON;
+    if (tile.watchBtn && tile.watchBtn.__isWatching !== watching) {
+      tile.watchBtn.__isWatching = watching;
+      tile.watchBtn.classList.toggle('is-paused', !watching);
+      const label = watching ? 'Stop watching' : 'Start watching';
+      tile.watchBtn.title = label;
+      tile.watchBtn.setAttribute('aria-label', label);
+      tile.watchBtn.innerHTML = watching ? WATCHING_ICON : NOT_WATCHING_ICON;
     }
 
     if (isWatching) {
@@ -1539,51 +1596,42 @@
   }
 
   function updateTileUserBadge(tile, name, isHost, isMuted, isDeafened) {
-    if (!tile || !tile.badgeName || !tile.badgeIcons) return;
+    if (!tile || !tile.badgeName) return;
     if (name && tile.badgeName.textContent !== name) {
       tile.badgeName.textContent = name;
     }
     const stateKey = `${!!isHost}|${!!isDeafened}|${!!isMuted}`;
-    if (tile.badgeIcons.__stateKey === stateKey) return;
-    tile.badgeIcons.__stateKey = stateKey;
-    tile.badgeIcons.innerHTML = '';
+    const prefix = tile.badgePrefixIcons || null;
+    const suffix = tile.badgeIcons || null;
+    if (!prefix && !suffix) return;
+    if (tile.__badgeStateKey === stateKey) return;
+    tile.__badgeStateKey = stateKey;
 
-    if (isHost) {
-      const hostSpan = document.createElement('span');
-      hostSpan.className = 'tile-user-icon is-host';
-      hostSpan.title = 'Host';
-      hostSpan.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-        '<path d="M2 19h20v2H2zM3 7l5 5 4-7 4 7 5-5v10H3z" />' +
-        '</svg>';
-      tile.badgeIcons.appendChild(hostSpan);
-    }
+    if (prefix) prefix.innerHTML = '';
+    if (suffix) suffix.innerHTML = '';
+
+    const audioTarget = prefix || suffix;
 
     if (isDeafened) {
       const deafSpan = document.createElement('span');
       deafSpan.className = 'tile-user-icon is-deafened';
       deafSpan.title = 'Deafened';
-      deafSpan.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-        '<path d="M3 18v-6a9 9 0 0 1 18 0v6" />' +
-        '<path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />' +
-        '<line x1="2" y1="2" x2="22" y2="22" stroke-width="2.2" />' +
-        '</svg>';
-      tile.badgeIcons.appendChild(deafSpan);
+      deafSpan.innerHTML = DEAFENED_ICON_SVG;
+      audioTarget.appendChild(deafSpan);
     } else if (isMuted) {
       const muteSpan = document.createElement('span');
       muteSpan.className = 'tile-user-icon is-muted';
       muteSpan.title = 'Microphone muted';
-      muteSpan.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-        '<line x1="2" y1="2" x2="22" y2="22" />' +
-        '<path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />' +
-        '<path d="M5 10v2a7 7 0 0 0 10.5 6.07" />' +
-        '<path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />' +
-        '<path d="M9 9v3a3 3 0 0 0 5.12 2.12" />' +
-        '<line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />' +
-        '</svg>';
-      tile.badgeIcons.appendChild(muteSpan);
+      muteSpan.innerHTML = MUTED_ICON_SVG;
+      audioTarget.appendChild(muteSpan);
+    }
+
+    if (isHost && suffix) {
+      const hostSpan = document.createElement('span');
+      hostSpan.className = 'tile-user-icon is-host';
+      hostSpan.title = 'Host';
+      hostSpan.innerHTML = HOST_ICON_SVG;
+      suffix.appendChild(hostSpan);
     }
   }
 
@@ -1772,12 +1820,16 @@
     let avatarWrap = null;
     let avatar = null;
     let badge = null;
+    let badgePrefixIcons = null;
     let badgeName = null;
     let badgeIcons = null;
     let pausedOverlay = null;
     let pausedAvatar = null;
     let pausedName = null;
     let watchBtn = null;
+    let stopShareBtn = null;
+    let focusBtn = null;
+    let fullBtn = null;
     let volumeBtn = null;
     let volumeSlider = null;
     let label = null;
@@ -1808,6 +1860,9 @@
       badge = document.createElement('div');
       badge.className = 'tile-user-badge';
 
+      badgePrefixIcons = document.createElement('span');
+      badgePrefixIcons.className = 'tile-user-prefix-icons';
+
       badgeName = document.createElement('span');
       badgeName.className = 'tile-user-name';
       badgeName.textContent = name || peerName;
@@ -1815,7 +1870,7 @@
       badgeIcons = document.createElement('span');
       badgeIcons.className = 'tile-user-icons';
 
-      badge.append(badgeName, badgeIcons);
+      badge.append(badgePrefixIcons, badgeName, badgeIcons);
       root.appendChild(badge);
 
       label = badgeName;
@@ -1830,7 +1885,7 @@
       const isHost = isSelf ? !!state.signal?.self?.host : !!peer?.host;
       const isMuted = isSelf ? !state.micOn : peer?.mic === false;
       const isDeafened = isSelf ? !!state.deafened : !!peer?.deafened;
-      updateTileUserBadge({ badgeName, badgeIcons }, name || peerName, isHost, isMuted, isDeafened);
+      updateTileUserBadge({ badgePrefixIcons, badgeName, badgeIcons }, name || peerName, isHost, isMuted, isDeafened);
 
       if (!isSelf) {
         const userActions = document.createElement('div');
@@ -1991,17 +2046,34 @@
         });
 
         buttons.appendChild(watchBtn);
+      } else {
+        stopShareBtn = document.createElement('button');
+        stopShareBtn.type = 'button';
+        stopShareBtn.className = 'tile-btn tile-stop-share-btn';
+        stopShareBtn.title = 'Stop sharing screen';
+        stopShareBtn.setAttribute('aria-label', 'Stop sharing screen');
+        stopShareBtn.innerHTML = STOP_SHARE_ICON;
+        stopShareBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          stopSharing();
+        });
+        buttons.appendChild(stopShareBtn);
       }
 
-      const fullBtn = document.createElement('button');
-      fullBtn.className = 'tile-btn';
+      focusBtn = document.createElement('button');
+      focusBtn.type = 'button';
+      focusBtn.className = 'tile-btn tile-focus-btn';
+      setFocusBtnState(focusBtn, tileKey === state.focused);
+      focusBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleFocus(tileKey);
+      });
+      buttons.appendChild(focusBtn);
+
+      fullBtn = document.createElement('button');
+      fullBtn.className = 'tile-btn tile-full-btn';
       fullBtn.title = 'Fullscreen';
-      fullBtn.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
-        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-        '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3' +
-        'M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>' +
-        '<span class="sr-only">Fullscreen</span>';
+      fullBtn.innerHTML = FULLSCREEN_ICON;
       fullBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
@@ -2031,6 +2103,7 @@
       avatarWrap,
       avatar,
       badge,
+      badgePrefixIcons,
       badgeName,
       badgeIcons,
       label,
@@ -2038,6 +2111,9 @@
       pausedAvatar,
       pausedName,
       watchBtn,
+      stopShareBtn,
+      focusBtn,
+      fullBtn,
       volumeBtn,
       volumeSlider,
       updateVolumeUI: () => {
@@ -2261,6 +2337,16 @@
     updateEmptyState();
   }
 
+  function clearFocus() {
+    if (!state.focused) return;
+    state.focused = null;
+    el.grid.classList.remove('has-focus');
+    for (const [, tile] of state.tiles) {
+      tile.slot.classList.remove('focused');
+      setFocusBtnState(tile.focusBtn, false);
+    }
+  }
+
   function removeTile(tileKey) {
     const tile = state.tiles.get(tileKey);
     if (!tile) return;
@@ -2268,26 +2354,26 @@
     tile.slot.remove();
     state.tiles.delete(tileKey);
     state.peerWatching.delete(tileKey);
-    if (state.focused === tileKey) toggleFocus(tileKey);
+    if (state.focused === tileKey) clearFocus();
     updateEmptyState();
   }
 
   function toggleFocus(tileKey) {
     if (state.tiles.size <= 1) {
-      if (state.focused) {
-        state.focused = null;
-        el.grid.classList.remove('has-focus');
-        for (const [, tile] of state.tiles) {
-          tile.slot.classList.remove('focused');
-        }
-      }
+      clearFocus();
       return;
     }
     const wasFocused = state.focused === tileKey;
-    state.focused = wasFocused ? null : tileKey;
-    el.grid.classList.toggle('has-focus', !!state.focused);
+    if (wasFocused) {
+      clearFocus();
+      return;
+    }
+    state.focused = tileKey;
+    el.grid.classList.add('has-focus');
     for (const [key, tile] of state.tiles) {
-      tile.slot.classList.toggle('focused', key === state.focused);
+      const isFoc = key === tileKey;
+      tile.slot.classList.toggle('focused', isFoc);
+      setFocusBtnState(tile.focusBtn, isFoc);
     }
   }
 
@@ -2297,11 +2383,7 @@
     // pair over a centred tile, 4 is a 2x2, and so on.
     el.grid.dataset.count = String(Math.min(state.tiles.size, 16));
     if (state.tiles.size <= 1 && state.focused) {
-      state.focused = null;
-      el.grid.classList.remove('has-focus');
-      for (const [, t] of state.tiles) {
-        t.slot.classList.remove('focused');
-      }
+      clearFocus();
     }
   }
 

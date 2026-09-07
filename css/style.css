@@ -803,6 +803,11 @@ body.sidebar-hidden .topbar-right {
   background: rgba(0, 0, 0, 0.7);
 }
 
+.tile-focus-btn.is-focused {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
 /* Stream volume control with expanding slider */
 .tile-volume-control {
   display: flex;
@@ -955,10 +960,16 @@ body.sidebar-hidden .topbar-right {
   white-space: nowrap;
 }
 
+.tile-user-prefix-icons,
 .tile-user-icons {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.tile-user-prefix-icons:empty,
+.tile-user-icons:empty {
+  display: none;
 }
 
 .tile-user-icon {
@@ -2500,9 +2511,14 @@ body.sidebar-hidden .toasts {
     color: var(--text);
   }
 
-  /* The sheet covers the dock, so the stage only clears the dock itself. */
+  /* On mobile, stage centers the squares vertically and clears the dock with tight, balanced margins. */
   .stage {
-    padding-bottom: var(--dock-h);
+    padding: 10px 8px calc(var(--dock-h) + 14px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   /* The dock would sit over the composer, so it stands down while the sheet
@@ -2516,22 +2532,216 @@ body.sidebar-hidden .toasts {
     bottom: calc(88svh + 12px);
   }
 
-  /* One column on a phone, centred in whatever space is left, and free to
-     grow and scroll once there are several. */
+  /* Discord-style mobile grid: compact squares, 2 columns on phone, centered with tight 8px margins */
   .grid {
     height: auto;
-    min-height: 100%;
+    min-height: auto;
+    max-width: min(500px, 100%);
+    width: 100%;
+    margin: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
     align-content: center;
     container-type: normal;
   }
 
-  .grid[data-count] .slot {
+  /* Solo square: compact, adapted size centered on screen */
+  .grid[data-count="1"] .slot {
+    width: min(280px, calc(100vw - 20px));
+    max-width: 280px;
+    height: auto;
+    margin-inline: auto;
+  }
+
+  .grid[data-count="1"] .tile {
     width: 100%;
+    max-width: 280px;
+    aspect-ratio: 1 / 1;
+    border-radius: 20px;
+  }
+
+  .grid[data-count="1"] .tile-user-name {
+    max-width: 140px;
+  }
+
+  /* Multi-squares (2, 3, 4+ users): 2-column grid filling width with 8px margins */
+  .grid[data-count]:not([data-count="1"]) {
+    --cols: 2;
+  }
+
+  .grid[data-count]:not([data-count="1"]) .slot {
+    width: calc((100% - 8px) / 2);
+    max-width: none;
     height: auto;
   }
 
-  .grid[data-count] .tile {
+  .grid[data-count]:not([data-count="1"]) .tile {
     width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 18px;
+  }
+
+  /* Avatar proportional inside mobile square */
+  .tile .tile-avatar,
+  .tile-avatar.avatar,
+  .tile .tile-avatar.is-speaking,
+  .tile-avatar.avatar.is-speaking {
+    width: clamp(56px, 46%, 88px);
+    height: clamp(56px, 46%, 88px);
+    font-size: clamp(24px, 12vw, 36px);
+  }
+
+  /* Centered pill badge at bottom of user square */
+  .tile-user-badge {
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 9999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    max-width: calc(100% - 14px);
+    justify-content: center;
+    gap: 5px;
+  }
+
+  .tile-user-name {
+    max-width: 75px;
+  }
+
+  .tile-user-icon svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .tile-user-prefix-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Screen share video on mobile: fill the small square completely in grid mode */
+  .tile.screen-tile video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Screen share tile overlay and buttons on mobile */
+  .tile.screen-tile figcaption {
+    position: absolute;
+    inset: 0;
+    display: block;
+    opacity: 1;
+    background: transparent;
+    padding: 0;
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  .tile.screen-tile .tile-name {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 9999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    max-width: calc(100% - 16px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: auto;
+    margin: 0;
+  }
+
+  .tile.screen-tile .tile-actions {
+    position: absolute;
+    inset: 0;
+    display: block;
+    pointer-events: none;
+  }
+
+  /* Top action buttons on mobile screen tile */
+  .tile.screen-tile .tile-watch-btn,
+  .tile.screen-tile .tile-stop-share-btn,
+  .tile.screen-tile .tile-focus-btn {
+    position: absolute;
+    top: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    pointer-events: auto;
+    z-index: 8;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+
+  .tile.screen-tile .tile-watch-btn svg,
+  .tile.screen-tile .tile-stop-share-btn svg,
+  .tile.screen-tile .tile-focus-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .tile.screen-tile .tile-watch-btn:hover,
+  .tile.screen-tile .tile-stop-share-btn:hover,
+  .tile.screen-tile .tile-focus-btn:hover {
+    background: rgba(0, 0, 0, 0.85);
+  }
+
+  /* Top-left: Stop watching (remote) or Stop sharing (self) button */
+  .tile.screen-tile .tile-watch-btn,
+  .tile.screen-tile .tile-stop-share-btn {
+    left: 8px;
+  }
+
+  /* Top-right: Focus screen button */
+  .tile.screen-tile .tile-focus-btn {
+    right: 8px;
+  }
+
+  .tile.screen-tile .tile-volume-control,
+  .tile.screen-tile .tile-full-btn {
+    display: none;
+  }
+
+  /* Focus mode on mobile: expand to readable 16:9 view and fit full video */
+  .grid.has-focus {
+    max-width: 100%;
+    height: 100%;
+    align-content: center;
+  }
+
+  .grid.has-focus .slot.focused {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+  }
+
+  .grid.has-focus .slot.focused .tile {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+  }
+
+  .grid.has-focus .slot.focused .tile.screen-tile video {
+    object-fit: contain;
   }
 
   /* The sheet spans the width and its panels are sized for us, so neither
