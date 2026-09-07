@@ -52,6 +52,10 @@ window.ASTRA = {
    * room asks the line for more than it can carry and the streams take turns
    * stalling and recovering. Raise it if you have plenty of upload; lower it if
    * sharing makes your connection struggle.
+   *
+   * Note this also caps a one-to-one call: at 6 Mbps the "max" quality preset
+   * (8 Mbps, see QUALITY in js/media.js) can never be reached. Raise this above
+   * that preset if you want the top of the dropdown to mean what it says.
    */
   maxUploadBitrate: 6000000,
 

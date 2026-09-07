@@ -30,12 +30,6 @@
   }
 
   /**
-   * Below this a screen share is not worth watching, so a very full room stops
-   * dividing the budget rather than grinding everyone down to nothing.
-   */
-  const MIN_VIDEO_BITRATE = 400000;
-
-  /**
    * How long a connection may sit in 'disconnected' before we go looking for a
    * new candidate pair. Long enough that an ordinary blip settles by itself,
    * short enough that a real route change is not a long stall.
@@ -52,7 +46,10 @@
       this.localStream = null;
       this.maxVideoBitrate = 3500000;
       this.maxVideoFramerate = 30;
-      this.degradationPreference = 'maintain-framerate';
+      this.degradationPreference = 'balanced';
+      // What _reapplyEncoding last wrote, so an unchanged pass costs nothing.
+      this._applied = null;
+      this.closing = false;
     }
 
     emit(type, detail) {
@@ -87,7 +84,7 @@
       };
       this.peers.set(id, peer);
       // One more person to send to, so everyone's share of the uplink shrinks.
-      this._reapplyBitrates();
+      this._reapplyEncoding();
 
       pc.onnegotiationneeded = async () => {
         try {
@@ -117,22 +114,18 @@
       };
 
       pc.onconnectionstatechange = () => {
-        this.emit('connectionstate', { id, state: pc.connectionState });
-        if (pc.connectionState === 'failed') {
-          clearTimeout(peer.recoverTimer);
+        const state = pc.connectionState;
+        this.emit('connectionstate', { id, state });
+        clearTimeout(peer.recoverTimer);
+        if (state === 'failed') {
           pc.restartIce();
-          return;
-        }
-        if (pc.connectionState === 'disconnected') {
+        } else if (state === 'disconnected') {
           // Give it a moment to come back by itself - most blips do - and only
           // then go looking for a new path.
-          clearTimeout(peer.recoverTimer);
           peer.recoverTimer = setTimeout(() => {
             if (!peer.closed && pc.connectionState === 'disconnected') pc.restartIce();
           }, DISCONNECT_GRACE_MS);
-          return;
         }
-        clearTimeout(peer.recoverTimer);
       };
 
       this._sync(peer);
@@ -150,10 +143,12 @@
         /* already closed */
       }
       this.peers.delete(id);
-      this._reapplyBitrates();
+      this._reapplyEncoding();
     }
 
     close() {
+      // No point recomputing everyone's share of the uplink on the way out.
+      this.closing = true;
       for (const id of Array.from(this.peers.keys())) this.remove(id);
     }
 
@@ -171,12 +166,12 @@
     setMaxVideoBitrate(bitrate, maxFramerate) {
       this.maxVideoBitrate = bitrate;
       if (maxFramerate) this.maxVideoFramerate = maxFramerate;
-      this._reapplyBitrates();
+      this._reapplyEncoding();
     }
 
     setDegradationPreference(preference) {
       this.degradationPreference = preference;
-      this._reapplyBitrates();
+      this._reapplyEncoding();
     }
 
     /**
@@ -189,15 +184,35 @@
      * where a share stops being worth watching.
      */
     _videoBitrate() {
-      const viewers = Math.max(1, this.peers.size);
-      const share = Math.round((window.ASTRA.maxUploadBitrate || Infinity) / viewers);
-      return Math.max(MIN_VIDEO_BITRATE, Math.min(this.maxVideoBitrate, share));
+      // Only ever reached with at least one peer: every caller is iterating
+      // this.peers or acting on a peer that is already in it.
+      return Math.min(this.maxVideoBitrate, Math.round(window.ASTRA.maxUploadBitrate / this.peers.size));
     }
 
-    _reapplyBitrates() {
-      for (const peer of this.peers.values()) {
-        for (const slot of peer.slots) this._applyBitrate(slot);
+    _reapplyEncoding() {
+      if (this.closing) return;
+      const encoding = this._encoding();
+      if (
+        this._applied &&
+        this._applied.bitrate === encoding.bitrate &&
+        this._applied.framerate === encoding.framerate &&
+        this._applied.preference === encoding.preference
+      ) {
+        return;
       }
+      this._applied = encoding;
+      for (const peer of this.peers.values()) {
+        for (const slot of peer.slots) this._applyEncoding(slot, encoding);
+      }
+    }
+
+    /** What every video sender should be carrying right now. */
+    _encoding() {
+      return {
+        bitrate: this._videoBitrate(),
+        framerate: this.maxVideoFramerate,
+        preference: this.degradationPreference,
+      };
     }
 
     /**
@@ -232,7 +247,7 @@
           const sender = peer.pc.addTrack(track, this.localStream);
           const slot = { sender, track, kind: track.kind };
           peer.slots.push(slot);
-          this._applyBitrate(slot);
+          this._applyEncoding(slot);
         } catch (err) {
           console.warn('[mesh] could not publish track', err);
         }
@@ -246,20 +261,20 @@
         // Parking races with teardown often enough not to be worth reporting.
         if (track) console.warn('[mesh] could not swap track', err);
       });
-      if (track) this._applyBitrate(slot);
+      if (track) this._applyEncoding(slot);
     }
 
-    async _applyBitrate(slot) {
+    async _applyEncoding(slot, encoding = this._encoding()) {
       if (slot.kind !== 'video' || !slot.track) return;
       const sender = slot.sender;
       try {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
-        params.encodings[0].maxBitrate = this._videoBitrate();
-        if (this.maxVideoFramerate) {
-          params.encodings[0].maxFramerate = this.maxVideoFramerate;
+        params.encodings[0].maxBitrate = encoding.bitrate;
+        if (encoding.framerate) {
+          params.encodings[0].maxFramerate = encoding.framerate;
         }
-        params.degradationPreference = this.degradationPreference;
+        params.degradationPreference = encoding.preference;
         await sender.setParameters(params);
       } catch (_) {
         // Not every browser lets you set this; the default behaviour is fine.

@@ -824,7 +824,6 @@
     el.share.disabled = true;
     try {
       if (state.mixer) await state.mixer.resume();
-      const prioritizeFluidity = el.fluidity ? el.fluidity.checked : true;
       const capture = await captureScreen(el.quality.value, el.systemAudio.checked);
 
       state.videoStream = capture.stream;
@@ -833,7 +832,6 @@
 
       // The browser's own "Stop sharing" bar ends the track behind our back.
       state.videoTrack.addEventListener('ended', () => stopSharing());
-      state.videoTrack.contentHint = prioritizeFluidity ? 'motion' : 'detail';
 
       state.localStream.addTrack(state.videoTrack);
 
@@ -863,7 +861,7 @@
       }
 
       state.mesh.setMaxVideoBitrate(capture.quality.bitrate, capture.quality.frameRate);
-      state.mesh.setDegradationPreference(prioritizeFluidity ? 'maintain-framerate' : 'maintain-resolution');
+      applyFluidity();
       state.mesh.publish();
 
       state.sharing = true;
@@ -895,15 +893,29 @@
     }
   }
 
+  const fluidityOn = () => (el.fluidity ? el.fluidity.checked : true);
+
+  /**
+   * Push the smoothness-vs-sharpness choice to both halves that express it.
+   *
+   * 'balanced', not 'maintain-framerate': the latter protects the frame rate by
+   * shrinking the picture as far as it takes, and once it has done that it has
+   * no reason to climb back - it is meeting the target it was given. 'balanced'
+   * gives up a little of each instead, so a tight link costs some smoothness
+   * and some sharpness rather than all the sharpness.
+   */
+  function applyFluidity() {
+    const on = fluidityOn();
+    if (state.mesh) {
+      state.mesh.setDegradationPreference(on ? 'balanced' : 'maintain-resolution');
+    }
+    if (state.videoTrack) state.videoTrack.contentHint = on ? 'motion' : 'detail';
+  }
+
   function stopSharing() {
     if (!state.sharing) return cleanUpCapture();
     cleanUpCapture();
-    if (state.mesh) {
-      if (!state.cameraOn) {
-        state.mesh.setDegradationPreference('maintain-framerate');
-      }
-      state.mesh.publish();
-    }
+    if (state.mesh) state.mesh.publish();
     state.sharing = false;
     if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null, screenAudioTrackId: null });
     updateSelfTiles();
@@ -976,7 +988,6 @@
       state.cameraTrack = capture.stream.getVideoTracks()[0];
       if (!state.cameraTrack) throw new Error('No camera video track found.');
 
-      state.cameraTrack.contentHint = 'motion';
       const trackSettings = state.cameraTrack.getSettings ? state.cameraTrack.getSettings() : null;
       if (trackSettings && trackSettings.deviceId) {
         state.cameraDeviceId = trackSettings.deviceId;
@@ -987,7 +998,11 @@
 
       state.localStream.addTrack(state.cameraTrack);
       if (!state.sharing) {
-        state.mesh.setMaxVideoBitrate(capture.quality.bitrate || 2000000, capture.quality.frameRate || 30);
+        // A webcam is motion, and a face going soft costs far less than a
+        // shared screen going illegible - so the camera keeps its frame rate
+        // rather than following the screen's 'balanced'. Guarded on !sharing
+        // so it never overrides a live share, which owns the setting.
+        state.mesh.setMaxVideoBitrate(capture.quality.bitrate, capture.quality.frameRate);
         state.mesh.setDegradationPreference('maintain-framerate');
       }
       state.mesh.publish();
@@ -1321,14 +1336,10 @@
 
   if (el.fluidity) {
     el.fluidity.addEventListener('change', () => {
-      const on = el.fluidity.checked;
-      if (state.mesh) {
-        state.mesh.setDegradationPreference(on ? 'maintain-framerate' : 'maintain-resolution');
-      }
-      if (state.videoTrack && 'contentHint' in state.videoTrack) {
-        state.videoTrack.contentHint = on ? 'motion' : 'detail';
-      }
-      setStatus(on ? 'Prioritizing smooth fluidity.' : 'Prioritizing crisp resolution.');
+      applyFluidity();
+      setStatus(
+        el.fluidity.checked ? 'Prioritizing smooth fluidity.' : 'Prioritizing crisp resolution.'
+      );
     });
   }
 
