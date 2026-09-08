@@ -69,6 +69,25 @@
     togglePeople: $('toggle-people'),
     toggleChat: $('toggle-chat'),
     toggleProfile: $('toggle-profile'),
+    toggleSettings: $('toggle-settings'),
+    settingsModal: $('settings-modal'),
+    settingsBackdrop: $('settings-backdrop'),
+    settingsClose: $('settings-close'),
+    settingsCard: document.querySelector('.settings-card'),
+    settingsBack: $('settings-back'),
+    settingsBarTitle: $('settings-bar-title'),
+    settingsBody: $('settings-body'),
+    micTrigger: $('mic-trigger'),
+    micDropdown: $('mic-dropdown'),
+    micValue: $('mic-value'),
+    speakerTrigger: $('speaker-trigger'),
+    speakerDropdown: $('speaker-dropdown'),
+    speakerValue: $('speaker-value'),
+    themePresets: document.querySelectorAll('.theme-preset'),
+    outputVolume: $('output-volume'),
+    outputVolumeValue: $('output-volume-value'),
+    inputVolume: $('input-volume'),
+    inputVolumeValue: $('input-volume-value'),
     messages: $('messages'),
     chatForm: $('chat-form'),
     chatInput: $('chat-input'),
@@ -90,7 +109,11 @@
     systemAudio: $('system-audio'),
     systemAudioRow: $('system-audio-row'),
     fluidity: $('fluidity'),
-    fluidityRow: $('fluidity-row'),
+    flipCamera: $('flip-camera'),
+    audioOutput: $('audio-output'),
+    outputMenu: $('output-menu'),
+    shareConfirm: $('share-confirm'),
+    dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
     qualityVal: $('quality-val'),
     qualityWrap: $('quality-wrap'),
@@ -149,6 +172,25 @@
     return;
   }
 
+  /** A device id kept from a previous visit, or null if none was stored. */
+  function rememberedDevice(key) {
+    try {
+      return localStorage.getItem(key) || null;
+    } catch (_) {
+      // Blocked site data reads as no preference.
+      return null;
+    }
+  }
+
+  function rememberDevice(key, deviceId) {
+    try {
+      if (deviceId) localStorage.setItem(key, deviceId);
+      else localStorage.removeItem(key);
+    } catch (_) {
+      // Not persisting is survivable; the choice still holds this session.
+    }
+  }
+
   const state = {
     signal: null,
     mesh: null,
@@ -162,9 +204,14 @@
     micStream: null,
     sharing: false,
     cameraOn: false,
-    cameraDeviceId: (() => {
-      try { return localStorage.getItem('astra:camera-device') || null; } catch (_) { return null; }
-    })(),
+    cameraDeviceId: rememberedDevice('astra:camera-device'),
+    // '' means "whatever the system picks", which is also the fallback when a
+    // remembered device is gone by the time the app next starts.
+    // Which way the camera points. A phone flips between the two from the top
+     // bar; a desktop picks a device by id instead and leaves this alone.
+    cameraFacing: 'user',
+    micDeviceId: rememberedDevice('astra:mic-device') || '',
+    speakerDeviceId: rememberedDevice('astra:speaker-device') || '',
     micOn: false,
     deafened: false,
     remote: new Map(), // peer id -> MediaStream
@@ -469,7 +516,6 @@
       modalBanner = AstraProfile.getBanner();
       modalAvatar = AstraProfile.getAvatar();
       el.profileModalName.value = AstraProfile.getName();
-      syncThemeUI();
       renderModalBadgesAndDiscord();
       renderModalPreview();
       el.profileModal.hidden = false;
@@ -479,27 +525,6 @@
       // not put a caret in a box the person may not have come to change, but
       // focus still has to land inside the dialog for Escape and Tab to work.
       if (el.profileModalClose) el.profileModalClose.focus();
-    }
-
-    /** Slider position and the grey swatch's ring both follow the stored hue. */
-    function syncThemeUI() {
-      const hue = window.AstraTheme.getHue();
-      if (el.themeHue) el.themeHue.value = String(hue === null ? 0 : hue);
-      if (el.themeReset) el.themeReset.classList.toggle('is-active', hue === null);
-    }
-
-    if (el.themeHue) {
-      el.themeHue.addEventListener('input', () => {
-        window.AstraTheme.setHue(Number(el.themeHue.value));
-        syncThemeUI();
-      });
-    }
-
-    if (el.themeReset) {
-      el.themeReset.addEventListener('click', () => {
-        window.AstraTheme.setHue(null);
-        syncThemeUI();
-      });
     }
 
     openProfileModal = openModal;
@@ -797,12 +822,25 @@
 
   // --------------------------------------------------------------- sharing
 
-  el.share.addEventListener('click', () => toggleSharing());
+  el.share.addEventListener('click', (event) => toggleSharing(event));
 
-  function toggleSharing() {
+  function toggleSharing(event) {
     if (el.share.disabled) return;
-    if (state.sharing) stopSharing();
-    else startSharing();
+    if (state.sharing) {
+      stopSharing();
+      return;
+    }
+    // A phone has no room for the options caret, so the button opens them as a
+    // sheet and the share starts when they are confirmed.
+    if (compact.matches) {
+      // This same click is still on its way to the document, where the
+      // outside-click handler would read it as a tap away from the sheet it
+      // has only just opened.
+      if (event) event.stopPropagation();
+      toggleShareMenu(true);
+    } else {
+      startSharing();
+    }
   }
 
   async function startSharing() {
@@ -973,6 +1011,9 @@
     if (el.cameraLabel) {
       el.cameraLabel.textContent = active ? 'Camera on' : 'Camera off';
     }
+    // Nothing to flip while the camera is off, and the stylesheet keeps it off
+    // a desktop entirely.
+    if (el.flipCamera) el.flipCamera.hidden = !active;
   }
 
   async function startCamera() {
@@ -984,7 +1025,13 @@
     if (el.camera) el.camera.disabled = true;
     try {
       if (state.mixer) await state.mixer.resume();
-      const capture = await captureCamera(el.quality ? el.quality.value : '720', 'user', state.cameraDeviceId);
+      const capture = await captureCamera(
+        el.quality ? el.quality.value : '720',
+        state.cameraFacing,
+        // A remembered device id would outrank the facing direction, which is
+        // the wrong way round on a phone: there the direction is the choice.
+        compact.matches ? null : state.cameraDeviceId,
+      );
 
       if (state.cameraStream) {
         cleanUpCamera();
@@ -997,7 +1044,7 @@
       const trackSettings = state.cameraTrack.getSettings ? state.cameraTrack.getSettings() : null;
       if (trackSettings && trackSettings.deviceId) {
         state.cameraDeviceId = trackSettings.deviceId;
-        try { localStorage.setItem('astra:camera-device', state.cameraDeviceId); } catch (_) {}
+        rememberDevice('astra:camera-device', state.cameraDeviceId);
       }
 
       state.cameraTrack.addEventListener('ended', () => stopCamera());
@@ -1185,7 +1232,7 @@
   async function selectCameraDevice(deviceId) {
     if (state.cameraDeviceId === deviceId && state.cameraOn) return;
     state.cameraDeviceId = deviceId;
-    try { localStorage.setItem('astra:camera-device', deviceId); } catch (_) {}
+    rememberDevice('astra:camera-device', deviceId);
     updateCameraDeviceSelection();
     if (state.cameraOn) {
       await startCamera();
@@ -1234,6 +1281,11 @@
     cameraDeviceChangeTimer = setTimeout(() => {
       cameraDeviceChangeTimer = null;
       populateCameraDevices();
+      // The top bar button appears and disappears with the outputs it lists,
+      // so this one is not conditional on anything being open.
+      populateOutputMenu();
+      // Only worth redrawing while somebody is looking at the list.
+      if (el.settingsModal && !el.settingsModal.hidden) populateAudioDevices();
     }, 250);
   };
 
@@ -1251,8 +1303,129 @@
     if (el.shareMenu.hidden === !open) return;
     el.shareMenu.hidden = !open;
     el.shareOptions.setAttribute('aria-expanded', String(open));
+    // As a sheet this has to escape the dock, whose backdrop-filter would
+    // otherwise be the containing block for anything fixed inside it - the
+    // sheet would be sized and placed against the dock rather than the screen.
+    // Moving the element keeps every listener on it and its children.
+    if (open && compact.matches) document.body.append(el.shareMenu);
+    else if (!open && el.shareMenu.parentElement !== el.controls) {
+      el.controls.append(el.shareMenu);
+    }
+    // The sheet needs something behind it to dim the room and to catch the tap
+    // that dismisses it.
+    if (el.dockSheetBackdrop) el.dockSheetBackdrop.hidden = !open;
     if (!open) hideQualityDropdown(0);
     else toggleCameraMenu(false);
+  }
+
+  /**
+   * Flip between the front and back cameras. Restarting the capture is the
+   * only way to change facing - a live track cannot turn around - and
+   * startCamera() already swaps the new track in without renegotiating.
+   */
+  async function flipCamera() {
+    if (!state.cameraOn || el.flipCamera.disabled) return;
+    el.flipCamera.disabled = true;
+    state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
+    try {
+      await startCamera();
+    } finally {
+      el.flipCamera.disabled = false;
+    }
+  }
+
+  if (el.flipCamera) el.flipCamera.addEventListener('click', () => flipCamera());
+
+  /**
+   * Which speaker the room plays out of, chosen from the top bar because a
+   * phone has no room for the pair of pickers the settings window shows.
+   * The list is whatever the browser will name - typically earpiece, speaker
+   * and anything plugged in or paired.
+   */
+  function toggleOutputMenu(force) {
+    if (!el.outputMenu) return;
+    const open = force === undefined ? el.outputMenu.hidden : force;
+    if (el.outputMenu.hidden === !open) return;
+    el.outputMenu.hidden = !open;
+    el.audioOutput.setAttribute('aria-expanded', String(open));
+  }
+
+  async function populateOutputMenu() {
+    if (!el.outputMenu || !el.audioOutput) return;
+    let outputs = [];
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        outputs = devices.filter((device) => device.kind === 'audiooutput' && device.deviceId);
+      } catch (_) {
+        // Treated as none below.
+      }
+    }
+
+    // iOS names no output at all and cannot redirect one, so the button simply
+    // is not there; on Android the list is the phone's own routing choices.
+    const usable = outputs.length > 0 && typeof HTMLMediaElement.prototype.setSinkId === 'function';
+    el.audioOutput.hidden = !usable;
+    if (!usable) {
+      toggleOutputMenu(false);
+      return;
+    }
+
+    el.outputMenu.textContent = '';
+    const entries = [{ deviceId: '', label: 'System default' }];
+    outputs.forEach((device, index) => {
+      entries.push({ deviceId: device.deviceId, label: device.label || 'Output ' + (index + 1) });
+    });
+    if (!outputs.some((device) => device.deviceId === state.speakerDeviceId)) {
+      state.speakerDeviceId = '';
+    }
+
+    for (const entry of entries) {
+      const item = document.createElement('div');
+      item.className = 'dock-dropdown-item';
+      item.setAttribute('role', 'option');
+      item.tabIndex = 0;
+      const match = entry.deviceId === state.speakerDeviceId;
+      item.classList.toggle('is-selected', match);
+      item.setAttribute('aria-selected', String(match));
+      const span = document.createElement('span');
+      span.textContent = entry.label;
+      item.append(span, checkSvgTemplate.cloneNode(true));
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        state.speakerDeviceId = entry.deviceId;
+        rememberDevice('astra:speaker-device', entry.deviceId);
+        applySpeakerDevice();
+        toggleOutputMenu(false);
+        populateOutputMenu();
+      });
+      el.outputMenu.append(item);
+    }
+  }
+
+  if (el.audioOutput) {
+    el.audioOutput.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (el.outputMenu.hidden) populateOutputMenu();
+      toggleOutputMenu();
+    });
+  }
+
+  if (el.outputMenu) el.outputMenu.addEventListener('click', (event) => event.stopPropagation());
+
+  // Whether the button belongs in the bar at all depends on what this finds.
+  populateOutputMenu();
+
+  if (el.shareConfirm) {
+    el.shareConfirm.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleShareMenu(false);
+      startSharing();
+    });
+  }
+
+  if (el.dockSheetBackdrop) {
+    el.dockSheetBackdrop.addEventListener('click', () => toggleShareMenu(false));
   }
 
   el.shareOptions.addEventListener('click', (event) => {
@@ -1267,12 +1440,14 @@
     // no-op when it has nothing to close.
     toggleShareMenu(false);
     toggleCameraMenu(false);
+    toggleOutputMenu(false);
     hideQualityDropdown(0);
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       toggleShareMenu(false);
       toggleCameraMenu(false);
+      toggleOutputMenu(false);
     }
     const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     if (inInput || !state.signal) return;
@@ -1296,18 +1471,24 @@
     if (el.qualityDropdown.hidden === !open) return;
     el.qualityDropdown.hidden = !open;
     el.qualityTrigger.setAttribute('aria-expanded', String(open));
-    if (open) {
-      const rect = el.shareMenu.getBoundingClientRect();
-      // Measure the real flyout rather than guessing: it is already laid out
-      // by now, and a hardcoded width silently drifts from the stylesheet.
-      const dropdownWidth = el.qualityDropdown.getBoundingClientRect().width;
-      if (rect.right + dropdownWidth + 16 > window.innerWidth) {
-        el.qualityDropdown.style.left = 'auto';
-        el.qualityDropdown.style.right = 'calc(100% + 8px)';
-      } else {
-        el.qualityDropdown.style.left = 'calc(100% + 8px)';
-        el.qualityDropdown.style.right = 'auto';
-      }
+    if (!open) return;
+    // In the phone sheet the list opens under its row, full width, and the
+    // stylesheet says so - these inline sides would only override it.
+    if (compact.matches) {
+      el.qualityDropdown.style.left = '';
+      el.qualityDropdown.style.right = '';
+      return;
+    }
+    const rect = el.shareMenu.getBoundingClientRect();
+    // Measure the real flyout rather than guessing: it is already laid out
+    // by now, and a hardcoded width silently drifts from the stylesheet.
+    const dropdownWidth = el.qualityDropdown.getBoundingClientRect().width;
+    if (rect.right + dropdownWidth + 16 > window.innerWidth) {
+      el.qualityDropdown.style.left = 'auto';
+      el.qualityDropdown.style.right = 'calc(100% + 8px)';
+    } else {
+      el.qualityDropdown.style.left = 'calc(100% + 8px)';
+      el.qualityDropdown.style.right = 'auto';
     }
   }
 
@@ -1334,10 +1515,6 @@
 
   if (el.systemAudioRow) {
     el.systemAudioRow.addEventListener('click', () => hideQualityDropdown(0));
-  }
-
-  if (el.fluidityRow) {
-    el.fluidityRow.addEventListener('click', () => hideQualityDropdown(0));
   }
 
   if (el.fluidity) {
@@ -1428,8 +1605,11 @@
         if (state.deafened) {
           setDeafened(false);
         }
-        state.micStream = await captureMicrophone();
+        state.micStream = await captureMicrophone(state.micDeviceId);
         state.mixer.add('mic', state.micStream);
+        // The gain node is new each time the mic starts, so the stored input
+        // level has to be put back on it.
+        applyInputVolume();
         state.micOn = true;
         vad.attach('self', state.micStream);
         setMicUI(true);
@@ -1474,27 +1654,96 @@
     setDeafened(!state.deafened);
   }
 
-  function setDeafened(on) {
-    state.deafened = on;
+  const VOLUME_KEY = 'astra:volumes';
+
+  /**
+   * Output and input levels, 1 being untouched. Both go to 2 so a quiet
+   * speaker or a quiet microphone can be lifted rather than only cut.
+   */
+  const volumes = (() => {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(VOLUME_KEY) || 'null');
+    } catch (_) {
+      // Blocked site data reads as no preference.
+    }
+    const clamp = (v) => (typeof v === 'number' && v >= 0 && v <= 2 ? v : 1);
+    return { output: clamp(stored && stored.output), input: clamp(stored && stored.input) };
+  })();
+
+  function saveVolumes() {
+    try {
+      localStorage.setItem(VOLUME_KEY, JSON.stringify(volumes));
+    } catch (_) {
+      // Not persisting is survivable; the setting still applies this session.
+    }
+  }
+
+  /**
+   * Set one element's level, folding in the room-wide output setting.
+   *
+   * An <audio> element cannot play louder than its source, so anything above
+   * 100% rides a gain node instead - and only then, because routing through
+   * the graph is permanent and makes that audio depend on a live context.
+   */
+  function setAudioVolume(element, level) {
+    if (!element) return;
+    if (volumes.output > 1 && state.mixer && state.mixer.amplify(element)) {
+      element.volume = level;
+    } else {
+      element.volume = level * Math.min(1, volumes.output);
+    }
+  }
+
+  /**
+   * Every <audio> element the room is playing, each with the volume setting
+   * that governs it: voice elements keyed by peer, screen audio by tile.
+   * Output level, output device and deafening all need exactly this pair, so
+   * the walk lives here once instead of in each of them.
+   */
+  function* playingAudio() {
     for (const [peerId, audio] of state.audios) {
-      if (on) {
-        audio.muted = true;
-      } else {
-        const vol = getPeerVolume(peerId);
-        audio.muted = vol.muted;
-        audio.volume = vol.muted ? 0 : vol.volume;
-      }
+      yield { audio, vol: getPeerVolume(peerId) };
     }
     for (const tile of state.tiles.values()) {
-      if (tile.kind === 'screen' && tile.audio) {
-        if (on) {
-          tile.audio.muted = true;
-        } else {
-          const vol = getStreamVolume(tile.peerId);
-          tile.audio.muted = vol.muted;
-          tile.audio.volume = vol.muted ? 0 : vol.volume;
-        }
-      }
+      if (tile.kind !== 'screen' || !tile.audio) continue;
+      yield { audio: tile.audio, vol: getStreamVolume(tile.peerId) };
+    }
+  }
+
+  /** Re-apply every playing element at the new output level. */
+  function applyOutputVolume() {
+    if (state.mixer) state.mixer.setOutputGain(volumes.output);
+    for (const { audio, vol } of playingAudio()) {
+      setAudioVolume(audio, vol.muted ? 0 : vol.volume);
+    }
+  }
+
+  function applyInputVolume() {
+    if (state.mixer) state.mixer.setSourceGain('mic', volumes.input);
+  }
+
+  /**
+   * Point one element at the chosen output device. Unsupported outside
+   * Chromium, and an unplugged device rejects - both leave the element on the
+   * system default, which is the right answer either way.
+   */
+  function applySinkId(element) {
+    if (!element || typeof element.setSinkId !== 'function') return;
+    element.setSinkId(state.speakerDeviceId || '').catch(() => {});
+  }
+
+  /** Every element that is already playing follows the new output device. */
+  function applySpeakerDevice() {
+    for (const { audio } of playingAudio()) applySinkId(audio);
+  }
+
+  function setDeafened(on) {
+    state.deafened = on;
+    for (const { audio, vol } of playingAudio()) {
+      audio.muted = on || vol.muted;
+      // Undeafening restores whatever level that element was left on.
+      if (!on) setAudioVolume(audio, vol.muted ? 0 : vol.volume);
     }
     if (el.deafen) {
       el.deafen.classList.toggle('is-live', on);
@@ -1626,7 +1875,7 @@
 
     const audio = state.audios.get(id);
     if (audio) {
-      audio.volume = data.muted ? 0 : data.volume;
+      setAudioVolume(audio, data.muted ? 0 : data.volume);
       audio.muted = state.deafened || data.muted;
     }
 
@@ -1649,7 +1898,7 @@
         tile.audio.srcObject = new MediaStream([tile.screenAudioTrack]);
       }
       const data = getStreamVolume(tile.peerId);
-      tile.audio.volume = data.muted ? 0 : data.volume;
+      setAudioVolume(tile.audio, data.muted ? 0 : data.volume);
       tile.audio.muted = state.deafened || data.muted;
       if (tile.audio.paused) {
         tile.audio.play().catch(() => {
@@ -1670,7 +1919,7 @@
     const screenTile = state.tiles.get(tileKey(id, 'screen'));
     if (screenTile) {
       if (screenTile.audio) {
-        screenTile.audio.volume = data.muted ? 0 : data.volume;
+        setAudioVolume(screenTile.audio, data.muted ? 0 : data.volume);
         screenTile.audio.muted = state.deafened || data.muted;
       }
       if (screenTile.updateVolumeUI) {
@@ -2189,7 +2438,8 @@
       audio.autoplay = true;
       audio.className = 'sr-only';
       const initialStreamVol = getStreamVolume(actualPeerId);
-      audio.volume = initialStreamVol.muted ? 0 : initialStreamVol.volume;
+      setAudioVolume(audio, initialStreamVol.muted ? 0 : initialStreamVol.volume);
+      applySinkId(audio);
       audio.muted = state.deafened || initialStreamVol.muted;
       root.appendChild(audio);
     }
@@ -2997,11 +3247,12 @@
       audio = document.createElement('audio');
       audio.autoplay = true;
       audio.className = 'sr-only';
+      applySinkId(audio);
       document.body.appendChild(audio);
       state.audios.set(id, audio);
     }
     const vol = getPeerVolume(id);
-    audio.volume = vol.muted ? 0 : vol.volume;
+    setAudioVolume(audio, vol.muted ? 0 : vol.volume);
     audio.muted = state.deafened || vol.muted;
     if (voiceTrack && voiceTrack.readyState === 'live') {
       if (!audio.srcObject || audio.srcObject.getAudioTracks()[0] !== voiceTrack) {
@@ -3341,6 +3592,350 @@
     }
     return badgeTagTemplates.get(badgeId).cloneNode(true);
   }
+
+  // ------------------------------------------------------------- settings
+
+  /**
+   * The settings window: appearance and audio/video preferences. The profile
+   * editor is a separate dialog and keeps its own button.
+   *
+   * One category is shown at a time, so each keeps its own scroll: a long
+   * category never drags a short one past the top of the body with it.
+   *
+   * A phone goes one step further and shows either the list of categories or
+   * one category, never both - the same two screens a phone's settings app
+   * gives you. The stylesheet decides which of the two is in the layout; all
+   * this has to do is say which category is open, and whether one is.
+   */
+  const settingsTabs = Array.from(document.querySelectorAll('.settings-tab'));
+
+  function showSettingsSection(sectionId) {
+    let title = 'Settings';
+    for (const tab of settingsTabs) {
+      const active = tab.dataset.section === sectionId;
+      tab.classList.toggle('is-active', active);
+      const section = $(tab.dataset.section);
+      if (section) section.hidden = !active;
+      if (active) title = tab.textContent.trim();
+    }
+    if (el.settingsCard) el.settingsCard.classList.toggle('is-detail', sectionId !== null);
+    if (el.settingsBarTitle) el.settingsBarTitle.textContent = title;
+    if (el.settingsBack) {
+      el.settingsBack.setAttribute(
+        'aria-label', sectionId === null ? 'Close settings' : 'Back to settings',
+      );
+    }
+    // A category always opens at its own top, whichever one was left scrolled.
+    if (el.settingsBody) el.settingsBody.scrollTop = 0;
+  }
+
+  /**
+   * Back out to the list. Only reachable on a phone - a desktop always has a
+   * category open, because its rail is beside the panel rather than in front
+   * of it.
+   */
+  function showSettingsRoot() {
+    showSettingsSection(null);
+  }
+
+  /** The list on a phone, the first category on anything wider. */
+  function resetSettingsView() {
+    if (compact.matches) showSettingsRoot();
+    else if (settingsTabs.length) showSettingsSection(settingsTabs[0].dataset.section);
+  }
+
+  /**
+   * The two voice device pickers. Both read the same enumerateDevices() call,
+   * so opening the window costs one round trip rather than two.
+   */
+  const AUDIO_DEVICE_PICKERS = [
+    {
+      kind: 'audioinput',
+      field: 'micDeviceId',
+      noun: 'Microphone',
+      trigger: 'micTrigger',
+      dropdown: 'micDropdown',
+      value: 'micValue',
+      choose: (deviceId) => selectMicDevice(deviceId),
+    },
+    {
+      kind: 'audiooutput',
+      field: 'speakerDeviceId',
+      noun: 'Speaker',
+      trigger: 'speakerTrigger',
+      dropdown: 'speakerDropdown',
+      value: 'speakerValue',
+      choose: (deviceId) => {
+        state.speakerDeviceId = deviceId;
+        rememberDevice('astra:speaker-device', deviceId);
+        applySpeakerDevice();
+      },
+    },
+  ];
+
+  /** Close every device dropdown but the one passed, or all of them for null. */
+  function closeDevicePickers(except) {
+    for (const picker of AUDIO_DEVICE_PICKERS) {
+      if (picker === except) continue;
+      const dropdown = el[picker.dropdown];
+      if (!dropdown || dropdown.hidden) continue;
+      dropdown.hidden = true;
+      el[picker.trigger].setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function toggleDevicePicker(picker, force) {
+    const dropdown = el[picker.dropdown];
+    const trigger = el[picker.trigger];
+    if (!dropdown || !trigger) return;
+    const open = force === undefined ? dropdown.hidden : force;
+    if (dropdown.hidden === !open) return;
+    if (open) closeDevicePickers(picker);
+    dropdown.hidden = !open;
+    trigger.setAttribute('aria-expanded', String(open));
+  }
+
+  /** The trigger always names whatever is currently selected. */
+  function syncDevicePicker(picker) {
+    const dropdown = el[picker.dropdown];
+    if (!dropdown) return;
+    const wanted = state[picker.field];
+    let label = 'System default';
+    for (const item of dropdown.querySelectorAll('.dock-dropdown-item')) {
+      const match = item.dataset.deviceId === wanted;
+      item.classList.toggle('is-selected', match);
+      item.setAttribute('aria-selected', String(match));
+      if (match) label = item.textContent.trim();
+    }
+    if (el[picker.value]) el[picker.value].textContent = label;
+  }
+
+  async function populateAudioDevices() {
+    let devices = [];
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      try {
+        devices = await navigator.mediaDevices.enumerateDevices();
+      } catch (_) {
+        // Treated as "none found" below.
+      }
+    }
+
+    for (const picker of AUDIO_DEVICE_PICKERS) {
+      const dropdown = el[picker.dropdown];
+      if (!dropdown) continue;
+      // Before permission is granted the browser answers with one unnamed
+      // placeholder per kind, whose blank id already means "system default".
+      const found = devices.filter((device) => device.kind === picker.kind && device.deviceId);
+      // A remembered device that is no longer present falls back to default.
+      if (!found.some((device) => device.deviceId === state[picker.field])) {
+        state[picker.field] = '';
+      }
+
+      dropdown.textContent = '';
+      // Always first, and always reachable: it is the only choice that stays
+      // valid when the remembered device is unplugged.
+      const entries = [{ deviceId: '', label: 'System default' }];
+      found.forEach((device, index) => {
+        // Labels stay empty until the browser has granted this kind once.
+        entries.push({
+          deviceId: device.deviceId,
+          label: device.label || picker.noun + ' ' + (index + 1),
+        });
+      });
+
+      for (const entry of entries) {
+        const item = document.createElement('div');
+        item.className = 'dock-dropdown-item';
+        item.setAttribute('role', 'option');
+        item.tabIndex = 0;
+        item.dataset.deviceId = entry.deviceId;
+        const span = document.createElement('span');
+        span.textContent = entry.label;
+        item.append(span, checkSvgTemplate.cloneNode(true));
+
+        const pick = (event) => {
+          event.stopPropagation();
+          toggleDevicePicker(picker, false);
+          if (state[picker.field] === entry.deviceId) return;
+          picker.choose(entry.deviceId);
+          syncDevicePicker(picker);
+        };
+        item.addEventListener('click', pick);
+        item.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            pick(event);
+          }
+        });
+
+        dropdown.append(item);
+      }
+
+      syncDevicePicker(picker);
+    }
+  }
+
+  for (const picker of AUDIO_DEVICE_PICKERS) {
+    const trigger = el[picker.trigger];
+    if (!trigger) continue;
+    trigger.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleDevicePicker(picker);
+    });
+    trigger.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleDevicePicker(picker);
+      }
+    });
+  }
+
+  // A click anywhere else in the window closes whichever picker is open.
+  if (el.settingsModal) {
+    el.settingsModal.addEventListener('click', () => closeDevicePickers(null));
+  }
+
+  async function selectMicDevice(deviceId) {
+    if (state.micDeviceId === deviceId) return;
+    state.micDeviceId = deviceId;
+    rememberDevice('astra:mic-device', deviceId);
+    if (!state.micOn) return;
+    // Live swap: the mixer keeps publishing one outgoing track, so exchanging
+    // the source behind it needs no renegotiation with anybody.
+    try {
+      const stream = await captureMicrophone(deviceId);
+      stopStream(state.micStream);
+      state.micStream = stream;
+      state.mixer.add('mic', stream);
+      applyInputVolume();
+      vad.attach('self', stream);
+    } catch (err) {
+      console.error(err);
+      setStatus('Could not switch microphone: ' + (err.message || err.name), 'bad');
+    }
+  }
+
+  /**
+   * Both halves of Appearance follow what is stored: which base theme is
+   * ticked, and where the hue slider sits - the grey swatch being ringed when
+   * the theme is left untinted.
+   */
+  function syncThemeUI() {
+    const theme = window.AstraTheme.getTheme();
+    for (const preset of el.themePresets) {
+      preset.setAttribute('aria-checked', String(preset.dataset.theme === theme));
+    }
+    const hue = window.AstraTheme.getHue();
+    if (el.themeHue) el.themeHue.value = String(hue === null ? 0 : hue);
+    if (el.themeReset) el.themeReset.classList.toggle('is-active', hue === null);
+  }
+
+  const VOLUME_SLIDERS = [
+    { level: 'output', slider: 'outputVolume', value: 'outputVolumeValue', apply: applyOutputVolume },
+    { level: 'input', slider: 'inputVolume', value: 'inputVolumeValue', apply: applyInputVolume },
+  ];
+
+  function syncVolumeUI() {
+    for (const entry of VOLUME_SLIDERS) {
+      const percent = Math.round(volumes[entry.level] * 100);
+      if (el[entry.slider]) el[entry.slider].value = String(percent);
+      if (el[entry.value]) el[entry.value].textContent = percent + '%';
+    }
+  }
+
+  function openSettings() {
+    if (!el.settingsModal) return;
+    syncThemeUI();
+    syncVolumeUI();
+    populateAudioDevices();
+    el.settingsModal.hidden = false;
+    resetSettingsView();
+    if (el.toggleSettings) el.toggleSettings.setAttribute('aria-pressed', 'true');
+    document.addEventListener('keydown', handleSettingsKey);
+    // Focus inside the dialog so Escape and Tab work, without landing on a
+    // control the person may not have come to change. Which of the two close
+    // buttons is on screen depends on the layout.
+    const dismiss = compact.matches ? el.settingsBack : el.settingsClose;
+    if (dismiss) dismiss.focus();
+  }
+
+  function closeSettings() {
+    if (!el.settingsModal) return;
+    el.settingsModal.hidden = true;
+    if (el.toggleSettings) el.toggleSettings.setAttribute('aria-pressed', 'false');
+    document.removeEventListener('keydown', handleSettingsKey);
+  }
+
+  function handleSettingsKey(event) {
+    if (event.key !== 'Escape') return;
+    // On a phone the first Escape is the back button, the second closes.
+    if (compact.matches && el.settingsCard.classList.contains('is-detail')) showSettingsRoot();
+    else closeSettings();
+  }
+
+  if (el.toggleSettings) {
+    el.toggleSettings.addEventListener('click', () => {
+      if (el.settingsModal.hidden) openSettings();
+      else closeSettings();
+    });
+  }
+  if (el.settingsClose) el.settingsClose.addEventListener('click', closeSettings);
+
+  if (el.settingsBack) {
+    el.settingsBack.addEventListener('click', () => {
+      if (compact.matches && el.settingsCard.classList.contains('is-detail')) showSettingsRoot();
+      else closeSettings();
+    });
+  }
+
+  // Crossing the breakpoint with the window open swaps which of the two
+  // layouts applies, so the view has to be put back to that layout's start.
+  compact.addEventListener('change', () => {
+    if (el.settingsModal && !el.settingsModal.hidden) resetSettingsView();
+    // The sheet belongs to one layout only, and closing puts it back in the
+    // dock where the other layout expects to find it.
+    toggleShareMenu(false);
+    toggleOutputMenu(false);
+  });
+  if (el.settingsBackdrop) el.settingsBackdrop.addEventListener('click', closeSettings);
+
+  for (const tab of settingsTabs) {
+    tab.addEventListener('click', () => showSettingsSection(tab.dataset.section));
+  }
+
+  for (const preset of el.themePresets) {
+    preset.addEventListener('click', () => {
+      window.AstraTheme.setTheme(preset.dataset.theme);
+      syncThemeUI();
+    });
+  }
+
+  if (el.themeHue) {
+    el.themeHue.addEventListener('input', () => {
+      window.AstraTheme.setHue(Number(el.themeHue.value));
+      syncThemeUI();
+    });
+  }
+
+  if (el.themeReset) {
+    el.themeReset.addEventListener('click', () => {
+      window.AstraTheme.setHue(null);
+      syncThemeUI();
+    });
+  }
+
+  for (const entry of VOLUME_SLIDERS) {
+    const slider = el[entry.slider];
+    if (!slider) continue;
+    slider.addEventListener('input', () => {
+      volumes[entry.level] = Number(slider.value) / 100;
+      syncVolumeUI();
+      entry.apply();
+      saveVolumes();
+    });
+  }
+
+  syncVolumeUI();
 
   el.copyLink.addEventListener('click', async () => {
     const link = location.origin + location.pathname + '?room=' + state.signal.code;

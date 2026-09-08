@@ -89,6 +89,22 @@
       <button id="enable-audio" class="chip chip-accent" hidden>Enable audio</button>
     </div>
     <div class="topbar-side topbar-right">
+      <button id="flip-camera" class="chip chip-icon-btn phone-only" title="Switch camera" aria-label="Switch camera" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 12a10 10 0 0 1 16.5-7.6L21 7" />
+          <polyline points="21 3 21 7 17 7" />
+          <path d="M22 12a10 10 0 0 1-16.5 7.6L3 17" />
+          <polyline points="3 21 3 17 7 17" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
+      <button id="audio-output" class="chip chip-icon-btn phone-only" title="Audio output" aria-label="Audio output" aria-haspopup="listbox" aria-expanded="false" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6 9H2v6h4l5 4z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        </svg>
+      </button>
       <button id="toggle-people" class="chip chip-icon-btn" aria-pressed="true" title="People" aria-label="People">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -108,8 +124,17 @@
           <circle cx="12" cy="7" r="4" />
         </svg>
       </button>
+      <button id="toggle-settings" class="chip chip-icon-btn" aria-pressed="false" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
     </div>
   </header>
+
+  <!-- Phone only: which speaker the room plays out of. -->
+  <div id="output-menu" class="dock-dropdown topbar-menu" role="listbox" aria-label="Audio output" hidden></div>
 
   <main id="stage" class="stage" hidden>
     <div id="grid" class="grid"></div>
@@ -121,6 +146,9 @@
 
   <!-- Dims the room behind the mobile sheet and closes it on a tap. -->
   <div id="sheet-backdrop" class="sheet-backdrop"></div>
+  <!-- The same, for the sharing sheet. Outside the dock: the dock's
+       backdrop-filter would otherwise be this element's containing block. -->
+  <div id="dock-sheet-backdrop" class="dock-sheet-backdrop" hidden></div>
   <aside id="sidebar" class="sidebar" hidden>
     <div id="resize-x" class="resizer-x" role="separator" aria-orientation="vertical"
          aria-label="Resize the side panel" title="Drag to resize"></div>
@@ -143,6 +171,8 @@
   <!-- Floating dock: no bar, no chrome, just the controls. -->
   <div id="controls" class="dock" hidden>
     <div id="share-menu" class="dock-menu" hidden>
+      <h2 class="dock-sheet-title">Share your screen</h2>
+
       <div class="dock-menu-select-wrap" id="quality-wrap">
         <div class="dock-menu-item dock-menu-select" id="quality-trigger" role="button" aria-haspopup="listbox" aria-expanded="false" tabindex="0">
           <div class="dock-menu-info">
@@ -193,19 +223,9 @@
         <input id="system-audio" type="checkbox" checked class="dock-menu-check" />
       </label>
 
-      <div class="dock-menu-divider" role="separator"></div>
-
-      <label class="dock-menu-item dock-menu-action" id="fluidity-row">
-        <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-        </svg>
-        <span class="dock-menu-label">Prioritize fluidity</span>
-        <input id="fluidity" type="checkbox" checked class="dock-menu-check" />
-      </label>
-
-      <p class="dock-menu-hint">On: keeps motion smooth and lets the picture soften when the
-        network tightens. Off: holds the picture sharp and drops frames instead, for reading
-        text or code.</p>
+      <button type="button" id="share-confirm" class="btn btn-primary btn-block dock-sheet-confirm">
+        Share screen
+      </button>
     </div>
 
     <div class="dock-group" id="share-group">
@@ -419,16 +439,6 @@
             <input id="profile-modal-name" type="text" maxlength="32" placeholder="Your name" />
           </label>
 
-          <div class="field theme-field">
-            <span>App colour</span>
-            <div class="theme-row">
-              <button type="button" id="theme-reset" class="theme-swatch"
-                      title="No colour" aria-label="No colour"></button>
-              <input id="theme-hue" class="theme-hue" type="range" min="0" max="359" value="0"
-                     aria-label="App colour" />
-            </div>
-          </div>
-
           <div id="profile-modal-discord" class="discord-auth profile-modal-discord" hidden>
             <div class="discord-badge">
               <svg class="discord-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
@@ -442,6 +452,197 @@
           <div class="profile-modal-actions">
             <button type="button" id="profile-modal-save" class="btn btn-primary btn-block">Apply</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings: appearance and audio/video preferences. Separate from the
+       profile editor, which stays where it is.
+
+       The body is one scrolling column rather than swapped panels: the nav
+       buttons scroll to a section and light up as that section passes, so the
+       two stay in step however the user moves through them. -->
+  <div id="settings-modal" class="profile-modal" role="dialog" aria-modal="true" aria-label="Settings" hidden>
+    <div class="profile-modal-backdrop" id="settings-backdrop"></div>
+    <div class="profile-modal-dialog">
+      <div class="settings-card">
+        <div class="settings-bar">
+          <button type="button" id="settings-back" class="settings-bar-btn" aria-label="Close settings">
+            <svg class="settings-bar-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            <svg class="settings-bar-icon-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+          </button>
+          <h2 class="settings-bar-title" id="settings-bar-title">Settings</h2>
+        </div>
+
+        <nav class="settings-nav" aria-label="Settings sections">
+          <h2 class="settings-title">Settings</h2>
+          <button type="button" class="settings-tab is-active" data-section="settings-section-appearance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="13.5" cy="6.5" r=".75" fill="currentColor" stroke="none" />
+              <circle cx="17.5" cy="10.5" r=".75" fill="currentColor" stroke="none" />
+              <circle cx="8.5" cy="7.5" r=".75" fill="currentColor" stroke="none" />
+              <circle cx="6.5" cy="12.5" r=".75" fill="currentColor" stroke="none" />
+              <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.68-.75 1.68-1.68 0-.44-.17-.83-.44-1.12a1.6 1.6 0 0 1 1.2-2.7h1.97A5.6 5.6 0 0 0 22 10.94C22 6.03 17.5 2 12 2z" />
+            </svg>
+            <span>Appearance</span>
+            <svg class="settings-tab-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+          <button type="button" class="settings-tab" data-section="settings-section-av">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+              <path d="M19 11a7 7 0 0 1-14 0" />
+              <line x1="12" y1="18" x2="12" y2="22" />
+            </svg>
+            <span>Audio &amp; video</span>
+            <svg class="settings-tab-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+        </nav>
+
+        <button type="button" id="settings-close" class="settings-close" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
+        <div class="settings-body" id="settings-body">
+          <section class="settings-section" id="settings-section-appearance">
+            <h3 class="settings-heading">Appearance</h3>
+
+            <div class="settings-field">
+              <span class="settings-label">Default themes</span>
+              <div class="theme-presets" role="radiogroup" aria-label="Theme">
+                <button type="button" class="theme-preset" data-theme="light" role="radio"
+                        aria-checked="false" title="White" aria-label="White">
+                  <span class="theme-preset-swatch" data-preview="white"></span>
+                  <svg class="theme-preset-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+                <button type="button" class="theme-preset" data-theme="dark" role="radio"
+                        aria-checked="true" title="Grey" aria-label="Grey">
+                  <span class="theme-preset-swatch" data-preview="grey"></span>
+                  <svg class="theme-preset-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+                <button type="button" class="theme-preset" data-theme="oled" role="radio"
+                        aria-checked="false" title="OLED" aria-label="OLED">
+                  <span class="theme-preset-swatch" data-preview="oled"></span>
+                  <svg class="theme-preset-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+                <button type="button" class="theme-preset" data-theme="system" role="radio"
+                        aria-checked="false" title="Sync with device" aria-label="Sync with device">
+                  <span class="theme-preset-swatch" data-preview="system">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="21 3 21 9 15 9" />
+                      <polyline points="3 21 3 15 9 15" />
+                      <path d="M20.5 9A9 9 0 0 0 5.6 5.6L3 8" />
+                      <path d="M3.5 15A9 9 0 0 0 18.4 18.4L21 16" />
+                    </svg>
+                  </span>
+                  <svg class="theme-preset-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-field">
+              <span class="settings-label">Custom colour</span>
+              <div class="theme-row">
+                <button type="button" id="theme-reset" class="theme-swatch"
+                        title="No colour" aria-label="No colour"></button>
+                <input id="theme-hue" class="theme-hue" type="range" min="0" max="359" value="0"
+                       aria-label="Custom colour" />
+              </div>
+              <p class="settings-hint">Tints every neutral in the theme. The swatch puts it back.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="settings-section-av" hidden>
+            <h3 class="settings-heading">Voice</h3>
+
+            <div class="settings-grid">
+              <div class="settings-field settings-device-field">
+                <span class="settings-label" id="mic-label">Input device</span>
+                <div class="dock-menu-select-wrap settings-picker" id="mic-picker">
+                  <div class="dock-menu-item dock-menu-select" id="mic-trigger" role="button"
+                       aria-haspopup="listbox" aria-expanded="false" aria-labelledby="mic-label"
+                       tabindex="0">
+                    <svg class="settings-picker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                      <path d="M19 11a7 7 0 0 1-14 0" />
+                      <line x1="12" y1="18" x2="12" y2="22" />
+                    </svg>
+                    <span class="dock-menu-title" id="mic-value">System default</span>
+                    <svg class="dock-menu-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                  <div class="dock-dropdown settings-dropdown" id="mic-dropdown" role="listbox"
+                       aria-label="Input device" hidden></div>
+                </div>
+              </div>
+
+              <div class="settings-field settings-device-field">
+                <span class="settings-label" id="speaker-label">Output device</span>
+                <div class="dock-menu-select-wrap settings-picker" id="speaker-picker">
+                  <div class="dock-menu-item dock-menu-select" id="speaker-trigger" role="button"
+                       aria-haspopup="listbox" aria-expanded="false" aria-labelledby="speaker-label"
+                       tabindex="0">
+                    <svg class="settings-picker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+                    </svg>
+                    <span class="dock-menu-title" id="speaker-value">System default</span>
+                    <svg class="dock-menu-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                  <div class="dock-dropdown settings-dropdown" id="speaker-dropdown" role="listbox"
+                       aria-label="Output device" hidden></div>
+                </div>
+              </div>
+
+              <div class="settings-field">
+                <span class="settings-label">Input volume
+                  <em id="input-volume-value" class="settings-value">100%</em></span>
+                <input id="input-volume" class="settings-range" type="range" min="0" max="200" step="5"
+                       value="100" aria-label="Input volume" />
+              </div>
+
+              <div class="settings-field">
+                <span class="settings-label">Output volume
+                  <em id="output-volume-value" class="settings-value">100%</em></span>
+                <input id="output-volume" class="settings-range" type="range" min="0" max="200" step="5"
+                       value="100" aria-label="Output volume" />
+              </div>
+            </div>
+
+            <h3 class="settings-heading">Video</h3>
+
+            <label class="settings-check-row">
+              <span class="settings-check-text">
+                <span class="settings-label">Prioritize fluidity</span>
+                <span class="settings-hint">Smooth motion over a sharp picture.</span>
+              </span>
+              <input id="fluidity" type="checkbox" checked class="dock-menu-check" />
+            </label>
+          </section>
         </div>
       </div>
     </div>

@@ -58,6 +58,45 @@
       return true;
     }
 
+    /**
+     * Scale one source, 1 being untouched. The microphone rides its own gain
+     * node already, so input volume is a value change rather than a re-route.
+     */
+    setSourceGain(key, value) {
+      const source = this.sources.get(key);
+      if (source) source.gain.gain.value = value;
+    }
+
+    /**
+     * Play a remote <audio> through the graph so it can be amplified past
+     * what the element alone allows - its own `volume` stops at 1.
+     *
+     * Routing is one-way and permanent per element, and it makes that audio
+     * depend on a healthy context, so it only happens once someone actually
+     * asks for more than 100%. Below that the element plays natively, exactly
+     * as it did before.
+     */
+    amplify(el) {
+      if (el.__astraAmplified) return true;
+      if (!this.outputGain) {
+        this.outputGain = this.ctx.createGain();
+        this.outputGain.connect(this.ctx.destination);
+      }
+      try {
+        this.ctx.createMediaElementSource(el).connect(this.outputGain);
+        el.__astraAmplified = true;
+        return true;
+      } catch (_) {
+        // Already bound to another graph, or the browser refused.
+        return false;
+      }
+    }
+
+    /** Extra gain on everything routed through amplify(). */
+    setOutputGain(value) {
+      if (this.outputGain) this.outputGain.gain.value = value;
+    }
+
     /** Detach a source. Tracks are stopped by whoever owns the stream. */
     remove(key) {
       const source = this.sources.get(key);
@@ -144,11 +183,12 @@
     return { stream, quality };
   }
 
-  function captureMicrophone() {
-    return navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: false,
-    });
+  function captureMicrophone(deviceId) {
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    // `ideal`, not `exact`: a remembered microphone that has since been
+    // unplugged should fall back to the default rather than throw.
+    if (deviceId) audio.deviceId = { ideal: deviceId };
+    return navigator.mediaDevices.getUserMedia({ audio, video: false });
   }
 
   function stopStream(stream) {
