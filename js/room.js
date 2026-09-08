@@ -683,6 +683,7 @@
     setShareUI(false);
     setCameraUI(false);
     setMicUI(false);
+    populateOutputMenu();
 
     // One outgoing stream for the whole session. Its audio track is the mixer
     // output, so mic and system audio can come and go without renegotiating.
@@ -1362,14 +1363,7 @@
       }
     }
 
-    // iOS names no output at all and cannot redirect one, so the button simply
-    // is not there; on Android the list is the phone's own routing choices.
-    const usable = outputs.length > 0 && typeof HTMLMediaElement.prototype.setSinkId === 'function';
-    el.audioOutput.hidden = !usable;
-    if (!usable) {
-      toggleOutputMenu(false);
-      return;
-    }
+    el.audioOutput.hidden = false;
 
     el.outputMenu.textContent = '';
     const entries = [{ deviceId: '', label: 'System default' }];
@@ -1400,6 +1394,40 @@
         populateOutputMenu();
       });
       el.outputMenu.append(item);
+    }
+
+    if (typeof navigator.mediaDevices?.selectAudioOutput === 'function') {
+      const pickItem = document.createElement('div');
+      pickItem.className = 'dock-dropdown-item';
+      pickItem.style.borderTop = '1px solid rgba(255, 255, 255, 0.1)';
+      pickItem.style.marginTop = '4px';
+      pickItem.style.paddingTop = '6px';
+      const pickSpan = document.createElement('span');
+      pickSpan.textContent = 'Choose output device…';
+      pickItem.appendChild(pickSpan);
+      pickItem.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        try {
+          const device = await navigator.mediaDevices.selectAudioOutput();
+          if (device && device.deviceId) {
+            state.speakerDeviceId = device.deviceId;
+            rememberDevice('astra:speaker-device', device.deviceId);
+            applySpeakerDevice();
+            toggleOutputMenu(false);
+            populateOutputMenu();
+          }
+        } catch (_) {}
+      });
+      el.outputMenu.append(pickItem);
+    } else if (outputs.length === 0 && typeof HTMLMediaElement.prototype.setSinkId !== 'function') {
+      const noteItem = document.createElement('div');
+      noteItem.className = 'dock-dropdown-note';
+      noteItem.style.padding = '6px 12px';
+      noteItem.style.fontSize = '11px';
+      noteItem.style.color = 'var(--muted)';
+      noteItem.style.textAlign = 'center';
+      noteItem.textContent = 'Managed by device audio settings';
+      el.outputMenu.append(noteItem);
     }
   }
 

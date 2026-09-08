@@ -2732,6 +2732,11 @@ body.sidebar-hidden .toasts {
     height: 16px;
   }
 
+  .topbar-menu {
+    top: 52px;
+    right: 8px;
+  }
+
   /* People and Chat become one sheet that rises from the bottom and covers
      most of the screen, a panel at a time. It is an overlay, so the stage
      underneath keeps its full height and only has to clear the dock. */
