@@ -236,10 +236,10 @@
     el.gateTitle.textContent = 'New room';
     el.gateSub.textContent = 'You will get a code to share once the room is open.';
     el.gateSubmit.textContent = 'Create room';
-    document.title = 'New room — Astra';
+    document.title = 'new room - astra';
   } else {
     el.gateSub.textContent = 'Joining room ' + roomCode + '.';
-    document.title = roomCode + ' — Astra';
+    document.title = roomCode + ' - astra';
   }
 
   // The signalling library comes from a CDN; say so plainly if it never arrived.
@@ -667,7 +667,7 @@
       }, { once: true });
     }
     el.roomCode.textContent = signal.code;
-    document.title = signal.code + ' — Astra';
+    document.title = signal.code + ' - astra';
 
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
