@@ -1,0 +1,13 @@
+{
+  "appId": "live.astrascreen.app",
+  "appName": "Astra",
+  "webDir": "www",
+  "server": {
+    "url": "https://astrascreen.live",
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0e0e0e"
+  }
+}

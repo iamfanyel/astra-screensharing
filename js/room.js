@@ -677,9 +677,7 @@
     }
     startRoomApiHeartbeat(signal.code);
 
-    if (!window.AstraMedia.canShareScreen && el.shareGroup) {
-      el.shareGroup.hidden = true;
-    }
+    syncShareAvailability();
     setShareUI(false);
     setCameraUI(false);
     setMicUI(false);
@@ -822,6 +820,22 @@
   }
 
   // --------------------------------------------------------------- sharing
+
+  function syncShareAvailability() {
+    const canShare = !!(window.AstraMedia && window.AstraMedia.canShareScreen);
+    if (el.shareGroup) {
+      el.shareGroup.hidden = !canShare;
+    }
+    document.body.classList.toggle('no-screen-share', !canShare);
+  }
+
+  syncShareAvailability();
+  window.addEventListener('load', syncShareAvailability);
+  document.addEventListener('deviceready', syncShareAvailability);
+  window.addEventListener('capacitorReady', syncShareAvailability);
+  setTimeout(syncShareAvailability, 250);
+  setTimeout(syncShareAvailability, 800);
+  setTimeout(syncShareAvailability, 1800);
 
   el.share.addEventListener('click', (event) => toggleSharing(event));
 

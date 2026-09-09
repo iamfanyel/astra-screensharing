@@ -18,3 +18,6 @@ README.md
 
 # Desktop app (Electron) - built and released separately, never served
 desktop/
+
+# Mobile app (Capacitor/Android) - built and released separately, never served
+mobile/

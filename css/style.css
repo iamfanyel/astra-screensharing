@@ -31,6 +31,9 @@
   --lt0: 0%;
   --lts: 1;
 
+  --sat: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+
   --bg: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 5.49%));
   --bg-soft: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 9.02%));
   --panel: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 11.76%));
@@ -548,10 +551,10 @@ body.resizing {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: calc(10px + var(--sat)) 12px 10px;
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 5.49%) / 0.85);
   backdrop-filter: blur(8px);
-  min-height: 54px;
+  min-height: calc(54px + var(--sat));
   box-sizing: border-box;
 }
 
@@ -2698,8 +2701,8 @@ body.sidebar-hidden .toasts {
 
   .topbar {
     gap: 8px;
-    padding: 8px 10px;
-    min-height: 48px;
+    padding: calc(8px + var(--sat)) 10px 8px;
+    min-height: calc(48px + var(--sat));
   }
 
   .topbar-side {
@@ -2734,7 +2737,7 @@ body.sidebar-hidden .toasts {
   }
 
   .topbar-menu {
-    top: 52px;
+    top: calc(52px + var(--sat));
     right: 8px;
   }
 
@@ -4251,7 +4254,7 @@ body.sidebar-hidden .toasts {
 
   .topbar {
     gap: 6px;
-    padding: 6px 8px;
+    padding: calc(6px + var(--sat)) 8px 6px;
   }
 
   .topbar-right {

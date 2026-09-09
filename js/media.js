@@ -17,7 +17,15 @@
     max: { height: null, frameRate: 60, bitrate: 8000000 },
   };
 
-  const canShareScreen = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  function canShareScreen() {
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+      return true;
+    }
+    if (window.AstraNativeScreen && typeof window.AstraNativeScreen.available === 'function') {
+      return window.AstraNativeScreen.available();
+    }
+    return false;
+  }
 
   class AudioMixer {
     constructor() {
@@ -123,6 +131,16 @@
    */
   async function captureScreen(qualityKey, systemAudio) {
     const quality = QUALITY[qualityKey] || QUALITY['1080'];
+
+    // Inside the Android app the screen comes from the app itself: no mobile
+    // browser implements getDisplayMedia, so there is nothing here to ask.
+    // It carries no audio - Android has no system-audio capture to offer a
+    // single app - so the room simply shares picture there.
+    const native = window.AstraNativeScreen;
+    if (native && native.available()) {
+      return { stream: hintAudio(await native.capture()), quality };
+    }
+
     const video = { frameRate: { ideal: quality.frameRate } };
     if (quality.height) video.height = { ideal: quality.height };
 
@@ -156,10 +174,19 @@
 
     // The video track's contentHint belongs to the caller, which sets it from
     // the fluidity toggle and keeps changing it while sharing.
+    return { stream: hintAudio(stream), quality };
+  }
+
+  /**
+   * Shared audio is music, not speech, wherever it came from - the browser's
+   * loopback or the phone's. Saying so keeps the encoder from treating it the
+   * way it treats a voice.
+   */
+  function hintAudio(stream) {
     for (const audio of stream.getAudioTracks()) {
       if ('contentHint' in audio) audio.contentHint = 'music';
     }
-    return { stream, quality };
+    return stream;
   }
 
   /** Capture camera video (front/user facing by default, or specific deviceId). */
@@ -203,6 +230,10 @@
     captureCamera,
     captureMicrophone,
     stopStream,
-    canShareScreen,
   };
+  Object.defineProperty(window.AstraMedia, 'canShareScreen', {
+    get: canShareScreen,
+    configurable: true,
+    enumerable: true,
+  });
 })();
