@@ -6,6 +6,12 @@
   "observability": {
     "enabled": true
   },
+  // The site's own domain. `custom_domain` asks Cloudflare to point the zone
+  // at this Worker and issue the certificate, so it needs astrascreen.live to
+  // be a zone on the same account.
+  "routes": [
+    { "pattern": "astrascreen.live", "custom_domain": true }
+  ],
   "assets": {
     "directory": ".",
     "binding": "ASSETS"

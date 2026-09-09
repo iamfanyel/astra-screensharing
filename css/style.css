@@ -56,7 +56,8 @@
 /* The wordmark ships as a white silhouette, so the light theme flips it to
    black rather than shipping a second file. */
 :root[data-theme="light"] .logo,
-:root[data-theme="light"] .brand-mark {
+:root[data-theme="light"] .brand-mark,
+:root[data-theme="light"] .titlebar-mark {
   filter: invert(1);
 }
 
@@ -3737,6 +3738,66 @@ body.sidebar-hidden .toasts {
   .settings-device-field {
     display: none;
   }
+}
+
+/* ------------------------------------------------------- desktop app frame */
+
+/* Only the Electron build wears this: its preload puts `is-desktop-app` on the
+   root, and a browser - which already has a title bar of its own - never sees
+   any of it. The window itself is frameless, so this strip is what the OS
+   would otherwise have drawn: somewhere to grab, and the app's name. The
+   minimise/maximise/close buttons are the real ones, painted over the right
+   end of it by the system. */
+.titlebar {
+  display: none;
+}
+
+:root.is-desktop-app {
+  --titlebar-h: 34px;
+}
+
+:root.is-desktop-app .titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 3.92%));
+  -webkit-app-region: drag;
+}
+
+/* The wordmark as the lobby sets it, at the size a title bar can carry. */
+:root.is-desktop-app .titlebar span {
+  font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  pointer-events: none;
+}
+
+:root.is-desktop-app .titlebar-mark {
+  width: 17px;
+  height: 17px;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Both layouts start below the strip rather than under it. The room is a full
+   height grid, so it loses the height instead of gaining a margin. */
+:root.is-desktop-app body.room {
+  height: calc(100dvh - var(--titlebar-h));
+  margin-top: var(--titlebar-h);
+}
+
+:root.is-desktop-app body.lobby {
+  padding-top: calc(24px + var(--titlebar-h));
 }
 
 /* ------------------------------------------------ In-Room Profile Modal (Discord-style) */

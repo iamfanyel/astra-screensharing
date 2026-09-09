@@ -18,6 +18,12 @@
   <link rel="icon" type="image/png" href="astralogo.png" />
 </head>
 <body class="lobby">
+  <!-- The desktop app's title bar. Hidden in a browser, which draws its own;
+       shown by the `is-desktop-app` class the Electron preload sets. -->
+  <div class="titlebar" aria-hidden="true">
+    <img class="titlebar-mark" src="/astralogo.png" alt="" width="1920" height="1920" />
+    <span>astra</span>
+  </div>
   <div class="bg-glow-sphere" aria-hidden="true"></div>
   <main class="card">
     <header class="brand">

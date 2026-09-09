@@ -255,6 +255,14 @@ window.AstraDiscord = (function () {
    * Resolves to the base site URL (e.g. http://localhost:3000/ or /astra-screensharing/)
    * so users only need to register one redirect URI in the Discord Developer Portal.
    */
+  /**
+   * Where the desktop app asks to be called back. Astra registers this scheme
+   * with the OS, so navigating to it hands the token to the running app; a
+   * browser with no app installed simply does nothing, which is the right
+   * outcome for anyone who reaches this URL by accident.
+   */
+  const DESKTOP_CALLBACK = 'astra://auth';
+
   function getRedirectUri() {
     const url = new URL(location.href);
     url.search = '';
@@ -419,6 +427,16 @@ window.AstraDiscord = (function () {
     }
 
     if (!accessToken) {
+      return null;
+    }
+
+    // The desktop app sends people here through their own browser and names
+    // itself in `state`. This tab's only job is to hand the token across and
+    // get out of the way - the app does the sign-in from there. Matched
+    // exactly, so `state` can never become a redirect to anywhere else.
+    if (stateParam && decodeURIComponent(stateParam) === DESKTOP_CALLBACK) {
+      const fragment = hash.startsWith('#') ? hash.slice(1) : hash;
+      window.location.replace(DESKTOP_CALLBACK + '#' + fragment);
       return null;
     }
 

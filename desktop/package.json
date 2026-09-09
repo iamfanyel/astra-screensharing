@@ -1,0 +1,53 @@
+{
+  "name": "astra-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Screen and audio sharing",
+  "author": "Fanyel",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env ASTRA_URL=http://localhost:3000 electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.astra.screensharing",
+    "productName": "Astra",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "config.js",
+      "picker/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Astra",
+      "uninstallDisplayName": "Astra",
+      "artifactName": "Astra-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.social-networking"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Network"
+    }
+  }
+}

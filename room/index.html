@@ -15,6 +15,12 @@
   <link rel="icon" type="image/png" href="../astralogo.png" />
 </head>
 <body class="room">
+  <!-- The desktop app's title bar. Hidden in a browser, which draws its own;
+       shown by the `is-desktop-app` class the Electron preload sets. -->
+  <div class="titlebar" aria-hidden="true">
+    <img class="titlebar-mark" src="/astralogo.png" alt="" width="1920" height="1920" />
+    <span>astra</span>
+  </div>
   <!-- Gate: also the user gesture that lets us start audio playback. -->
   <div id="gate" class="gate">
     <div class="bg-glow-sphere" aria-hidden="true"></div>

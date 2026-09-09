@@ -15,3 +15,6 @@ package.json
 package-lock.json
 wrangler.jsonc
 README.md
+
+# Desktop app (Electron) - built and released separately, never served
+desktop/

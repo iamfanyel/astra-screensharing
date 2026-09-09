@@ -44,6 +44,19 @@ npm start
 Then visit http://localhost:3000. There are no dependencies to install — the dev
 server is a ~40 line static file server, used only for local development.
 
+## Desktop app
+
+`desktop/` is an Electron wrapper around the deployed site, for the three things
+a browser tab will not do: capture the **system audio mix** on Windows (rather
+than only the audio a captured window happens to emit), draw Astra's **own
+source picker**, and keep the encoder running when the window loses focus.
+Everything else is the same site over https, so a fix still ships as a deploy.
+See [desktop/README.md](desktop/README.md).
+
+Android is not this: Electron is desktop-only, and Android browsers do not
+implement `getDisplayMedia`, so a phone can watch a share but not start one
+without a native app built on `MediaProjection`.
+
 ## Deployment
 
 The application runs as a static site and can be served over HTTPS by any static host or Cloudflare Workers (`npm run deploy`). HTTPS is required for screen capture permissions.
