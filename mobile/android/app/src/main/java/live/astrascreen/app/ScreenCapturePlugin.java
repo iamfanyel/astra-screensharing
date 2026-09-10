@@ -109,6 +109,30 @@ public class ScreenCapturePlugin extends Plugin {
             .setInputSampleRate(ScreenAudioCapturer.SAMPLE_RATE)
             .setUseStereoInput(true)
             .setAudioBufferCallback(this::fillAudioBuffer)
+            // Both default to on, and both are built for a microphone in a
+            // room. See screenAudioConstraints() for why that is the wrong
+            // shape of help for a copy of what the phone is playing.
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
+            // Nothing else will say when the record side gives up, and the
+            // symptom of that is silence, which explains itself badly.
+            .setAudioRecordErrorCallback(new JavaAudioDeviceModule.AudioRecordErrorCallback() {
+                @Override
+                public void onWebRtcAudioRecordInitError(String message) {
+                    CrashLog.note("audio record init error: " + message);
+                }
+
+                @Override
+                public void onWebRtcAudioRecordStartError(
+                    JavaAudioDeviceModule.AudioRecordStartErrorCode code, String message) {
+                    CrashLog.note("audio record start error: " + code + " " + message);
+                }
+
+                @Override
+                public void onWebRtcAudioRecordError(String message) {
+                    CrashLog.note("audio record error: " + message);
+                }
+            })
             .createAudioDeviceModule();
         audioModule.setAudioRecordEnabled(false);
 
@@ -337,13 +361,43 @@ public class ScreenCapturePlugin extends Plugin {
         try {
             screenAudio = new ScreenAudioCapturer(projection);
             CrashLog.note("playback capture is recording, building the audio track");
-            audioSource = factory.createAudioSource(new MediaConstraints());
+            audioSource = factory.createAudioSource(screenAudioConstraints());
             audioTrack = factory.createAudioTrack("astra-screen-audio", audioSource);
             CrashLog.note("audio track built");
         } catch (Throwable error) {
             stopScreenAudio();
             CrashLog.note("no screen audio: " + error);
         }
+    }
+
+    /**
+     * Keep WebRTC's microphone processing away from the screen's sound.
+     *
+     * All of it is built to pull one voice out of a room, and every part of it
+     * is wrong here. The echo canceller's whole job is to remove what the
+     * phone is playing from what was captured - and what was captured *is*
+     * what the phone is playing, so it cancels the share itself. It adapts as
+     * it goes, which is why a share starts out fine and fades to nothing
+     * rather than simply never working. The noise suppressor hears music as
+     * noise, and the gain control rides over anything with dynamics.
+     *
+     * The browser build has said the same thing since the beginning - see
+     * captureScreen() in media.js - and this is the same decision, made in the
+     * one place the native path builds its own source.
+     */
+    private static MediaConstraints screenAudioConstraints() {
+        MediaConstraints constraints = new MediaConstraints();
+        String[] off = {
+            "googEchoCancellation",
+            "googAutoGainControl",
+            "googNoiseSuppression",
+            "googHighpassFilter",
+            "googTypingNoiseDetection",
+        };
+        for (String key : off) {
+            constraints.mandatory.add(new MediaConstraints.KeyValuePair(key, "false"));
+        }
+        return constraints;
     }
 
     private void stopScreenAudio() {

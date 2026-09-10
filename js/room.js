@@ -1951,6 +1951,21 @@
    * sits in a topbar with little room on a phone and is easy to miss, so the
    * next tap anywhere is taken as the permission it was waiting for.
    */
+  /**
+   * Play, and check that it really started.
+   *
+   * A rejected play() is the easy case. Some Android WebViews resolve it and
+   * leave the element paused anyway, which the promise never mentions - so the
+   * state is read back a moment later rather than taken on trust.
+   */
+  function playAudio(audio) {
+    audio.play().then(() => {
+      setTimeout(() => {
+        if (audio.srcObject && audio.paused) audioWasBlocked();
+      }, 300);
+    }, audioWasBlocked);
+  }
+
   let waitingForGesture = false;
   function audioWasBlocked() {
     el.enableAudio.hidden = false;
@@ -1993,9 +2008,7 @@
       const data = getStreamVolume(tile.peerId);
       setAudioVolume(tile.audio, data.muted ? 0 : data.volume);
       tile.audio.muted = state.deafened || data.muted;
-      if (tile.audio.paused) {
-        tile.audio.play().catch(audioWasBlocked);
-      }
+      if (tile.audio.paused) playAudio(tile.audio);
     } else {
       if (!tile.audio.paused) tile.audio.pause();
       if (tile.audio.srcObject) tile.audio.srcObject = null;
@@ -3350,7 +3363,7 @@
         audio.srcObject = new MediaStream([voiceTrack]);
       }
       // Autoplay policy can still bite, and on a phone it usually does.
-      audio.play().catch(audioWasBlocked);
+      playAudio(audio);
       vad.attach(id, audio.srcObject);
     } else {
       audio.pause();
