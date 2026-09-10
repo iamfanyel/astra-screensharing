@@ -3031,9 +3031,23 @@ body.sidebar-hidden .toasts {
     right: 8px;
   }
 
-  .tile.screen-tile .tile-volume-control,
   .tile.screen-tile .tile-full-btn {
     display: none;
+  }
+
+  /* The volume control, on a screen with no pointer to hover with.
+     Desktop keeps the slider folded away until the mouse arrives; a phone has
+     no such moment, so it stays out - narrower, since it is not competing with
+     anything else along that edge. */
+  .tile.screen-tile .tile-volume-slider-wrap {
+    max-width: 68px;
+    opacity: 1;
+    pointer-events: auto;
+    transition: none;
+  }
+
+  .tile.screen-tile .tile-volume-control {
+    background: rgba(0, 0, 0, 0.75);
   }
 
   /* Paused screen card on mobile */

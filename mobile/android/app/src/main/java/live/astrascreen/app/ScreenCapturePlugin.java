@@ -16,11 +16,14 @@ import android.view.WindowManager;
 import androidx.activity.result.ActivityResult;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.DefaultVideoDecoderFactory;
@@ -58,7 +61,15 @@ import java.util.Collections;
  * something worth far more - every line of the room's own WebRTC code, from
  * the mesh to the bitrate caps, goes on treating this like any other track.
  */
-@CapacitorPlugin(name = "AstraScreen")
+@CapacitorPlugin(
+    name = "AstraScreen",
+    permissions = {
+        // Not for a microphone. Android hands an app the sound other apps are
+        // playing through an AudioRecord like any other, so capturing it needs
+        // RECORD_AUDIO even though nothing is being listened to.
+        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
+    }
+)
 public class ScreenCapturePlugin extends Plugin {
 
     private PeerConnectionFactory factory;
@@ -101,7 +112,15 @@ public class ScreenCapturePlugin extends Plugin {
             .createAudioDeviceModule();
         audioModule.setAudioRecordEnabled(false);
 
+        // Both ends of this connection are this handset, so there is no
+        // network for it to be on and nothing to notice when the real one
+        // changes. Saying so keeps libwebrtc away from ConnectivityManager
+        // altogether, which is a whole class of failure this has no use for.
+        PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
+        options.disableNetworkMonitor = true;
+
         factory = PeerConnectionFactory.builder()
+            .setOptions(options)
             .setAudioDeviceModule(audioModule)
             // Hardware where there is any: this is a phone encoding its own
             // screen while the WebView re-encodes it for everybody in the room.
@@ -122,6 +141,24 @@ public class ScreenCapturePlugin extends Plugin {
             call.reject("A screen share is already running.");
             return;
         }
+        // Asked for before the screen rather than after, so the user answers
+        // both questions up front instead of being interrupted mid-share. The
+        // room may already hold it for the microphone, in which case nothing
+        // is shown.
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "afterMicrophone");
+            return;
+        }
+        askForScreen(call);
+    }
+
+    /** Refusing only costs the sound; the screen is still worth sharing. */
+    @PermissionCallback
+    private void afterMicrophone(PluginCall call) {
+        askForScreen(call);
+    }
+
+    private void askForScreen(PluginCall call) {
         MediaProjectionManager manager =
             (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         if (manager == null) {
@@ -247,6 +284,9 @@ public class ScreenCapturePlugin extends Plugin {
                 JSObject offer = new JSObject();
                 offer.put("sdp", description.description);
                 offer.put("type", description.type.canonicalForm());
+                // So the room can say the share is silent rather than leaving
+                // people wondering why they cannot hear it.
+                offer.put("audio", audioTrack != null);
                 pendingStart = null;
                 call.resolve(offer);
             }

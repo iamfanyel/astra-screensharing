@@ -1935,6 +1935,48 @@
     return state.streamVolumes.get(id);
   }
 
+  /**
+   * Deal with a play() the browser refused.
+   *
+   * Autoplay with sound needs the page to have been interacted with, and on a
+   * phone that has often not happened by the time a share starts - so screen
+   * audio arrives and silently never plays. The chip is still offered, but it
+   * sits in a topbar with little room on a phone and is easy to miss, so the
+   * next tap anywhere is taken as the permission it was waiting for.
+   */
+  let waitingForGesture = false;
+  function audioWasBlocked() {
+    el.enableAudio.hidden = false;
+    if (waitingForGesture) return;
+    waitingForGesture = true;
+    const retry = () => {
+      waitingForGesture = false;
+      document.removeEventListener('pointerdown', retry, true);
+      resumeAllAudio();
+    };
+    // Capture, so a tap lands here even when something else swallows it.
+    document.addEventListener('pointerdown', retry, true);
+  }
+
+  /** Start everything that should be playing, and clear the chip if it all is. */
+  async function resumeAllAudio() {
+    if (state.mixer) await state.mixer.resume();
+    let blocked = false;
+    for (const { audio } of playingAudio()) {
+      // An element with nothing attached is one that is meant to be quiet -
+      // a stream nobody is watching. Playing it would fail and be read as the
+      // policy blocking us.
+      if (!audio.srcObject) continue;
+      try {
+        await audio.play();
+      } catch (_) {
+        blocked = true;
+      }
+    }
+    el.enableAudio.hidden = !blocked;
+    if (blocked) audioWasBlocked();
+  }
+
   function syncTileStreamAudio(tile, isWatching) {
     if (!tile || !tile.audio) return;
     if (isWatching && tile.screenAudioTrack && tile.screenAudioTrack.readyState === 'live') {
@@ -1945,9 +1987,7 @@
       setAudioVolume(tile.audio, data.muted ? 0 : data.volume);
       tile.audio.muted = state.deafened || data.muted;
       if (tile.audio.paused) {
-        tile.audio.play().catch(() => {
-          el.enableAudio.hidden = false;
-        });
+        tile.audio.play().catch(audioWasBlocked);
       }
     } else {
       if (!tile.audio.paused) tile.audio.pause();
@@ -3302,10 +3342,8 @@
       if (!audio.srcObject || audio.srcObject.getAudioTracks()[0] !== voiceTrack) {
         audio.srcObject = new MediaStream([voiceTrack]);
       }
-      audio.play().catch(() => {
-        // Autoplay policy can still bite; offer a button to unblock every element.
-        el.enableAudio.hidden = false;
-      });
+      // Autoplay policy can still bite, and on a phone it usually does.
+      audio.play().catch(audioWasBlocked);
       vad.attach(id, audio.srcObject);
     } else {
       audio.pause();
@@ -3327,24 +3365,7 @@
     }
   }
 
-  el.enableAudio.addEventListener('click', async () => {
-    await state.mixer.resume();
-    for (const audio of state.audios.values()) {
-      try {
-        await audio.play();
-      } catch (_) {
-        /* keep trying the rest */
-      }
-    }
-    for (const tile of state.tiles.values()) {
-      if (tile.audio) {
-        try {
-          await tile.audio.play();
-        } catch (_) {}
-      }
-    }
-    el.enableAudio.hidden = true;
-  });
+  el.enableAudio.addEventListener('click', resumeAllAudio);
 
   function dropPeerMedia(id) {
     for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));

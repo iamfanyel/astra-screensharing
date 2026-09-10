@@ -57,6 +57,18 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+        libwebrtc watches the device's networks while a peer connection is
+        gathering candidates, and it does that through ConnectivityManager and
+        WifiManager, both of which refuse to answer without these. The refusal
+        is a SecurityException thrown out of Java and into libwebrtc's own JNI
+        code, which treats any exception reaching it as fatal and aborts the
+        process - so a missing permission here does not degrade the share, it
+        ends the app the moment the screen is picked.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <!-- The room's camera and microphone, which the page asks for through the
          WebView exactly as it would in a browser. -->
     <uses-permission android:name="android.permission.CAMERA" />

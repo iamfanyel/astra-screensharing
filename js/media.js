@@ -134,8 +134,11 @@
 
     // Inside the Android app the screen comes from the app itself: no mobile
     // browser implements getDisplayMedia, so there is nothing here to ask.
-    // It carries no audio - Android has no system-audio capture to offer a
-    // single app - so the room simply shares picture there.
+    // Sound comes with it where Android allows - playback capture arrived in
+    // Android 10 and rides the same consent as the picture - but it is never
+    // promised: an app can refuse to be captured and DRM is always excluded.
+    // Either way what comes back is an ordinary stream, so nothing below here
+    // needs to know which it got.
     const native = window.AstraNativeScreen;
     if (native && native.available()) {
       return { stream: hintAudio(await native.capture()), quality };
