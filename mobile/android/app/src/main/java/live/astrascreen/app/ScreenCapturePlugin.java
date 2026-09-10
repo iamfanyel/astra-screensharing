@@ -27,13 +27,20 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.DefaultVideoDecoderFactory;
+import org.webrtc.HardwareVideoEncoderFactory;
+import org.webrtc.MediaStreamTrack;
+import org.webrtc.RtpCapabilities;
+import org.webrtc.RtpTransceiver;
+import org.webrtc.VideoCodecInfo;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RtpParameters;
 import org.webrtc.RtpReceiver;
+import org.webrtc.RtpSender;
 import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
@@ -48,6 +55,10 @@ import java.nio.ByteBuffer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -278,16 +289,30 @@ public class ScreenCapturePlugin extends Plugin {
             }
         });
 
+        // Screencast mode tells the encoder the picture is a document: it
+        // spends its bits on staying sharp and lets the frame rate fall away,
+        // which is right for slides and wrong for anything that moves. The
+        // room already asks the user which they want, so the answer comes from
+        // there rather than being assumed here.
+        final boolean motion = Boolean.TRUE.equals(call.getBoolean("motion", Boolean.TRUE));
+
         CrashLog.note("building the texture helper and video source");
         textureHelper = SurfaceTextureHelper.create("AstraCapture", eglBase.getEglBaseContext());
-        videoSource = factory.createVideoSource(true);
+        videoSource = factory.createVideoSource(!motion);
         capturer.initialize(textureHelper, getContext(), videoSource.getCapturerObserver());
 
-        // Capture at the panel's own size and let the room's quality setting do
-        // the scaling downstream, the same as a desktop share.
-        Point size = displaySize();
-        CrashLog.note("starting capture at " + size.x + "x" + size.y);
-        capturer.startCapture(size.x, size.y, 30);
+        // Not the panel's own size. A modern phone screen is around 2.6
+        // megapixels, and on this route every one of those pixels is encoded
+        // here, decoded in the WebView and encoded again for each person in
+        // the room - so capturing the panel whole costs several times what the
+        // share is ever going to be watched at. The virtual display scales for
+        // free in the compositor, so asking it for the size the room actually
+        // wants is the single cheapest thing that can be done here.
+        Point size = captureSize(call);
+        final int fps = Math.max(1, call.getInt("frameRate", 30));
+        CrashLog.note("starting capture at " + size.x + "x" + size.y + "@" + fps
+            + " (panel " + displaySize().x + "x" + displaySize().y + ", motion=" + motion + ")");
+        capturer.startCapture(size.x, size.y, fps);
 
         CrashLog.note("capture started, building the video track");
         videoTrack = factory.createVideoTrack("astra-screen", videoSource);
@@ -302,7 +327,9 @@ public class ScreenCapturePlugin extends Plugin {
         CrashLog.note("building the peer connection");
         connection = factory.createPeerConnection(config, new LocalObserver());
         if (connection == null) throw new IllegalStateException("no peer connection");
-        connection.addTrack(videoTrack, Collections.singletonList("astra-screen"));
+        RtpSender videoSender = connection.addTrack(videoTrack, Collections.singletonList("astra-screen"));
+        tuneSender(videoSender, call, motion, fps);
+        preferHardwareCodecs();
         if (audioTrack != null) {
             connection.addTrack(audioTrack, Collections.singletonList("astra-screen"));
         }
@@ -333,6 +360,122 @@ public class ScreenCapturePlugin extends Plugin {
                 call.reject("Could not describe the screen: " + error);
             }
         }, new MediaConstraints());
+    }
+
+    /**
+     * Ask for a codec this phone can encode without the CPU.
+     *
+     * libwebrtc offers VP8 first, and almost no Android phone has a hardware
+     * VP8 encoder - so left alone, this leg is very often software-encoding a
+     * full-motion screen while the WebView re-encodes it again for everyone in
+     * the room. That is the difference between a warm phone and an unusable
+     * one, and it never announces itself: the share works, it is just slow.
+     *
+     * So the device is asked what it actually accelerates, and those codecs
+     * are moved to the front. Everything else stays in the list, in its
+     * original order - dropping entries here would take RTX and the recovery
+     * codecs with them, and this is a preference, not a demand.
+     */
+    private void preferHardwareCodecs() {
+        try {
+            HardwareVideoEncoderFactory hardware =
+                new HardwareVideoEncoderFactory(eglBase.getEglBaseContext(), true, true);
+            Set<String> accelerated = new LinkedHashSet<>();
+            for (VideoCodecInfo codec : hardware.getSupportedCodecs()) {
+                accelerated.add(codec.name.toUpperCase(Locale.US));
+            }
+            if (accelerated.isEmpty()) {
+                CrashLog.note("no hardware video encoder on this device");
+                return;
+            }
+
+            RtpCapabilities capabilities =
+                factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO);
+            if (capabilities == null || capabilities.codecs == null) return;
+
+            List<RtpCapabilities.CodecCapability> preferred = new ArrayList<>();
+            List<RtpCapabilities.CodecCapability> rest = new ArrayList<>();
+            for (RtpCapabilities.CodecCapability codec : capabilities.codecs) {
+                final String name = codec.name == null ? "" : codec.name.toUpperCase(Locale.US);
+                if (accelerated.contains(name)) preferred.add(codec);
+                else rest.add(codec);
+            }
+            if (preferred.isEmpty()) return;
+            preferred.addAll(rest);
+
+            for (RtpTransceiver transceiver : connection.getTransceivers()) {
+                if (transceiver.getMediaType() != MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO) continue;
+                transceiver.setCodecPreferences(preferred);
+            }
+            CrashLog.note("hardware encoders here: " + accelerated);
+        } catch (Throwable error) {
+            // A preference that could not be expressed is not worth losing the
+            // share over; it just means the default order stands.
+            CrashLog.note("could not set codec preferences: " + error);
+        }
+    }
+
+    /**
+     * The size to capture at: the panel, fitted into whatever box the room
+     * asked for, keeping its shape.
+     *
+     * Measured on the long and short edges rather than width and height, so it
+     * means the same thing however the phone is being held.
+     */
+    private Point captureSize(PluginCall call) {
+        Point panel = displaySize();
+        Integer maxLong = call.getInt("maxLongEdge");
+        Integer maxShort = call.getInt("maxShortEdge");
+        if (maxLong == null || maxShort == null || maxLong <= 0 || maxShort <= 0) return panel;
+
+        int longEdge = Math.max(panel.x, panel.y);
+        int shortEdge = Math.min(panel.x, panel.y);
+        double scale = Math.min((double) maxLong / longEdge, (double) maxShort / shortEdge);
+        if (scale >= 1.0) return panel;
+        return new Point(even(panel.x * scale), even(panel.y * scale));
+    }
+
+    /** Encoders reject odd dimensions, and never zero. */
+    private static int even(double value) {
+        int rounded = (int) Math.round(value);
+        return Math.max(2, rounded - (rounded % 2));
+    }
+
+    /**
+     * What this connection is allowed to do to keep up.
+     *
+     * Both ends are this handset, so there is no network to be careful of -
+     * the only thing that gives way under load is the phone itself. Left to
+     * its own devices the encoder starts low and climbs, which on a share that
+     * lasts thirty seconds means it looks poor for most of it; and its idea of
+     * what to sacrifice is the wrong one for anything that moves.
+     */
+    private void tuneSender(RtpSender sender, PluginCall call, boolean motion, int fps) {
+        if (sender == null) return;
+        RtpParameters params = sender.getParameters();
+        if (params == null) return;
+
+        params.degradationPreference = motion
+            ? RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            : RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION;
+
+        // Generous, because this hop never leaves the phone - but not
+        // unbounded, because every bit spent here is decoded again in the
+        // WebView. Twice what the room will send on is plenty to keep this leg
+        // from being the thing that limits quality.
+        final int target = Math.max(1000000, call.getInt("bitrate", 3500000));
+        final int ceiling = Math.min(target * 2, 12000000);
+        for (RtpParameters.Encoding encoding : params.encodings) {
+            encoding.maxBitrateBps = ceiling;
+            // A floor as well: without one the first seconds are a blur while
+            // the estimator works out that there is no network in the way.
+            encoding.minBitrateBps = Math.min(target, 4000000);
+            encoding.maxFramerate = fps;
+        }
+
+        if (!sender.setParameters(params)) {
+            CrashLog.note("the local leg would not take the encoder settings");
+        }
     }
 
     /**

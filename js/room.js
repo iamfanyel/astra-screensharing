@@ -869,7 +869,12 @@
     el.share.disabled = true;
     try {
       if (state.mixer) await state.mixer.resume();
-      const capture = await captureScreen(el.quality.value, el.systemAudio.checked);
+      // Fluidity has to be known before the capture starts, not applied after:
+      // on a phone it decides how the screen is grabbed and encoded, and that
+      // cannot be changed once the encoder has been built for it.
+      const capture = await captureScreen(el.quality.value, el.systemAudio.checked, {
+        motion: fluidityOn(),
+      });
 
       state.videoStream = capture.stream;
       state.videoTrack = capture.stream.getVideoTracks()[0];

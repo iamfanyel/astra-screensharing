@@ -54,7 +54,7 @@
    *
    * Resolves with the stream and what the app could tell us about its sound.
    */
-  async function capture() {
+  async function capture(wanted) {
     const native = plugin();
     if (!native) throw new Error('Native screen capture is not available here.');
 
@@ -112,7 +112,11 @@
         }).catch(() => {});
       };
 
-      const offer = await native.start();
+      // What to capture, rather than letting the app decide for itself: the
+      // room knows the quality the user picked and whether they asked for
+      // fluidity, and the phone should not be encoding a bigger picture than
+      // the room is ever going to send on.
+      const offer = await native.start(wanted || {});
       // The app answers more than the SDP: whether it managed to capture any
       // sound, and whether that sound will survive the app being left.
       const captured = {

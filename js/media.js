@@ -129,7 +129,24 @@
    * the shared surface - Chrome and Edge offer it as a "Share audio" tick box,
    * Firefox and Safari mostly do not, so treat it as best effort.
    */
-  async function captureScreen(qualityKey, systemAudio) {
+  /**
+   * The box a phone should capture its own screen into.
+   *
+   * The quality names are written for a desktop, where the number is the
+   * height of a landscape picture. A phone held upright has those the other
+   * way round, so they are turned into a long edge and a short edge, which
+   * mean the same thing whichever way the handset is being held. `max` asks
+   * for the panel untouched.
+   */
+  function captureBox(quality) {
+    if (!quality.height) return { maxLongEdge: null, maxShortEdge: null };
+    return {
+      maxLongEdge: Math.round(quality.height * 16 / 9),
+      maxShortEdge: quality.height,
+    };
+  }
+
+  async function captureScreen(qualityKey, systemAudio, options) {
     const quality = QUALITY[qualityKey] || QUALITY['1080'];
 
     // Inside the Android app the screen comes from the app itself: no mobile
@@ -141,7 +158,14 @@
     // needs to know which it got.
     const native = window.AstraNativeScreen;
     if (native && native.available()) {
-      const captured = await native.capture();
+      const captured = await native.capture({
+        ...captureBox(quality),
+        frameRate: quality.frameRate,
+        bitrate: quality.bitrate,
+        // Fluidity, as the room's own setting calls it. Without it the encoder
+        // treats the screen as a document and lets the frame rate fall away.
+        motion: !options || options.motion !== false,
+      });
       return {
         stream: hintAudio(captured.stream),
         quality,
