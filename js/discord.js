@@ -451,7 +451,10 @@ window.AstraDiscord = (function () {
     // itself in `state`. This tab's only job is to hand the token across and
     // get out of the way - the app does the sign-in from there. Matched
     // exactly, so `state` can never become a redirect to anywhere else.
-    if (stateParam && decodeURIComponent(stateParam) === DESKTOP_CALLBACK) {
+    // ...unless this *is* the app, in which case forwarding would only hand
+    // the token back to whoever just gave it to us.
+    const inApp = !!(window.AstraNativeAuth && window.AstraNativeAuth.available());
+    if (!inApp && stateParam && decodeURIComponent(stateParam) === DESKTOP_CALLBACK) {
       const fragment = hash.startsWith('#') ? hash.slice(1) : hash;
       window.location.replace(DESKTOP_CALLBACK + '#' + fragment);
       return null;

@@ -154,6 +154,10 @@
 html,
 body {
   height: 100%;
+  /* Android's overscroll stretch lets a page be dragged and sprung back even
+     when there is nothing to scroll to, which reads as the page being loose.
+     This leaves real scrolling alone and takes only the bounce. */
+  overscroll-behavior: none;
 }
 
 body {

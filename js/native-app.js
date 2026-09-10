@@ -25,11 +25,26 @@
   /** Where to put the user once they are signed in, across the round trip. */
   const RETURN_KEY = 'astra:auth-return';
 
+  /** Whether this is the app at all, which is knowable before any plugin is. */
+  function isNative() {
+    const capacitor = window.Capacitor;
+    if (!capacitor) return false;
+    return typeof capacitor.isNativePlatform !== 'function' || capacitor.isNativePlatform();
+  }
+
   function bridge() {
     const capacitor = window.Capacitor;
-    if (!capacitor) return null;
-    if (typeof capacitor.isNativePlatform === 'function' && !capacitor.isNativePlatform()) {
-      return null;
+    if (!capacitor || !isNative()) return null;
+    if (capacitor.Plugins && capacitor.Plugins.AstraApp) return capacitor.Plugins.AstraApp;
+    // Plugins are not always on Capacitor.Plugins by the time this file runs;
+    // registerPlugin builds the same handle on demand.
+    if (typeof capacitor.registerPlugin === 'function') {
+      try {
+        const handle = capacitor.registerPlugin('AstraApp');
+        if (handle) return handle;
+      } catch (_) {
+        // Fall through to whatever Plugins has, if anything.
+      }
     }
     return (capacitor.Plugins && capacitor.Plugins.AstraApp) || null;
   }
@@ -89,8 +104,33 @@
 
     // Reload rather than set-and-hope: changing only the fragment is a
     // same-document navigation, and nothing would read the token.
-    window.location.hash = pending.fragment;
+    window.location.hash = forApp(pending.fragment);
     window.location.reload();
+  }
+
+  /**
+   * Take `state` back out of the fragment before the page reads it.
+   *
+   * `state` had to name the app on the way out, so the browser would send the
+   * token here rather than sign itself in. On the way back that same value
+   * tells the callback the token belongs to somebody else, and it forwards it
+   * to `astra://auth` - which is this app, which collects it and forwards it
+   * again. The token arrived; it just kept being handed straight back out.
+   *
+   * Where the user was going is not lost by dropping it: it was put aside
+   * locally at the same time, and takeReturn() is what reads it.
+   */
+  function forApp(fragment) {
+    const text = fragment.charAt(0) === '#' ? fragment.slice(1) : fragment;
+    let params;
+    try {
+      params = new URLSearchParams(text);
+    } catch (_) {
+      return text;
+    }
+    if (params.get('state') !== CALLBACK) return text;
+    params.delete('state');
+    return params.toString();
   }
 
   function watch() {
@@ -107,7 +147,10 @@
     window.addEventListener('resize', applyInsets);
   }
 
-  if (available()) {
+  // Wired on the platform, not on the plugin: whether the plugin handle exists
+  // yet is a question of timing, and getting it wrong here meant the token came
+  // back to an app with nobody waiting for it.
+  if (isNative()) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', watch, { once: true });
     } else {

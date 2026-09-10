@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 
@@ -23,10 +24,27 @@ import androidx.annotation.Nullable;
  */
 public class ScreenCaptureService extends Service {
 
+    private static final String TAG = "AstraScreenService";
     private static final String CHANNEL_ID = "astra_screen_share";
     private static final int NOTIFICATION_ID = 1;
 
-    public static void start(Context context) {
+    /** Whether this run is allowed to claim the microphone type as well. */
+    private static volatile boolean withMicrophone;
+
+    /**
+     * Run once the service is actually in the foreground.
+     *
+     * Nothing may touch the projection before that. startForegroundService()
+     * only queues the start, and the caller is on the main thread - the same
+     * thread onStartCommand needs - so the service cannot possibly be up until
+     * the caller has returned. Capturing straight after starting it therefore
+     * always ran too early, and Android 14 and later refuse the projection.
+     */
+    private static volatile Runnable onReady;
+
+    public static void start(Context context, boolean claimMicrophone, Runnable ready) {
+        withMicrophone = claimMicrophone;
+        onReady = ready;
         Intent intent = new Intent(context, ScreenCaptureService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
@@ -36,6 +54,7 @@ public class ScreenCaptureService extends Service {
     }
 
     public static void stop(Context context) {
+        onReady = null;
         context.stopService(new Intent(context, ScreenCaptureService.class));
     }
 
@@ -50,17 +69,58 @@ public class ScreenCaptureService extends Service {
             .setOngoing(true)
             .build();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                    | ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        if (!goForeground(notification)) {
+            // Nothing can be captured without this, and the caller is waiting.
+            onReady = null;
+            stopSelf();
+            return START_NOT_STICKY;
         }
+
+        Runnable ready = onReady;
+        onReady = null;
+        if (ready != null) ready.run();
 
         // Restarting this on its own would be pointless: the projection it was
         // holding up does not survive, and the room has to ask again anyway.
         return START_NOT_STICKY;
+    }
+
+    /**
+     * Claim the foreground, with the microphone type only when it is safe to.
+     *
+     * From Android 14 a service claiming the microphone type must already hold
+     * RECORD_AUDIO, and asking for it without that throws - inside a service's
+     * onStartCommand, where nothing catches it and the whole app goes down.
+     * So the type is only asked for when the permission is there, and even
+     * then it falls back rather than taking the app with it.
+     */
+    private boolean goForeground(Notification notification) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification);
+            return true;
+        }
+
+        int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+        if (withMicrophone) types |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+
+        try {
+            startForeground(NOTIFICATION_ID, notification, types);
+            return true;
+        } catch (Exception error) {
+            Log.w(TAG, "foreground service refused with those types: " + error.getMessage());
+        }
+
+        if (types == ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) return false;
+
+        // Without sound is far better than without a share.
+        try {
+            startForeground(NOTIFICATION_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            return true;
+        } catch (Exception error) {
+            Log.w(TAG, "foreground service refused outright: " + error.getMessage());
+            return false;
+        }
     }
 
     private void createChannel() {

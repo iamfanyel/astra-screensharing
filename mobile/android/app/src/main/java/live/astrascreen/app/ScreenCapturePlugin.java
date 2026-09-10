@@ -1,8 +1,10 @@
 package live.astrascreen.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.graphics.Point;
@@ -141,16 +143,32 @@ public class ScreenCapturePlugin extends Plugin {
             return;
         }
 
-        // The service has to be up before the projection is taken, or Android
-        // 14 and later refuse to grant it.
-        ScreenCaptureService.start(getContext());
+        // Nothing may touch the projection until the service is actually in
+        // the foreground - Android 14 and later refuse it otherwise - and it
+        // cannot get there until this thread lets go. So the capture waits to
+        // be called back rather than running now.
+        final Intent consent = result.getData();
+        ScreenCaptureService.start(getContext(), canRecordAudio(), () -> {
+            try {
+                beginCapture(consent, call);
+            } catch (Exception error) {
+                teardown();
+                call.reject("Could not start screen capture: " + error.getMessage());
+            }
+        });
+    }
 
-        try {
-            beginCapture(result.getData(), call);
-        } catch (Exception error) {
-            teardown();
-            call.reject("Could not start screen capture: " + error.getMessage());
-        }
+    /**
+     * Whether sound can come along.
+     *
+     * Playback capture reads through an AudioRecord like any other, so it
+     * needs RECORD_AUDIO - and on Android 14 the foreground service cannot
+     * even claim to be using a microphone without it. When it is missing the
+     * screen is still shared; it is just silent.
+     */
+    private boolean canRecordAudio() {
+        return getContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED;
     }
 
     private void beginCapture(Intent consent, PluginCall call) {
@@ -237,6 +255,7 @@ public class ScreenCapturePlugin extends Plugin {
      */
     private void startScreenAudio() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+        if (!canRecordAudio()) return;
         MediaProjection projection = capturer.getMediaProjection();
         if (projection == null) return;
         try {

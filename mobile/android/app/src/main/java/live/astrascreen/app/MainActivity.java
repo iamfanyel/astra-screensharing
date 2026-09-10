@@ -2,6 +2,7 @@ package live.astrascreen.app;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
@@ -57,6 +58,13 @@ public class MainActivity extends BridgeActivity {
 
         // Added after the bridge's own, so this one is asked first.
         getOnBackPressedDispatcher().addCallback(this, backToPage);
+
+        // The lobby has nothing to scroll, but Android still lets it be
+        // dragged and sprung back, which reads as the whole page being loose.
+        // The stylesheet asks for this too; the WebView is the one that has
+        // the final say.
+        WebView web = getBridge() == null ? null : getBridge().getWebView();
+        if (web != null) web.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         // A link that started the app cold: park it, and the page collects it
         // once there is a page.
