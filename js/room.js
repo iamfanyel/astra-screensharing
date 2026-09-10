@@ -3065,7 +3065,17 @@
 
     // Screen share tile
     const screenTileKey = tileKey(id, 'screen');
-    if (!wantsSharing) {
+    // Frames outrank the flag. `sharing` is hearsay - it reaches here relayed
+    // through the hub, so it goes stale exactly when the hub is in trouble,
+    // and it goes stale for one person at a time. A track that is live and
+    // unmuted is this browser's own evidence that the share is still running,
+    // and tearing the tile down against it is how somebody's screen vanishes
+    // for a single viewer while everyone else still sees it.
+    //
+    // Stopping properly still removes the tile: the sender parks its slot,
+    // which mutes the track at this end, and a muted track never reaches
+    // screenTrack in the first place.
+    if (!wantsSharing && !screenTrack) {
       removeTile(screenTileKey);
     } else if (screenTrack) {
       const screenTitle = `${peerName}'s Screen`;

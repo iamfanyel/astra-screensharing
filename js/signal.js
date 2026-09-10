@@ -18,6 +18,9 @@
   const HEARTBEAT_TIMEOUT_MS = 25000;
   const BROKER_RECONNECT_TIMEOUT_MS = 25000;
 
+  /** How many refusals of the room's id mean somebody really holds it. */
+  const GATEWAY_ATTEMPTS = 3;
+
   function randomCode(length = 6) {
     const bytes = new Uint32Array(length);
     crypto.getRandomValues(bytes);
@@ -658,6 +661,7 @@
         this.peer.on('connection', (conn) => this._acceptMember(conn));
       }
 
+      this._gatewayAttempts = 0;
       this._bindGatewayPeer();
       this._startHeartbeat();
 
@@ -818,13 +822,66 @@
             try { gw.destroy(); } catch (_) {}
             this._gatewayPeer = null;
           }
-          if (err && err.type === 'unavailable-id' && !this.left && this.isHub) {
+          if (!(err && err.type === 'unavailable-id') || this.left || !this.isHub) return;
+
+          // The broker holds an id for a little while after its owner goes, so
+          // the first few refusals mean nothing.
+          this._gatewayAttempts = (this._gatewayAttempts || 0) + 1;
+          if (this._gatewayAttempts < GATEWAY_ATTEMPTS) {
             setTimeout(() => this._bindGatewayPeer(), 1500);
+            return;
           }
+          // Still held, so it is held by somebody live.
+          this._yieldToRoomCode();
         });
       } catch (err) {
         console.warn('[signal] Failed to bind gateway peer', err);
       }
+    }
+
+    /**
+     * Stop being a hub, because somebody else is holding the room's id.
+     *
+     * That id *is* the room - it is what a code typed into the lobby resolves
+     * to - so whoever holds it is where everybody who joins from here on will
+     * arrive. A hub that cannot hold it is a second room wearing the same
+     * name, and the two drift apart with no way back: the people already on
+     * this one never see the people on that one, and reloading is the only
+     * thing that moves you between them.
+     *
+     * Rather than keep two rooms alive, this one hands its members to the
+     * holder and follows them there. The rule that settles it is simply
+     * "the room is whoever answers to the code", which every peer can apply
+     * on its own and all of them reach the same answer.
+     *
+     * If it turns out nobody is really there - the id was only lingering after
+     * its owner left - the connection never opens, the host heartbeat times
+     * out, and the usual election runs again and elects somebody, quite
+     * possibly this peer.
+     */
+    _yieldToRoomCode() {
+      if (this.left || !this.isHub || !this.code) return;
+      const gatewayId = window.ASTRA.idPrefix + this.code;
+      // The original host answers to the code itself and cannot be superseded
+      // this way; there is nobody else to hand over to.
+      if (gatewayId === this.selfId) return;
+
+      console.warn('[signal] the room code is held elsewhere; standing down');
+
+      // Told before the connections close, so they follow rather than hold an
+      // election among themselves and scatter.
+      this._fanout({ t: 'migrate-host', newHostId: gatewayId, oldHostId: this.selfId });
+
+      for (const [id, conn] of this.conns) {
+        if (id === this.selfId) continue;
+        try { conn.close(); } catch (_) {}
+      }
+      this.conns.clear();
+      if (this._memberLastSeen) this._memberLastSeen.clear();
+
+      this.isHub = false;
+      this._gatewayAttempts = 0;
+      this._reconnectToNewHost(gatewayId);
     }
 
     // -------------------------------------------------------------- outbound
