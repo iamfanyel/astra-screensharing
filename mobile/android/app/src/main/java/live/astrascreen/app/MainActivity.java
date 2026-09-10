@@ -1,47 +1,72 @@
 package live.astrascreen.app;
 
+import android.content.Intent;
 import android.os.Bundle;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
+import android.webkit.WebView;
+
+import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    private int statusBarDp = 0;
-    private int navBarDp = 0;
+
+    /**
+     * Back, offered to the page first.
+     *
+     * Everything the room opens - settings, the profile card, the sheet, a
+     * focused tile - is a layer over one page, not a page of its own. Android
+     * has no history to step through, so left alone it does the only thing it
+     * can and closes the app. The page is asked whether it had something to
+     * close; only if it did not does the press go on to mean what it usually
+     * means.
+     */
+    private final OnBackPressedCallback backToPage = new OnBackPressedCallback(true) {
+        @Override
+        public void handleOnBackPressed() {
+            WebView web = getBridge() == null ? null : getBridge().getWebView();
+            if (web == null) {
+                passItOn();
+                return;
+            }
+            // Asking is asynchronous, so the press is held here and released
+            // below if the page turns it down.
+            web.evaluateJavascript(
+                "(function(){try{return window.AstraNativeBack ? window.AstraNativeBack() === true : false}"
+                    + "catch(e){return false}})()",
+                value -> {
+                    if (!"true".equals(value)) passItOn();
+                }
+            );
+        }
+    };
+
+    /** Hand the press back to whoever would have had it. */
+    private void passItOn() {
+        backToPage.setEnabled(false);
+        getOnBackPressedDispatcher().onBackPressed();
+        backToPage.setEnabled(true);
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // Registered before the bridge starts, so the page can find it as soon
-        // as it loads rather than having to wait and retry.
+        // Registered before the bridge starts, so the page can find them as
+        // soon as it loads rather than having to wait and retry.
         registerPlugin(ScreenCapturePlugin.class);
+        registerPlugin(AppPlugin.class);
         super.onCreate(savedInstanceState);
 
-        ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, windowInsets) -> {
-            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            float density = getResources().getDisplayMetrics().density;
-            statusBarDp = Math.round(insets.top / density);
-            navBarDp = Math.round(insets.bottom / density);
-            applyInsetsToWebView();
-            return windowInsets;
-        });
-    }
+        // Added after the bridge's own, so this one is asked first.
+        getOnBackPressedDispatcher().addCallback(this, backToPage);
 
-    private void applyInsetsToWebView() {
-        if (getBridge() != null && getBridge().getWebView() != null) {
-            String js = String.format(
-                "document.documentElement.style.setProperty('--safe-area-inset-top', '%dpx');" +
-                "document.documentElement.style.setProperty('--safe-area-inset-bottom', '%dpx');",
-                statusBarDp, navBarDp
-            );
-            getBridge().getWebView().evaluateJavascript(js, null);
-        }
+        // A link that started the app cold: park it, and the page collects it
+        // once there is a page.
+        AppPlugin.offerAuthLink(getIntent() == null ? null : getIntent().getData());
     }
 
     @Override
-    public void onResume() {
-        super.onResume();
-        applyInsetsToWebView();
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // The ordinary case: the app was already running behind the browser.
+        AppPlugin.offerAuthLink(intent == null ? null : intent.getData());
     }
 }

@@ -481,6 +481,7 @@
   // ------------------------------------------------ In-Room Profile Modal
 
   let openProfileModal = () => {};
+  let closeProfileModal = () => {};
 
   function setupProfileModal() {
     if (!el.toggleProfile || !el.profileModal) return;
@@ -528,6 +529,7 @@
     }
 
     openProfileModal = openModal;
+    closeProfileModal = closeModal;
 
     function closeModal() {
       el.profileModal.hidden = true;
@@ -3910,7 +3912,11 @@
 
   function handleSettingsKey(event) {
     if (event.key !== 'Escape') return;
-    // On a phone the first Escape is the back button, the second closes.
+    dismissSettings();
+  }
+
+  /** On a phone a category steps back to the list before the window closes. */
+  function dismissSettings() {
     if (compact.matches && el.settingsCard.classList.contains('is-detail')) showSettingsRoot();
     else closeSettings();
   }
@@ -3978,6 +3984,62 @@
   }
 
   syncVolumeUI();
+
+  /**
+   * The Android back button, and the gesture that stands in for it.
+   *
+   * The app has no pages to step back through - everything the room opens is a
+   * layer over the same one - so left alone, Android takes the only step it
+   * knows and closes the app. This takes the layers off in the order they sit
+   * on top of each other, and reports whether it found one; when it did not,
+   * the app goes on and does whatever it would have done.
+   *
+   * The same order Escape follows on a desktop, for the same reason.
+   */
+  function handleBack() {
+    // Menus float above whatever opened them, so they come off first.
+    const floating = [
+      el.qualityDropdown, el.micDropdown, el.speakerDropdown,
+      el.outputMenu, el.cameraMenu,
+    ];
+    if (floating.some((node) => node && !node.hidden)) {
+      hideQualityDropdown(0);
+      closeDevicePickers(null);
+      toggleOutputMenu(false);
+      toggleCameraMenu(false);
+      return true;
+    }
+    if (el.shareMenu && !el.shareMenu.hidden) {
+      toggleShareMenu(false);
+      return true;
+    }
+    if (el.settingsModal && !el.settingsModal.hidden) {
+      dismissSettings();
+      return true;
+    }
+    if (el.profilePopup && !el.profilePopup.hidden) {
+      closeProfilePopup();
+      return true;
+    }
+    if (el.profileModal && !el.profileModal.hidden) {
+      closeProfileModal();
+      return true;
+    }
+    // Only on a phone, where the panels are a sheet over the room rather than
+    // a column beside it.
+    if (compact.matches && el.sidebar && !el.sidebar.hidden) {
+      closeSheet();
+      return true;
+    }
+    if (state.focused) {
+      clearFocus();
+      return true;
+    }
+    return false;
+  }
+
+  // Read by the Android app, which asks before it acts on a back press.
+  window.AstraNativeBack = handleBack;
 
   el.copyLink.addEventListener('click', async () => {
     const link = location.origin + location.pathname + '?room=' + state.signal.code;

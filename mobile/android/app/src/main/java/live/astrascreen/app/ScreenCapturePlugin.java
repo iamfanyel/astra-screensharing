@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
@@ -165,12 +167,10 @@ public class ScreenCapturePlugin extends Plugin {
         videoSource = factory.createVideoSource(true);
         capturer.initialize(textureHelper, getContext(), videoSource.getCapturerObserver());
 
-        DisplayMetrics metrics = new DisplayMetrics();
-        WindowManager windows = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-        windows.getDefaultDisplay().getRealMetrics(metrics);
         // Capture at the panel's own size and let the room's quality setting do
         // the scaling downstream, the same as a desktop share.
-        capturer.startCapture(metrics.widthPixels, metrics.heightPixels, 30);
+        Point size = displaySize();
+        capturer.startCapture(size.x, size.y, 30);
 
         videoTrack = factory.createVideoTrack("astra-screen", videoSource);
         startScreenAudio();
@@ -206,6 +206,25 @@ public class ScreenCapturePlugin extends Plugin {
                 call.reject("Could not describe the screen: " + error);
             }
         }, new MediaConstraints());
+    }
+
+    /**
+     * How big the screen being captured is.
+     *
+     * The maximum metrics rather than the current ones: in split screen the
+     * app's own window is a slice of the display, but what is being shared is
+     * the whole of it. getDefaultDisplay() would answer the same and is
+     * deprecated, so it is only the fallback for Android 10 and below.
+     */
+    private Point displaySize() {
+        WindowManager windows = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect bounds = windows.getMaximumWindowMetrics().getBounds();
+            return new Point(bounds.width(), bounds.height());
+        }
+        DisplayMetrics metrics = new DisplayMetrics();
+        windows.getDefaultDisplay().getRealMetrics(metrics);
+        return new Point(metrics.widthPixels, metrics.heightPixels);
     }
 
     /**

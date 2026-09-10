@@ -44,6 +44,50 @@ What will not be in the mix, and cannot be:
 - **Voice calls.** The platform only ever hands over `USAGE_MEDIA`,
   `USAGE_GAME` and `USAGE_UNKNOWN`.
 
+## Signing in with Discord
+
+Discord refuses to authorise anybody inside an embedded browser, and a WebView
+is one - so the sign-in leaves the app for the real browser, where the user is
+already signed in to Discord anyway.
+
+Getting the token back to the app rather than leaving it in a browser tab:
+
+1. `login()` sees the app, puts `astra://auth` in `state` instead of the page
+   it started from, remembers that page locally, and asks `AstraApp` to open
+   the URL in the system browser.
+2. Discord returns to the ordinary https redirect, which is registered.
+3. `js/discord.js` sees `state` is the app's callback and forwards the fragment
+   to `astra://auth`. The tab does nothing else.
+4. Android routes that to the app, where `AppPlugin` parks it - it cannot push
+   it into the page, because on a cold start there is no page yet and a
+   fragment-only change never re-runs a script.
+5. The page collects it on load and whenever the app returns to the front,
+   sets the fragment and reloads, and the ordinary callback signs in.
+
+The same `astra://auth` scheme and the same branch in `discord.js` serve the
+desktop build; only step 1 differs, because there the desktop app rewrites
+`state` itself.
+
+## Going back
+
+Everything the room opens - settings, a category inside settings, the profile
+card, the sheet, a menu, a focused tile - is a layer over one page, not a page
+of its own. Android has no history to step through, so back closed the app.
+
+The activity now asks the page first: `window.AstraNativeBack()` takes off the
+topmost layer and says whether it found one. Only when it says no does the
+press go on to mean what it usually means. The order is the one Escape already
+follows on a desktop, and `dismissSettings()` is shared between them so a
+category steps back to the list before the window closes.
+
+## Where the screen edges are
+
+The app draws edge to edge, and the Android WebView does not report that
+reliably through `env(safe-area-inset-*)`. `AppPlugin.getInsets()` measures the
+system bars and the display cutout, and the page sets `--safe-area-inset-top`
+and `--safe-area-inset-bottom` from it. The stylesheet takes the larger of that
+and `env()`, so wherever `env()` does work this changes nothing.
+
 ## What is where
 
 | Path | What it is |
@@ -52,6 +96,8 @@ What will not be in the mix, and cannot be:
 | `android/.../ScreenCapturePlugin.java` | The capture, and the on-device connection that carries it |
 | `android/.../ScreenCaptureService.java` | The foreground service Android demands before it hands over a projection |
 | `../js/native-screen.js` | The page's half of that connection - browser-safe, does nothing off-device |
+| `android/.../AppPlugin.java` | The system browser, the token that comes back, and the screen insets |
+| `../js/native-app.js` | The page's side of those - browser-safe, inert without the bridge |
 
 `js/media.js` prefers the native path when it is there and falls back to
 `getDisplayMedia` when it is not, so the same `captureScreen()` serves the

@@ -289,13 +289,30 @@ window.AstraDiscord = (function () {
     const destination = returnUrl || location.href;
     const state = encodeURIComponent(destination);
 
+    // Inside the Android app the sign-in cannot happen here: Discord refuses
+    // to authorise anybody in an embedded browser, and a WebView is one. It
+    // goes to the real browser, and `state` names the app rather than this
+    // page so the token comes back to the app instead of being left signed in
+    // inside a tab nobody asked for.
+    const native = window.AstraNativeAuth;
+    const toApp = !!(native && native.available());
     const authUrl =
       'https://discord.com/oauth2/authorize' +
       '?client_id=' + encodeURIComponent(clientId) +
       '&response_type=token' +
       '&scope=identify' +
       '&redirect_uri=' + encodeURIComponent(redirectUri) +
-      '&state=' + state;
+      '&state=' + (toApp ? encodeURIComponent(native.CALLBACK) : state);
+
+    if (toApp) {
+      native.rememberReturn(destination);
+      native.openExternal(authUrl).then((opened) => {
+        // If the app could not hand it over, the WebView is still better than
+        // nothing - Discord may yet allow it.
+        if (!opened) window.location.href = authUrl;
+      });
+      return;
+    }
 
     window.location.href = authUrl;
   }
@@ -576,10 +593,17 @@ window.AstraDiscord = (function () {
       }
 
       // Check if state holds a return destination
-      if (stateParam) {
+      // The app's round trip carries no destination in `state` - it could not,
+      // `state` had to name the app - so the page it started from was put
+      // aside locally instead.
+      const remembered = window.AstraNativeAuth && window.AstraNativeAuth.available()
+        ? window.AstraNativeAuth.takeReturn()
+        : null;
+      const destination = remembered || (stateParam && decodeURIComponent(stateParam));
+
+      if (destination) {
         try {
-          const target = decodeURIComponent(stateParam);
-          const parsed = new URL(target, location.origin);
+          const parsed = new URL(destination, location.origin);
           if (parsed.origin === location.origin && parsed.href !== location.href) {
             location.href = parsed.href;
             return userRecord;

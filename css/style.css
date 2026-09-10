@@ -338,12 +338,18 @@ body.lobby {
   display: grid;
   grid-template-rows: 1fr auto;
   place-items: center;
-  padding: 24px;
+  /* The app draws under the status bar and the gesture bar, so the padding has
+     to clear them; in a browser both insets are zero and this is just 24px. */
+  padding: calc(24px + var(--sat)) 24px calc(24px + var(--sab));
   /* Helvetica World is a licensed face; the stack falls back to the nearest
      grotesques when it is not installed. */
   font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
   position: relative;
-  overflow-x: hidden;
+  /* `clip`, not `hidden`: hiding one axis makes the other `auto`, which turned
+     the lobby into a scroll container and let it be dragged around with
+     nothing to scroll to. Clipping leaves the vertical axis visible, so a
+     screen too short for the card still overflows to the page as it should. */
+  overflow-x: clip;
 }
 
 @keyframes glowFadeIn {
@@ -3540,7 +3546,8 @@ body.sidebar-hidden .toasts {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 12px;
+    /* Full-height screen: without this the title starts under the status bar. */
+    padding: calc(10px + var(--sat)) 12px 10px;
   }
 
   .settings-bar-btn {
@@ -3581,7 +3588,7 @@ body.sidebar-hidden .toasts {
   /* The rail becomes the list of categories: one rounded card of rows, each
      with its icon, its name and the chevron that says it opens a screen. */
   .settings-nav {
-    padding: 8px 14px 24px;
+    padding: 8px 14px calc(24px + var(--sab));
     background: none;
     border-right: 0;
     gap: 0;
@@ -3652,7 +3659,7 @@ body.sidebar-hidden .toasts {
   }
 
   .settings-body {
-    padding: 8px 18px 32px;
+    padding: 8px 18px calc(32px + var(--sab));
   }
 
   .settings-grid {
