@@ -263,6 +263,15 @@ window.AstraDiscord = (function () {
    */
   const DESKTOP_CALLBACK = 'astra://auth';
 
+  /**
+   * Redraws whatever bindUI last wired up.
+   *
+   * A sign-in that finishes after the page has loaded - the app coming back
+   * from the browser with a token - has nobody to tell otherwise, and the
+   * account would connect without anything on screen saying so.
+   */
+  let refreshBoundUI = null;
+
   function getRedirectUri() {
     const url = new URL(location.href);
     url.search = '';
@@ -593,6 +602,9 @@ window.AstraDiscord = (function () {
 
       if (options && typeof options.onSuccess === 'function') {
         options.onSuccess(userRecord);
+      } else if (refreshBoundUI) {
+        // Nobody asked to be told, so tell the UI that is already up.
+        refreshBoundUI();
       }
 
       // Check if state holds a return destination
@@ -711,6 +723,11 @@ window.AstraDiscord = (function () {
         }
       }
     }
+
+    refreshBoundUI = () => {
+      render();
+      onChange();
+    };
 
     handleCallback({
       onSuccess: () => {

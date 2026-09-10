@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The ground Astra sits on: the default theme's page background,
+         hsl(0 0% 5.49%). -->
+    <color name="astra_ground">#FF0E0E0E</color>
+</resources>

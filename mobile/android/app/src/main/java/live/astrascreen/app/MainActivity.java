@@ -1,5 +1,9 @@
 package live.astrascreen.app;
 
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
@@ -50,6 +54,10 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Before anything that could crash, so that when something does the
+        // next launch can say what it was.
+        CrashLog.install(this);
+
         // Registered before the bridge starts, so the page can find them as
         // soon as it loads rather than having to wait and retry.
         registerPlugin(ScreenCapturePlugin.class);
@@ -69,6 +77,32 @@ public class MainActivity extends BridgeActivity {
         // A link that started the app cold: park it, and the page collects it
         // once there is a page.
         AppPlugin.offerAuthLink(getIntent() == null ? null : getIntent().getData());
+
+        reportLastCrash();
+    }
+
+    /**
+     * Show what the last run did not survive, if it did not survive something.
+     *
+     * Temporary: screen capture is crashing on hardware that is not here, and
+     * this is the only way to see the reason. Posted rather than shown now, so
+     * it appears over a laid-out window instead of a blank one.
+     */
+    private void reportLastCrash() {
+        final String report = CrashLog.takeReport();
+        if (report == null) return;
+        getWindow().getDecorView().post(() -> new AlertDialog.Builder(this)
+            .setTitle("Astra: last run")
+            .setMessage(report)
+            .setPositiveButton("Copy", (dialog, which) -> {
+                ClipboardManager clipboard =
+                    (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (clipboard != null) {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Astra crash", report));
+                }
+            })
+            .setNegativeButton("Close", null)
+            .show());
     }
 
     @Override

@@ -102,9 +102,22 @@
     }
     if (!pending || !pending.fragment) return;
 
-    // Reload rather than set-and-hope: changing only the fragment is a
-    // same-document navigation, and nothing would read the token.
+    // The fragment has to be on the URL either way: it is where the callback
+    // reads the token from, and leaving it off would mean handing it over by
+    // some other route than the one every other build uses.
     window.location.hash = forApp(pending.fragment);
+
+    // Changing only the fragment is a same-document navigation, so no script
+    // re-runs and nothing would notice the token. Reloading would fix that -
+    // and cost a round trip to the site plus everything the page does on
+    // load, which is the pause between coming back from the browser and
+    // actually being signed in. Calling the callback directly is the same
+    // work without the wait.
+    const discord = window.AstraDiscord;
+    if (discord && typeof discord.handleCallback === 'function') {
+      discord.handleCallback();
+      return;
+    }
     window.location.reload();
   }
 

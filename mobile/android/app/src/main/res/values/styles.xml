@@ -17,6 +17,11 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <!-- Android 11 and earlier: the whole launch screen is this drawable. -->
         <item name="android:background">@drawable/splash</item>
+        <!-- Android 12 and later: the system draws the launcher icon itself,
+             and only wants to be told what to draw it on. Left unset it is
+             white, which is a flash of the wrong colour on the way in. -->
+        <item name="windowSplashScreenBackground">@color/astra_ground</item>
     </style>
 </resources>

@@ -71,6 +71,7 @@ public class ScreenCaptureService extends Service {
 
         if (!goForeground(notification)) {
             // Nothing can be captured without this, and the caller is waiting.
+            CrashLog.note("the service could not reach the foreground");
             onReady = null;
             stopSelf();
             return START_NOT_STICKY;
@@ -78,7 +79,15 @@ public class ScreenCaptureService extends Service {
 
         Runnable ready = onReady;
         onReady = null;
-        if (ready != null) ready.run();
+        // Whatever this runs is the whole capture. An exception escaping it
+        // here would be an uncaught one inside a service, which ends the
+        // process rather than the share.
+        try {
+            if (ready != null) ready.run();
+        } catch (Throwable error) {
+            CrashLog.note("the capture threw out of the service: " + error);
+            stopSelf();
+        }
 
         // Restarting this on its own would be pointless: the projection it was
         // holding up does not survive, and the room has to ask again anyway.
@@ -106,8 +115,9 @@ public class ScreenCaptureService extends Service {
         try {
             startForeground(NOTIFICATION_ID, notification, types);
             return true;
-        } catch (Exception error) {
-            Log.w(TAG, "foreground service refused with those types: " + error.getMessage());
+        } catch (Throwable error) {
+            Log.w(TAG, "foreground service refused with those types: " + error);
+            CrashLog.note("foreground refused with microphone: " + error);
         }
 
         if (types == ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) return false;
@@ -117,8 +127,9 @@ public class ScreenCaptureService extends Service {
             startForeground(NOTIFICATION_ID, notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
             return true;
-        } catch (Exception error) {
-            Log.w(TAG, "foreground service refused outright: " + error.getMessage());
+        } catch (Throwable error) {
+            Log.w(TAG, "foreground service refused outright: " + error);
+            CrashLog.note("foreground refused outright: " + error);
             return false;
         }
     }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The launch screen on Android 11 and earlier. From Android 12 the system
+    draws its own from the launcher icon and windowSplashScreenBackground, so
+    this is only the older path - laid out rather than baked, so one file
+    covers every screen and both orientations.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/astra_ground"/>
+    <item
+        android:drawable="@drawable/splash_logo"
+        android:gravity="center"
+        android:width="128dp"
+        android:height="128dp"/>
+</layer-list>

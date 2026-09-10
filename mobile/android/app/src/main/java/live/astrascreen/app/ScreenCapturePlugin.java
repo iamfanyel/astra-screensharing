@@ -129,14 +129,18 @@ public class ScreenCapturePlugin extends Plugin {
             return;
         }
         pendingStart = call;
+        CrashLog.note("share requested, asking for consent");
         startActivityForResult(call, manager.createScreenCaptureIntent(), "onConsent");
     }
 
     @ActivityCallback
     private void onConsent(PluginCall call, ActivityResult result) {
         if (call == null) return;
+        CrashLog.note("consent came back: code=" + result.getResultCode()
+            + " data=" + (result.getData() != null));
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
             pendingStart = null;
+            CrashLog.clear();
             // The same shape a cancelled browser picker produces, so the room
             // reads it as "changed their mind" rather than as a failure.
             call.reject("Screen sharing was cancelled.", "NotAllowedError");
@@ -148,14 +152,28 @@ public class ScreenCapturePlugin extends Plugin {
         // cannot get there until this thread lets go. So the capture waits to
         // be called back rather than running now.
         final Intent consent = result.getData();
-        ScreenCaptureService.start(getContext(), canRecordAudio(), () -> {
-            try {
-                beginCapture(consent, call);
-            } catch (Exception error) {
-                teardown();
-                call.reject("Could not start screen capture: " + error.getMessage());
-            }
-        });
+        final boolean withAudio = canRecordAudio();
+        CrashLog.note("starting the foreground service, microphone=" + withAudio);
+        try {
+            ScreenCaptureService.start(getContext(), withAudio, () -> {
+                CrashLog.note("service is in the foreground");
+                try {
+                    beginCapture(consent, call);
+                } catch (Throwable error) {
+                    // Throwable, not Exception: a missing method or a failed
+                    // native load arrives as an Error, and letting one of
+                    // those past here is the difference between a message and
+                    // the app disappearing.
+                    CrashLog.note("beginCapture failed: " + error);
+                    teardown();
+                    call.reject("Could not start screen capture: " + error);
+                }
+            });
+        } catch (Throwable error) {
+            CrashLog.note("the foreground service would not start: " + error);
+            pendingStart = null;
+            call.reject("Could not start screen capture: " + error);
+        }
     }
 
     /**
@@ -172,15 +190,25 @@ public class ScreenCapturePlugin extends Plugin {
     }
 
     private void beginCapture(Intent consent, PluginCall call) {
+        CrashLog.note("building the capturer");
         capturer = new ScreenCapturerAndroid(consent, new MediaProjection.Callback() {
             @Override
             public void onStop() {
-                // Stopped from the system's own notification rather than by us.
-                notifyListeners("stopped", new JSObject());
-                teardown();
+                // Stopped from the system's own notification rather than by
+                // us. This arrives on libwebrtc's own thread, where an
+                // exception would take the process with it rather than the
+                // share.
+                CrashLog.note("the system stopped the projection");
+                try {
+                    notifyListeners("stopped", new JSObject());
+                    teardown();
+                } catch (Throwable error) {
+                    CrashLog.note("tearing down after the stop failed: " + error);
+                }
             }
         });
 
+        CrashLog.note("building the texture helper and video source");
         textureHelper = SurfaceTextureHelper.create("AstraCapture", eglBase.getEglBaseContext());
         videoSource = factory.createVideoSource(true);
         capturer.initialize(textureHelper, getContext(), videoSource.getCapturerObserver());
@@ -188,8 +216,10 @@ public class ScreenCapturePlugin extends Plugin {
         // Capture at the panel's own size and let the room's quality setting do
         // the scaling downstream, the same as a desktop share.
         Point size = displaySize();
+        CrashLog.note("starting capture at " + size.x + "x" + size.y);
         capturer.startCapture(size.x, size.y, 30);
 
+        CrashLog.note("capture started, building the video track");
         videoTrack = factory.createVideoTrack("astra-screen", videoSource);
         startScreenAudio();
 
@@ -199,6 +229,7 @@ public class ScreenCapturePlugin extends Plugin {
             new PeerConnection.RTCConfiguration(new ArrayList<>());
         config.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
 
+        CrashLog.note("building the peer connection");
         connection = factory.createPeerConnection(config, new LocalObserver());
         if (connection == null) throw new IllegalStateException("no peer connection");
         connection.addTrack(videoTrack, Collections.singletonList("astra-screen"));
@@ -206,9 +237,12 @@ public class ScreenCapturePlugin extends Plugin {
             connection.addTrack(audioTrack, Collections.singletonList("astra-screen"));
         }
 
+        CrashLog.note("describing the screen");
         connection.createOffer(new SimpleSdpObserver() {
             @Override
             public void onCreateSuccess(SessionDescription description) {
+                // Running, so there is nothing left to explain next launch.
+                CrashLog.clear();
                 connection.setLocalDescription(new SimpleSdpObserver(), description);
                 JSObject offer = new JSObject();
                 offer.put("sdp", description.description);
@@ -219,6 +253,7 @@ public class ScreenCapturePlugin extends Plugin {
 
             @Override
             public void onCreateFailure(String error) {
+                CrashLog.note("could not describe the screen: " + error);
                 pendingStart = null;
                 teardown();
                 call.reject("Could not describe the screen: " + error);
@@ -256,15 +291,18 @@ public class ScreenCapturePlugin extends Plugin {
     private void startScreenAudio() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
         if (!canRecordAudio()) return;
+        CrashLog.note("reaching for the projection to capture sound");
         MediaProjection projection = capturer.getMediaProjection();
         if (projection == null) return;
         try {
             screenAudio = new ScreenAudioCapturer(projection);
+            CrashLog.note("playback capture is recording, building the audio track");
             audioSource = factory.createAudioSource(new MediaConstraints());
             audioTrack = factory.createAudioTrack("astra-screen-audio", audioSource);
-        } catch (Exception error) {
+            CrashLog.note("audio track built");
+        } catch (Throwable error) {
             stopScreenAudio();
-            android.util.Log.w("AstraScreen", "no screen audio: " + error.getMessage());
+            CrashLog.note("no screen audio: " + error);
         }
     }
 

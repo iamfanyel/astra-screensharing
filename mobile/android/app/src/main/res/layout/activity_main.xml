@@ -6,7 +6,14 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
+    <!--
+        overScrollMode: nothing in the app scrolls as a page, but Android will
+        still let one be dragged and sprung back, which reads as the whole
+        thing being loose. Set here as well as in code because this one is
+        applied as the view is inflated and cannot be missed.
+    -->
     <WebView
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:overScrollMode="never" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
