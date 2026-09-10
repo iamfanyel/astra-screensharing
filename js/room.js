@@ -896,7 +896,16 @@
           }
         });
         state.localStream.addTrack(screenAudioTrack);
-        setStatus('Sharing with system audio.');
+        if (capture.backgroundAudio === false) {
+          // Android only lets an app keep capturing sound while it is in front
+          // unless it holds a microphone-typed foreground service, and this
+          // one could not get it. The share is fine; the sound will cut out
+          // the moment Astra is not the app on screen, which is exactly when
+          // nobody is looking at Astra to find out why.
+          setStatus('Sharing with sound — but it pauses while you are in another app.', 'bad');
+        } else {
+          setStatus('Sharing with system audio.');
+        }
       } else if (capture.native) {
         // The app asks Android for the sound every time, so arriving without
         // it means Android declined - the permission was refused, the phone is

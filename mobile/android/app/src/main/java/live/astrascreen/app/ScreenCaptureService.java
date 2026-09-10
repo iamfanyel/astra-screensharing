@@ -32,6 +32,22 @@ public class ScreenCaptureService extends Service {
     private static volatile boolean withMicrophone;
 
     /**
+     * Whether the microphone type was actually granted.
+     *
+     * It decides far more than its name suggests: an app in the background may
+     * only go on capturing audio while it holds a foreground service of this
+     * type. Without it Android does not fail the recording, it just feeds it
+     * silence - and hands the sound back the moment the app is in front again,
+     * which is what leaving Astra and returning appears to fix.
+     */
+    private static volatile boolean holdsMicrophoneType;
+
+    /** For the page, so a share that will go quiet in the background says so. */
+    public static boolean keepsAudioInBackground() {
+        return holdsMicrophoneType;
+    }
+
+    /**
      * Run once the service is actually in the foreground.
      *
      * Nothing may touch the projection before that. startForegroundService()
@@ -55,6 +71,7 @@ public class ScreenCaptureService extends Service {
 
     public static void stop(Context context) {
         onReady = null;
+        holdsMicrophoneType = false;
         context.stopService(new Intent(context, ScreenCaptureService.class));
     }
 
@@ -106,14 +123,20 @@ public class ScreenCaptureService extends Service {
     private boolean goForeground(Notification notification) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification);
+            holdsMicrophoneType = true;   // Nothing enforced it before Android 10.
             return true;
         }
+
+        holdsMicrophoneType = false;
 
         int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
         if (withMicrophone) types |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
 
         try {
             startForeground(NOTIFICATION_ID, notification, types);
+            holdsMicrophoneType = withMicrophone;
+            CrashLog.note("foreground service holds types=" + types
+                + " (audio survives the background: " + holdsMicrophoneType + ")");
             return true;
         } catch (Throwable error) {
             Log.w(TAG, "foreground service refused with those types: " + error);
@@ -122,10 +145,14 @@ public class ScreenCaptureService extends Service {
 
         if (types == ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) return false;
 
-        // Without sound is far better than without a share.
+        // Without sound is far better than without a share - but say so, since
+        // the share still starts and the silence arrives later, on leaving the
+        // app, where nothing connects it back to this.
         try {
             startForeground(NOTIFICATION_ID, notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            CrashLog.note("only the projection type was granted: screen audio "
+                + "will stop whenever Astra is not in front");
             return true;
         } catch (Throwable error) {
             Log.w(TAG, "foreground service refused outright: " + error);

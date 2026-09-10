@@ -51,6 +51,8 @@
    * Rejects with a NotAllowedError when the system's consent dialog is
    * dismissed, so the room reads a refusal here the same way it reads a
    * cancelled picker in a browser.
+   *
+   * Resolves with the stream and what the app could tell us about its sound.
    */
   async function capture() {
     const native = plugin();
@@ -111,6 +113,12 @@
       };
 
       const offer = await native.start();
+      // The app answers more than the SDP: whether it managed to capture any
+      // sound, and whether that sound will survive the app being left.
+      const captured = {
+        audio: offer.audio === true,
+        backgroundAudio: offer.backgroundAudio === true,
+      };
       await connection.setRemoteDescription(offer);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
@@ -126,7 +134,7 @@
         native.stop().catch(() => {});
       });
 
-      return stream;
+      return { stream, ...captured };
     } catch (error) {
       cleanUp();
       connection.close();

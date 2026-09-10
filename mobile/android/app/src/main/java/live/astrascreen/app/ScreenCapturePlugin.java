@@ -48,6 +48,8 @@ import java.nio.ByteBuffer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Screen capture for the page running in the WebView.
@@ -93,6 +95,17 @@ public class ScreenCapturePlugin extends Plugin {
 
     /** Held until the offer is ready, because consent arrives asynchronously. */
     private PluginCall pendingStart;
+
+    /**
+     * Where tearing a capture down happens.
+     *
+     * Disposing any of this blocks until the thread that owns it has finished,
+     * and the two threads it would otherwise run on are both bad places to
+     * wait: the main thread, where a few hundred milliseconds is a frozen app
+     * and a few seconds is Android deciding it has hung, and libwebrtc's own
+     * capture thread, which is one of the things being shut down.
+     */
+    private final ExecutorService closing = Executors.newSingleThreadExecutor();
 
     @Override
     public void load() {
@@ -260,12 +273,8 @@ public class ScreenCapturePlugin extends Plugin {
                 // exception would take the process with it rather than the
                 // share.
                 CrashLog.note("the system stopped the projection");
-                try {
-                    notifyListeners("stopped", new JSObject());
-                    teardown();
-                } catch (Throwable error) {
-                    CrashLog.note("tearing down after the stop failed: " + error);
-                }
+                notifyListeners("stopped", new JSObject());
+                closeLater();
             }
         });
 
@@ -311,6 +320,7 @@ public class ScreenCapturePlugin extends Plugin {
                 // So the room can say the share is silent rather than leaving
                 // people wondering why they cannot hear it.
                 offer.put("audio", audioTrack != null);
+                offer.put("backgroundAudio", ScreenCaptureService.keepsAudioInBackground());
                 pendingStart = null;
                 call.resolve(offer);
             }
@@ -460,20 +470,38 @@ public class ScreenCapturePlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
-        teardown();
+        closeLater();
         call.resolve();
+    }
+
+    /** Shut the capture down somewhere it is safe to block. */
+    private void closeLater() {
+        try {
+            closing.execute(this::teardown);
+        } catch (Throwable error) {
+            // The executor is gone, which only happens on the way out anyway.
+            CrashLog.note("could not hand off the teardown: " + error);
+        }
     }
 
     @Override
     protected void handleOnDestroy() {
+        closing.shutdown();
+        // The process is going either way, so this one waits where it is.
         teardown();
         if (factory != null) factory.dispose();
         if (audioModule != null) audioModule.release();
         if (eglBase != null) eglBase.release();
     }
 
-    /** Everything the capture holds, released in the order that is safe. */
-    private void teardown() {
+    /**
+     * Everything the capture holds, released in the order that is safe.
+     *
+     * Synchronized because it is now reached from three directions - the page
+     * stopping, Android stopping the projection, and the plugin going away -
+     * and disposing any of this twice is not survivable.
+     */
+    private synchronized void teardown() {
         stopScreenAudio();
         if (capturer != null) {
             try {

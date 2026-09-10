@@ -141,7 +141,15 @@
     // needs to know which it got.
     const native = window.AstraNativeScreen;
     if (native && native.available()) {
-      return { stream: hintAudio(await native.capture()), quality, native: true };
+      const captured = await native.capture();
+      return {
+        stream: hintAudio(captured.stream),
+        quality,
+        native: true,
+        // False when the app could not claim the foreground service type that
+        // lets it go on capturing sound once it is no longer the app in front.
+        backgroundAudio: captured.backgroundAudio,
+      };
     }
 
     const video = { frameRate: { ideal: quality.frameRate } };
@@ -177,7 +185,7 @@
 
     // The video track's contentHint belongs to the caller, which sets it from
     // the fluidity toggle and keeps changing it while sharing.
-    return { stream: hintAudio(stream), quality, native: false };
+    return { stream: hintAudio(stream), quality, native: false, backgroundAudio: true };
   }
 
   /**
