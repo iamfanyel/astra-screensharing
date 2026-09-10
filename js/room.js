@@ -897,6 +897,13 @@
         });
         state.localStream.addTrack(screenAudioTrack);
         setStatus('Sharing with system audio.');
+      } else if (capture.native) {
+        // The app asks Android for the sound every time, so arriving without
+        // it means Android declined - the permission was refused, the phone is
+        // older than 10, or whatever is playing has opted out of being
+        // captured, which many video apps do. Silence with no explanation
+        // reads as a bug, so say it plainly.
+        setStatus('Sharing — no sound: Android would not share this app’s audio.', 'bad');
       } else if (el.systemAudio.checked) {
         // The browser remembers the picker's audio tick box per site, so this
         // sticks until it is turned back on - worth flagging, not whispering.

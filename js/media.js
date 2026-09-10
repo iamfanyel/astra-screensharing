@@ -141,7 +141,7 @@
     // needs to know which it got.
     const native = window.AstraNativeScreen;
     if (native && native.available()) {
-      return { stream: hintAudio(await native.capture()), quality };
+      return { stream: hintAudio(await native.capture()), quality, native: true };
     }
 
     const video = { frameRate: { ideal: quality.frameRate } };
@@ -177,7 +177,7 @@
 
     // The video track's contentHint belongs to the caller, which sets it from
     // the fluidity toggle and keeps changing it while sharing.
-    return { stream: hintAudio(stream), quality };
+    return { stream: hintAudio(stream), quality, native: false };
   }
 
   /**

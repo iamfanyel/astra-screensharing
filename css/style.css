@@ -168,12 +168,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Present to a screen reader, absent to everything else.
+ *
+ * The sizes are !important because this has to beat whatever the element would
+ * otherwise be styled as, and a single class loses to almost anything: the
+ * generic `input:not(...)` rule below is four selectors wide, so the hidden
+ * file input was being laid out 345px wide. Absolutely positioned, that hung
+ * past the right edge of a phone and gave the lobby a horizontal scrollbar -
+ * which in turn shortened the viewport and made it scroll vertically too. */
 .sr-only {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
   margin: -1px;
-  padding: 0;
+  padding: 0 !important;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
@@ -3036,18 +3045,48 @@ body.sidebar-hidden .toasts {
   }
 
   /* The volume control, on a screen with no pointer to hover with.
-     Desktop keeps the slider folded away until the mouse arrives; a phone has
-     no such moment, so it stays out - narrower, since it is not competing with
-     anything else along that edge. */
+   *
+   * Placed like the other buttons rather than left in the flow: on a phone
+   * .tile-actions is a full-tile overlay, so a static child lands in its
+   * top-left corner underneath the watch button and inherits its
+   * pointer-events: none, which leaves the whole control dead to the touch.
+   * It sits beside the watch button, and the slider stays out - a phone has no
+   * hover to fold it back open with. */
+  .tile.screen-tile .tile-volume-control {
+    position: absolute;
+    top: 8px;
+    left: 48px;
+    height: 32px;
+    max-width: calc(100% - 96px);
+    padding-right: 2px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff;
+    pointer-events: auto;
+    z-index: 8;
+  }
+
+  .tile.screen-tile .tile-volume-btn {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+
+  .tile.screen-tile .tile-volume-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
   .tile.screen-tile .tile-volume-slider-wrap {
-    max-width: 68px;
+    max-width: 72px;
     opacity: 1;
     pointer-events: auto;
     transition: none;
-  }
-
-  .tile.screen-tile .tile-volume-control {
-    background: rgba(0, 0, 0, 0.75);
+    padding-left: 12px;
   }
 
   /* Paused screen card on mobile */
