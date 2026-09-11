@@ -27,9 +27,7 @@
 
   /** Whether this is the app at all, which is knowable before any plugin is. */
   function isNative() {
-    const capacitor = window.Capacitor;
-    if (!capacitor) return false;
-    return typeof capacitor.isNativePlatform !== 'function' || capacitor.isNativePlatform();
+    return !!(window.AstraPlatform && window.AstraPlatform.isNativeApp());
   }
 
   function bridge() {

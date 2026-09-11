@@ -679,6 +679,14 @@
               </div>
             </div>
 
+            <label class="settings-check-row">
+              <span class="settings-check-text">
+                <span class="settings-label">Sounds</span>
+                <span class="settings-hint">Joining, leaving, messages and screen sharing.</span>
+              </span>
+              <input id="room-sounds" type="checkbox" checked class="dock-menu-check" />
+            </label>
+
             <h3 class="settings-heading">Video</h3>
 
             <label class="settings-check-row">
@@ -713,12 +721,14 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="../js/platform.js"></script>
   <script src="../js/config.js"></script>
   <script src="../js/profile.js"></script>
   <script src="../js/native-app.js"></script>
   <script src="../js/discord.js"></script>
   <script src="../js/signal.js"></script>
   <script src="../js/native-screen.js"></script>
+  <script src="../js/sounds.js"></script>
   <script src="../js/desktop-update.js"></script>
   <script src="../js/open-in-app.js"></script>
   <script src="../js/media.js"></script>

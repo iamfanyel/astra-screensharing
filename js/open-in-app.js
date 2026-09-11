@@ -24,18 +24,12 @@
  * the room back to the app it is already in is a loop.
  */
 (function () {
-  const root = document.documentElement;
   const button = document.getElementById('open-in-app');
   if (!button) return;
 
-  /** Already in an Astra app, so there is nothing to open this in. */
-  function insideAnApp() {
-    if (root.classList.contains('is-desktop-app')) return true;
-    const capacitor = window.Capacitor;
-    if (!capacitor) return false;
-    return typeof capacitor.isNativePlatform !== 'function' || capacitor.isNativePlatform();
-  }
-  if (insideAnApp()) return;
+  // Already in an Astra app: handing the room to the app it is already in is
+  // a loop, and the one failure worth ruling out first.
+  if (!window.AstraPlatform || window.AstraPlatform.insideAnApp()) return;
 
   // Only a room link. Creating a room, or the lobby, has nothing to hand over.
   const code = (new URLSearchParams(location.search).get('room') || '').trim().toUpperCase();

@@ -15,15 +15,8 @@
   const link = document.getElementById('get-desktop');
   if (!link) return;
 
-  /** Already running it, one way or another. */
-  function alreadyHasAnApp() {
-    if (document.documentElement.classList.contains('is-desktop-app')) return true;
-    const capacitor = window.Capacitor;
-    if (!capacitor) return false;
-    return typeof capacitor.isNativePlatform !== 'function' || capacitor.isNativePlatform();
-  }
-
-  if (alreadyHasAnApp()) {
+  // Already running one, so there is nothing here to offer.
+  if (window.AstraPlatform && window.AstraPlatform.insideAnApp()) {
     link.hidden = true;
     return;
   }

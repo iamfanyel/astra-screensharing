@@ -28,6 +28,24 @@
   };
   /** Long enough to read as a transition, short enough not to feel like a wait. */
   const LEAVE_DELAY_MS = 450;
+
+  /**
+   * Whether the room's small noises are wanted, remembered across visits.
+   *
+   * Up here with the other constants because the settings checkbox reads it
+   * while the page is still being wired, which is well before the middle of
+   * this file has run.
+   */
+  const SOUNDS_KEY = 'astra:sounds';
+
+  function soundsOn() {
+    try {
+      return localStorage.getItem(SOUNDS_KEY) !== 'off';
+    } catch (_) {
+      return true;
+    }
+  }
+
   let leaving = false;
   let tornDown = false;
   const { AudioMixer, captureScreen, captureCamera, captureMicrophone, stopStream, QUALITY } =
@@ -117,6 +135,7 @@
     quality: $('quality'),
     qualityVal: $('quality-val'),
     qualityWrap: $('quality-wrap'),
+    roomSounds: $('room-sounds'),
     qualityTrigger: $('quality-trigger'),
     qualityDropdown: $('quality-dropdown'),
     status: $('status'),
@@ -699,6 +718,7 @@
 
     signal.addEventListener('peer-joined', (e) => {
       state.mesh.add(e.detail.peer.id);
+      chime('joined');
       toast(e.detail.peer.name + ' joined');
       renderPeople();
       updateStreamViewersUI();
@@ -708,6 +728,7 @@
       const id = e.detail.id;
       const name = e.detail.name;
       const reason = e.detail.reason;
+      chime('left');
       state.mesh.remove(id);
       dropPeerMedia(id);
       vad.detach(id);
@@ -933,6 +954,7 @@
       // track that came back.
       const settled = await settleQuality(capture.quality);
       state.mesh.setMaxVideoBitrate(settled.bitrate, settled.frameRate);
+      chime('share-start');
       applyFluidity();
       state.mesh.publish();
 
@@ -1028,6 +1050,7 @@
 
   function stopSharing() {
     if (!state.sharing) return cleanUpCapture();
+    chime('share-stop');
     cleanUpCapture();
     if (state.mesh) state.mesh.publish();
     state.sharing = false;
@@ -1131,6 +1154,7 @@
       state.mesh.publish();
 
       state.cameraOn = true;
+      chime('camera-on');
       if (state.signal) state.signal.setState({ camera: true, cameraTrackId: state.cameraTrack.id });
       setCameraUI(true);
       updateSelfTiles();
@@ -1157,6 +1181,7 @@
       state.mesh.publish();
     }
     state.cameraOn = false;
+    chime('camera-off');
     if (state.signal) state.signal.setState({ camera: false, cameraTrackId: null });
     updateSelfTiles();
     setCameraUI(false);
@@ -1614,6 +1639,20 @@
     el.systemAudioRow.addEventListener('click', () => hideQualityDropdown(0));
   }
 
+  if (el.roomSounds) {
+    el.roomSounds.checked = soundsOn();
+    el.roomSounds.addEventListener('change', () => {
+      try {
+        localStorage.setItem(SOUNDS_KEY, el.roomSounds.checked ? 'on' : 'off');
+      } catch (_) {
+        // Not remembered, but honoured for this visit.
+      }
+      applySoundSettings();
+      // A sound is the clearest confirmation that sounds are back on.
+      if (el.roomSounds.checked) chime('joined');
+    });
+  }
+
   if (el.fluidity) {
     el.fluidity.addEventListener('change', () => {
       applyFluidity();
@@ -1768,6 +1807,11 @@
     return { output: clamp(stored && stored.output), input: clamp(stored && stored.input) };
   })();
 
+  // The saved output level and the saved sounds setting, applied together as
+  // soon as both are known. Not at mixer time: `volumes` is declared further
+  // down this file and reading it before then throws.
+  applySoundSettings();
+
   function saveVolumes() {
     try {
       localStorage.setItem(VOLUME_KEY, JSON.stringify(volumes));
@@ -1809,7 +1853,23 @@
   }
 
   /** Re-apply every playing element at the new output level. */
+  /** One line at each call site; everything that governs them lives here. */
+  function chime(name) {
+    if (!window.AstraSounds) return;
+    window.AstraSounds.play(name);
+  }
+
+  function applySoundSettings() {
+    if (!window.AstraSounds) return;
+    window.AstraSounds.setEnabled(soundsOn());
+    // Deafened silences the room, and these are part of the room.
+    window.AstraSounds.setMuted(!!state.deafened);
+    window.AstraSounds.setVolume(Math.min(1, volumes.output));
+    window.AstraSounds.setSinkId(state.speakerDeviceId || '');
+  }
+
   function applyOutputVolume() {
+    applySoundSettings();
     if (state.mixer) state.mixer.setOutputGain(volumes.output);
     for (const { audio, vol } of playingAudio()) {
       setAudioVolume(audio, vol.muted ? 0 : vol.volume);
@@ -1832,11 +1892,13 @@
 
   /** Every element that is already playing follows the new output device. */
   function applySpeakerDevice() {
+    applySoundSettings();
     for (const { audio } of playingAudio()) applySinkId(audio);
   }
 
   function setDeafened(on) {
     state.deafened = on;
+    applySoundSettings();
     for (const { audio, vol } of playingAudio()) {
       audio.muted = on || vol.muted;
       // Undeafening restores whatever level that element was left on.
@@ -4396,6 +4458,9 @@
 
   function addMessage(message) {
     const isMine = message.id === state.signal.selfId;
+    // Your own is a quieter confirmation; somebody else's is the one worth
+    // looking up for.
+    chime(isMine ? 'message-sent' : 'message');
     const item = document.createElement('li');
     item.className = 'message' + (isMine ? ' mine' : '');
 

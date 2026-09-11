@@ -21,7 +21,7 @@
   function plugin() {
     const capacitor = window.Capacitor;
     if (!capacitor) return null;
-    if (typeof capacitor.isNativePlatform === 'function' && !capacitor.isNativePlatform()) return null;
+    if (window.AstraPlatform && !window.AstraPlatform.isNativeApp()) return null;
     if (capacitor.Plugins && capacitor.Plugins.AstraScreen) return capacitor.Plugins.AstraScreen;
     if (typeof capacitor.registerPlugin === 'function') {
       try {
@@ -32,15 +32,17 @@
     return (capacitor.Plugins && capacitor.Plugins.AstraScreen) || null;
   }
 
+  /**
+   * Not the same question as "is this the app": the app can be running on a
+   * device where the capture plugin did not load, and asking the plugin is
+   * the only way to tell.
+   */
   function available() {
     const capacitor = window.Capacitor;
     if (!capacitor) return false;
-    if (typeof capacitor.isNativePlatform === 'function') {
-      if (!capacitor.isNativePlatform()) return false;
-      if (typeof capacitor.isPluginAvailable === 'function') {
-        return capacitor.isPluginAvailable('AstraScreen') || plugin() !== null;
-      }
-      return true;
+    if (window.AstraPlatform && !window.AstraPlatform.isNativeApp()) return false;
+    if (typeof capacitor.isPluginAvailable === 'function') {
+      return capacitor.isPluginAvailable('AstraScreen') || plugin() !== null;
     }
     return plugin() !== null;
   }

@@ -2107,9 +2107,6 @@ button.tag-danger:hover {
 
 .editor-card .menu-row {
   width: 100%;
-}
-
-.editor-card .menu-row {
   grid-template-columns: 62px 1fr;
   align-items: center;
   gap: 10px;
@@ -2737,14 +2734,6 @@ button.tag-danger:hover {
 .dock-menu-check:focus-visible {
   outline: none;
   box-shadow: none;
-}
-
-.dock-menu-hint {
-  margin: 0;
-  padding: 3px 10px 4px;
-  font-size: 10px;
-  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 55.69%));
-  line-height: 1.35;
 }
 
 .menu-row {
