@@ -23,8 +23,16 @@
 
   // Best effort, and deliberately unguarded by anything: if this fails the
   // link still goes to the releases page, which is where it was already going.
+  //
+  // `no-store` because this answer changes the moment a release is published,
+  // and the browser would otherwise be entitled to keep the old one: GitHub
+  // sends `Cache-Control: public, max-age=60` on it, so a page opened shortly
+  // before a release can go on offering the version it replaced. A minute is
+  // brief, but it lands exactly when somebody has just been told there is a
+  // new build, which is the worst possible minute to be a version behind.
   fetch('https://api.github.com/repos/iamfanyel/astra-screensharing/releases/latest', {
     headers: { Accept: 'application/vnd.github+json' },
+    cache: 'no-store',
   })
     .then((res) => (res.ok ? res.json() : null))
     .then((release) => {
