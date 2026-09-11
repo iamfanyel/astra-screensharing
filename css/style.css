@@ -666,6 +666,61 @@ body.sidebar-hidden .topbar-right {
    top right, clear of the title bar above it. --titlebar-h only exists in the
    desktop app, which is the only place this button is ever shown, and the
    fallback keeps it sensible if that ever stops being true. */
+/* The desktop build, offered under the room controls rather than beside them:
+   it is worth knowing about, and it is not what anybody came here to do. */
+/* Offered under Join, never instead of it: somebody who wants the browser
+   should not have to hunt for the way to stay there. */
+.open-in-app {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.open-in-app[hidden] { display: none; }
+
+.open-in-app svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.get-desktop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.get-desktop[hidden] { display: none; }
+
+.get-desktop:hover {
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 13%));
+  border-color: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 26%));
+}
+
+.get-desktop svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  color: var(--muted);
+}
+
+.get-desktop span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .chip-update-corner {
   position: fixed;
   top: calc(var(--titlebar-h, 0px) + 12px + var(--sat));

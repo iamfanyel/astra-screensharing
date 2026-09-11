@@ -30,12 +30,42 @@ public class AppPlugin extends Plugin {
     /** The fragment of the last astra://auth link, until a page takes it. */
     private static volatile String pendingAuthFragment;
 
+    /** The code from the last astra://room link, until a page takes it. */
+    private static volatile String pendingRoomCode;
+
     /** Called from the activity, which is where Android delivers the link. */
     public static void offerAuthLink(Uri link) {
         if (link == null || !"astra".equals(link.getScheme())) return;
         String fragment = link.getFragment();
         if (fragment == null || !fragment.contains("access_token=")) return;
         pendingAuthFragment = fragment;
+    }
+
+    /**
+     * Called from the activity for a room invitation opened elsewhere.
+     *
+     * Parked rather than acted on, for the same reason the token is: on a cold
+     * start there is no page yet to send anywhere, and once there is, it asks.
+     */
+    public static void offerRoomLink(Uri link) {
+        if (link == null || !"astra".equals(link.getScheme())) return;
+        if (!"room".equals(link.getHost())) return;
+        String code = link.getQueryParameter("code");
+        if (code == null) return;
+        code = code.trim().toUpperCase(java.util.Locale.US);
+        // Letters and digits only: this ends up in a URL the WebView loads.
+        if (!code.matches("[A-Z0-9]{4,12}")) return;
+        pendingRoomCode = code;
+    }
+
+    /** Takes the parked room code, if there is one. Only ever answered once. */
+    @PluginMethod
+    public void consumePendingRoom(PluginCall call) {
+        String code = pendingRoomCode;
+        pendingRoomCode = null;
+        JSObject result = new JSObject();
+        if (code != null) result.put("code", code);
+        call.resolve(result);
     }
 
     /** Hand a URL to whatever the user browses with. */
