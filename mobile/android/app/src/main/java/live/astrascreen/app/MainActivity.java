@@ -5,7 +5,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.WebView;
@@ -77,9 +76,7 @@ public class MainActivity extends BridgeActivity {
 
         // A link that started the app cold: park it, and the page collects it
         // once there is a page.
-        Uri launchedWith = getIntent() == null ? null : getIntent().getData();
-        AppPlugin.offerAuthLink(launchedWith);
-        AppPlugin.offerRoomLink(launchedWith);
+        AppPlugin.offerAuthLink(getIntent() == null ? null : getIntent().getData());
 
         reportLastCrash();
     }
@@ -112,8 +109,6 @@ public class MainActivity extends BridgeActivity {
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // The ordinary case: the app was already running behind the browser.
-        Uri link = intent == null ? null : intent.getData();
-        AppPlugin.offerAuthLink(link);
-        AppPlugin.offerRoomLink(link);
+        AppPlugin.offerAuthLink(intent == null ? null : intent.getData());
     }
 }

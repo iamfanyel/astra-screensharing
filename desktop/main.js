@@ -31,9 +31,6 @@ const APP_ORIGIN = new URL(APP_URL).origin;
 const PROTOCOL = 'astra';
 const DEEP_LINK = PROTOCOL + '://auth';
 
-/** Room invitations, handed over by a browser: astra://room?code=ABC123 */
-const ROOM_LINK = PROTOCOL + '://room';
-
 /** Where the user was when they started signing in, to put them back after. */
 let pendingReturnUrl = null;
 
@@ -133,9 +130,7 @@ function startDiscordLogin(url) {
 
 /** The token, arriving back from the browser as `astra://auth#access_token=...`. */
 function handleDeepLink(url) {
-  if (typeof url !== 'string') return;
-  if (url.startsWith(ROOM_LINK)) return openRoomFromLink(url);
-  if (!url.startsWith(DEEP_LINK)) return;
+  if (typeof url !== 'string' || !url.startsWith(DEEP_LINK)) return;
   const cut = url.indexOf('#');
   if (cut === -1) return;
 
@@ -171,40 +166,6 @@ function handleDeepLink(url) {
   } else {
     contents.loadURL(target.toString());
   }
-
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-}
-
-/**
- * A room invitation, opened here instead of in the browser.
- *
- * The site sends people this way when it recognises a room link and finds the
- * app installed - see js/open-in-app.js. All that arrives is the code, which
- * is turned back into the same URL a browser would have loaded, so the room
- * opens exactly as it would have there.
- */
-function openRoomFromLink(url) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-
-  let code = null;
-  try {
-    // A URL rather than string-slicing: the scheme has no authority component
-    // the parser will agree about, so the query is read from what is left.
-    const query = url.indexOf('?');
-    if (query !== -1) code = new URLSearchParams(url.slice(query + 1)).get('code');
-  } catch (_) {
-    code = null;
-  }
-
-  // Room codes are letters and digits, and nothing else gets appended to a URL
-  // this window is about to load.
-  if (!code || !/^[A-Za-z0-9]{4,12}$/.test(code)) return;
-
-  const target = new URL('room/', APP_URL);
-  target.searchParams.set('room', code.toUpperCase());
-  target.searchParams.set('go', '1');
-  mainWindow.webContents.loadURL(target.toString());
 
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();

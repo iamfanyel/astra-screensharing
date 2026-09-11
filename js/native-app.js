@@ -146,40 +146,15 @@
     return params.toString();
   }
 
-  /**
-   * A room invitation the app was opened with, parked by AppPlugin.
-   *
-   * Asked for on load and whenever the app comes back to the front, exactly
-   * like the sign-in token and for the same reason: on a cold start there is
-   * no page for the app to push it to.
-   */
-  async function collectRoom() {
-    const native = bridge();
-    if (!native || typeof native.consumePendingRoom !== 'function') return;
-    let pending = null;
-    try {
-      pending = await native.consumePendingRoom();
-    } catch (_) {
-      return;
-    }
-    if (!pending || !pending.code) return;
-
-    const here = new URLSearchParams(window.location.search).get('room');
-    if (here && here.toUpperCase() === pending.code) return;   // already there
-    window.location.href = '/room/?room=' + encodeURIComponent(pending.code);
-  }
-
   function watch() {
     applyInsets();
     collect();
-    collectRoom();
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
       // Coming back from the browser is both when a token may be waiting and
       // when the bars may have changed - a rotation, or a keyboard closing.
       applyInsets();
       collect();
-      collectRoom();
     });
     // A rotation changes which edges are inset without the page reloading.
     window.addEventListener('resize', applyInsets);
