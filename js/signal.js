@@ -511,7 +511,18 @@
         });
 
         peer.on('error', (err) => {
-          if (settled) return signal.emit('error', err);
+          if (settled) {
+            // A peer we were sent to that is not on the broker. Waiting out
+            // the heartbeat would leave the room looking empty for half a
+            // minute, and the raw message means nothing to anybody, so this
+            // goes back and asks who is hosting instead of showing it.
+            if (err && err.type === 'peer-unavailable' && signal._reachingFor) {
+              signal._reachingFor = null;
+              signal._handleHostLoss('unreachable');
+              return;
+            }
+            return signal.emit('error', err);
+          }
           if (
             attempts < 2 &&
             err &&
@@ -646,16 +657,72 @@
         this.roster.set(this.selfId, newMember(this.selfId, 'Guest', false, selfDev));
       }
 
+      if (this.roster.size === 0) {
+        this.emit('closed', { reason: 'All participants have left the room.' });
+        return;
+      }
+
+      // One search at a time. Several things can notice the host is gone at
+      // once - the heartbeat, a closed connection, a peer that turned out not
+      // to be there - and each starting its own would have them racing.
+      if (this._findingHost) return;
+      this._findingHost = true;
+      this._findNextHost(oldHostId).then(
+        () => { this._findingHost = false; },
+        () => { this._findingHost = false; },
+      );
+    }
+
+    /**
+     * Work out who is hosting now, asking the one thing that knows.
+     *
+     * The roster is not that thing. It says who was here the last time anybody
+     * told us, so electing from it can pick somebody who has already gone -
+     * and then there is nothing at that id, the connection fails with
+     * "could not connect to peer", and the room sits alone until the heartbeat
+     * comes round again. The lease only ever names a host that said it was
+     * still there within the last few seconds.
+     *
+     * The old election is still here, for when the lease cannot be reached at
+     * all. It is a guess, but a guess beats giving up.
+     */
+    async _findNextHost(oldHostId) {
+      const answer = await hostLease('host', this.code, null);
+      if (this.left || this.isHub) return;
+
+      if (answer && answer.hostId && answer.hostId !== oldHostId) {
+        if (answer.hostId === this.selfId) this._promoteToHub();
+        else this._handleHostMigration(answer.hostId, oldHostId);
+        return;
+      }
+
+      if (answer && !answer.hostId) {
+        // Nobody holds it. Taking it is also how we find out who beat us to
+        // it, which is the answer we needed either way.
+        const claim = await hostLease('claim', this.code, this.selfId);
+        if (this.left || this.isHub) return;
+        if (claim && claim.ok) {
+          this._promoteToHub();
+          return;
+        }
+        if (claim && claim.hostId && claim.hostId !== this.selfId) {
+          this._handleHostMigration(claim.hostId, oldHostId);
+          return;
+        }
+      }
+
+      this._electFromRoster(oldHostId);
+    }
+
+    /** The old way: lowest id wins. Only when there is no lease to ask. */
+    _electFromRoster(oldHostId) {
       const remaining = Array.from(this.roster.values());
       if (remaining.length === 0) {
         this.emit('closed', { reason: 'All participants have left the room.' });
         return;
       }
-
-      // Deterministically elect the next host
       const candidates = remaining.slice().sort((a, b) => a.id.localeCompare(b.id));
-      const elected = candidates[0];
-      this._handleHostMigration(elected.id, oldHostId);
+      this._handleHostMigration(candidates[0].id, oldHostId);
     }
 
     _handleHostMigration(newHostId, oldHostId) {
@@ -783,6 +850,9 @@
     _reconnectToNewHost(newHostId) {
       this.isHub = false;
       this.hostId = newHostId;
+      // Watched by the broker's error handler: if nothing answers at this id,
+      // that is a dead end to be reported rather than waited out.
+      this._reachingFor = newHostId;
       this._hostLastSeen = Date.now();
       this._startHeartbeat();
 
@@ -816,6 +886,7 @@
 
         conn.on('open', () => {
           this.conn = conn;
+          this._reachingFor = null;
           // The new host received flags in the metadata but no pictures, so
           // send those on now that a data channel exists.
           if (me && (me.avatar || me.banner)) {
