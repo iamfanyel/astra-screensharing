@@ -13,7 +13,26 @@
  * Nothing is exposed to the page. It has no use for any of this.
  */
 
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
+
+/**
+ * The one thing the page is told about its host: that an update is waiting.
+ *
+ * Two calls and no arguments. It cannot ask what version is installed, start a
+ * download, or reach anything else - it can find out whether an update has
+ * already been fetched, and ask for the restart that applies it.
+ */
+contextBridge.exposeInMainWorld('astraUpdate', {
+  /** The version waiting, or null. For a page that loaded after it landed. */
+  ready: () => ipcRenderer.invoke('astra:update-ready'),
+  /** Called when one lands while the page is open. */
+  onReady: (handler) => {
+    if (typeof handler !== 'function') return;
+    ipcRenderer.on('astra:update-ready', (_event, version) => handler(version));
+  },
+  /** Restart into it now. It installs on quit regardless. */
+  install: () => ipcRenderer.send('astra:update-install'),
+});
 
 /**
  * Keep the system's window buttons in the app's colours.

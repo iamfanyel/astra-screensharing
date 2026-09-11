@@ -24,6 +24,17 @@
     <img class="titlebar-mark" src="/astralogo.png" alt="" width="1920" height="1920" />
     <span>astra</span>
   </div>
+  <!-- Desktop app only, and only once an update has finished downloading.
+       Below the title bar rather than in it: Windows draws the window buttons
+       over that strip's right-hand end, which is where this would land.
+       See js/desktop-update.js. -->
+  <button id="apply-update" class="chip chip-icon-btn chip-update chip-update-corner" title="Update Astra" aria-label="Update Astra and restart" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  </button>
   <div class="bg-glow-sphere" aria-hidden="true"></div>
   <main class="card">
     <header class="brand">
@@ -88,5 +99,6 @@
   <script src="js/native-app.js"></script>
   <script src="js/discord.js"></script>
   <script src="js/lobby.js"></script>
+  <script src="js/desktop-update.js"></script>
 </body>
 </html>

@@ -638,6 +638,41 @@ body.sidebar-hidden .topbar-right {
   text-overflow: ellipsis;
 }
 
+/* An update that has already downloaded, waiting to be applied.
+   The one green thing in a room of neutrals, because it is the one control
+   here that is not about the call - it should read as an offer, not as
+   another toggle in the row. Written literally rather than through the
+   lightness axis: it has to stay green in every theme, including OLED. */
+.chip-update {
+  background: hsl(146 48% 34%) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+.chip-update:hover {
+  background: hsl(146 48% 40%) !important;
+}
+
+.chip-update:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chip-update svg {
+  stroke: currentColor;
+}
+
+/* The lobby has no row of controls to sit in, so this one places itself:
+   top right, clear of the title bar above it. --titlebar-h only exists in the
+   desktop app, which is the only place this button is ever shown, and the
+   fallback keeps it sensible if that ever stops being true. */
+.chip-update-corner {
+  position: fixed;
+  top: calc(var(--titlebar-h, 0px) + 12px + var(--sat));
+  right: 14px;
+  z-index: 60;
+}
+
 .chip-accent {
   color: var(--accent-ink);
   background: var(--accent);

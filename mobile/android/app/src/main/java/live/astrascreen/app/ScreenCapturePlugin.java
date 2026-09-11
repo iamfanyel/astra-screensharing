@@ -5,6 +5,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.hardware.display.DisplayManager;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.view.Display;
+import android.view.Surface;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.graphics.Point;
@@ -93,6 +98,7 @@ public class ScreenCapturePlugin extends Plugin {
     private VideoTrack videoTrack;
     private SurfaceTextureHelper textureHelper;
 
+    private DisplayManager displays;
     private JavaAudioDeviceModule audioModule;
     private AudioSource audioSource;
     private AudioTrack audioTrack;
@@ -106,6 +112,39 @@ public class ScreenCapturePlugin extends Plugin {
 
     /** Held until the offer is ready, because consent arrives asynchronously. */
     private PluginCall pendingStart;
+
+    /**
+     * What the room asked the capture to fit inside, kept for as long as it
+     * runs.
+     *
+     * The box outlives the call that carried it because the answer has to be
+     * worked out again every time the screen turns: the same box means a
+     * different picture in portrait and landscape.
+     */
+    private Integer maxLongEdge;
+    private Integer maxShortEdge;
+    private int captureFps = 30;
+
+    /** The size the virtual display is currently set to, to spot real changes. */
+    private Point capturingAt;
+
+    /**
+     * The screen as it was when the share began, and which way up it was.
+     *
+     * Measured while this app was still the one on screen, which is the only
+     * moment its own window agrees with the display. Everything after is
+     * worked out by turning this pair rather than measuring again - see
+     * currentPanel().
+     */
+    private Point panelAtStart;
+    private int rotationAtStart;
+
+    /** Enough notes to tell "never fired" from "fired and saw no change". */
+    private int rotationNotes;
+
+    /** Watches the screen turn. See startWatchingRotation. */
+    private DisplayManager.DisplayListener rotationWatch;
+    private HandlerThread rotationThread;
 
     /**
      * Where tearing a capture down happens.
@@ -308,11 +347,21 @@ public class ScreenCapturePlugin extends Plugin {
         // share is ever going to be watched at. The virtual display scales for
         // free in the compositor, so asking it for the size the room actually
         // wants is the single cheapest thing that can be done here.
-        Point size = captureSize(call);
-        final int fps = Math.max(1, call.getInt("frameRate", 30));
+        Display startDisplay = defaultDisplay();
+        panelAtStart = displaySize();
+        rotationAtStart = startDisplay == null ? Surface.ROTATION_0 : startDisplay.getRotation();
+
+        maxLongEdge = call.getInt("maxLongEdge");
+        maxShortEdge = call.getInt("maxShortEdge");
+        captureFps = Math.max(1, call.getInt("frameRate", 30));
+        Point size = captureSize();
+        final int fps = captureFps;
         CrashLog.note("starting capture at " + size.x + "x" + size.y + "@" + fps
             + " (panel " + displaySize().x + "x" + displaySize().y + ", motion=" + motion + ")");
         capturer.startCapture(size.x, size.y, fps);
+
+        capturingAt = size;
+        startWatchingRotation();
 
         CrashLog.note("capture started, building the video track");
         videoTrack = factory.createVideoTrack("astra-screen", videoSource);
@@ -422,17 +471,146 @@ public class ScreenCapturePlugin extends Plugin {
      * Measured on the long and short edges rather than width and height, so it
      * means the same thing however the phone is being held.
      */
-    private Point captureSize(PluginCall call) {
-        Point panel = displaySize();
-        Integer maxLong = call.getInt("maxLongEdge");
-        Integer maxShort = call.getInt("maxShortEdge");
-        if (maxLong == null || maxShort == null || maxLong <= 0 || maxShort <= 0) return panel;
+    private Point captureSize() {
+        Point panel = currentPanel();
+        if (maxLongEdge == null || maxShortEdge == null || maxLongEdge <= 0 || maxShortEdge <= 0) {
+            return panel;
+        }
 
         int longEdge = Math.max(panel.x, panel.y);
         int shortEdge = Math.min(panel.x, panel.y);
-        double scale = Math.min((double) maxLong / longEdge, (double) maxShort / shortEdge);
+        double scale = Math.min((double) maxLongEdge / longEdge, (double) maxShortEdge / shortEdge);
         if (scale >= 1.0) return panel;
         return new Point(even(panel.x * scale), even(panel.y * scale));
+    }
+
+    /** The display manager, from the application rather than the activity. */
+    private DisplayManager displayManager() {
+        Context context = getContext() == null ? null : getContext().getApplicationContext();
+        if (context == null) return null;
+        return (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+    }
+
+    private Display defaultDisplay() {
+        DisplayManager manager = displayManager();
+        return manager == null ? null : manager.getDisplay(Display.DEFAULT_DISPLAY);
+    }
+
+    private static boolean isSideways(int rotation) {
+        return rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270;
+    }
+
+    /**
+     * The screen's shape right now, worked out rather than measured.
+     *
+     * Measuring again is the obvious thing and it is the thing that did not
+     * work: while a share is running this app is in the background, and the
+     * metrics reachable from it describe the configuration its own window was
+     * last in - which is the shape the phone was when the share started. They
+     * never change, so nothing ever looked like a rotation.
+     *
+     * The rotation does change, and it is a single number. So the shape is the
+     * one measured at the start, turned on its side whenever the rotation says
+     * the screen is a quarter turn from where it was then. That needs no
+     * assumption about which way up the device is naturally, which a tablet
+     * would break.
+     */
+    private Point currentPanel() {
+        Point measured = displaySize();
+        Display display = defaultDisplay();
+        if (display == null || panelAtStart == null) return measured;
+        if (isSideways(display.getRotation()) == isSideways(rotationAtStart)) return panelAtStart;
+        return new Point(panelAtStart.y, panelAtStart.x);
+    }
+
+    /**
+     * Follow the screen when it turns.
+     *
+     * The virtual display is created at one fixed size and stays that shape
+     * for the life of the capture, so a phone turned sideways goes on being
+     * sent as an upright picture with the content rotated inside it. Nothing
+     * in libwebrtc watches for this; the size has to be changed from here.
+     *
+     * A display listener rather than the activity's own configuration
+     * callback, because during a share this app is deliberately not the one on
+     * screen - its activity is in the background, where configuration changes
+     * are not delivered. The display keeps reporting either way.
+     */
+    private void startWatchingRotation() {
+        if (rotationWatch != null) return;
+        displays = displayManager();
+        if (displays == null) return;
+
+        // Its own thread: changeCaptureFormat waits on libwebrtc's capture
+        // thread, and the main thread is not somewhere to wait for anything.
+        rotationThread = new HandlerThread("AstraRotation");
+        rotationThread.start();
+
+        rotationWatch = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayChanged(int displayId) {
+                if (displayId != Display.DEFAULT_DISPLAY) return;
+                followRotation();
+            }
+
+            @Override
+            public void onDisplayAdded(int displayId) {}
+
+            @Override
+            public void onDisplayRemoved(int displayId) {}
+        };
+
+        displays.registerDisplayListener(rotationWatch, new Handler(rotationThread.getLooper()));
+    }
+
+    /**
+     * Resize the capture to whatever shape the screen is now.
+     *
+     * onDisplayChanged fires for brightness and refresh rate as well as
+     * rotation, and several times per turn, so the new size is worked out and
+     * compared rather than trusted - anything that is not actually a different
+     * picture does nothing at all.
+     */
+    private synchronized void followRotation() {
+        if (capturer == null || capturingAt == null) return;
+        Point size = captureSize();
+
+        if (rotationNotes < 4) {
+            rotationNotes++;
+            Display display = defaultDisplay();
+            CrashLog.note("display event: rotation=" + (display == null ? "?" : display.getRotation())
+                + " panel=" + currentPanel().x + "x" + currentPanel().y
+                + " want=" + size.x + "x" + size.y
+                + " have=" + capturingAt.x + "x" + capturingAt.y);
+        }
+
+        if (size.x == capturingAt.x && size.y == capturingAt.y) return;
+        try {
+            capturer.changeCaptureFormat(size.x, size.y, captureFps);
+            capturingAt = size;
+            CrashLog.note("screen turned, now capturing " + size.x + "x" + size.y);
+        } catch (Throwable error) {
+            CrashLog.note("could not follow the screen turning: " + error);
+        }
+    }
+
+    private void stopWatchingRotation() {
+        if (rotationWatch != null && displays != null) {
+            try {
+                displays.unregisterDisplayListener(rotationWatch);
+            } catch (Throwable ignored) {
+                // Already gone, which is where this was heading anyway.
+            }
+        }
+        rotationWatch = null;
+        displays = null;
+        panelAtStart = null;
+        rotationNotes = 0;
+        if (rotationThread != null) {
+            rotationThread.quitSafely();
+            rotationThread = null;
+        }
+        capturingAt = null;
     }
 
     /** Encoders reject odd dimensions, and never zero. */
@@ -479,15 +657,37 @@ public class ScreenCapturePlugin extends Plugin {
     }
 
     /**
-     * How big the screen being captured is.
+     * How big the screen being captured is, the way it is right now.
      *
-     * The maximum metrics rather than the current ones: in split screen the
-     * app's own window is a slice of the display, but what is being shared is
-     * the whole of it. getDefaultDisplay() would answer the same and is
-     * deprecated, so it is only the fallback for Android 10 and below.
+     * Asked of the display rather than of our own window, and that distinction
+     * is the whole of the rotation fix. A window's metrics come from the
+     * configuration its activity is in - and during a share this activity is
+     * deliberately in the background, where that configuration stops being
+     * updated. It would go on reporting the shape the phone was when the share
+     * started, so turning the phone changed nothing. The display itself is
+     * always current, because it is the thing that turned.
+     *
+     * The real metrics, not the window's: in split screen an app's own window
+     * is a slice of the display, but what is being shared is the whole of it.
      */
     private Point displaySize() {
+        DisplayManager manager =
+            (DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE);
+        if (manager != null) {
+            Display display = manager.getDisplay(Display.DEFAULT_DISPLAY);
+            if (display != null) {
+                DisplayMetrics metrics = new DisplayMetrics();
+                display.getRealMetrics(metrics);
+                if (metrics.widthPixels > 0 && metrics.heightPixels > 0) {
+                    return new Point(metrics.widthPixels, metrics.heightPixels);
+                }
+            }
+        }
+
+        // Nothing to lose by trying the window instead; on a device this
+        // cannot answer for, a fixed shape is still better than no share.
         WindowManager windows = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+        if (windows == null) return new Point(1280, 720);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Rect bounds = windows.getMaximumWindowMetrics().getBounds();
             return new Point(bounds.width(), bounds.height());
@@ -645,6 +845,7 @@ public class ScreenCapturePlugin extends Plugin {
      * and disposing any of this twice is not survivable.
      */
     private synchronized void teardown() {
+        stopWatchingRotation();
         stopScreenAudio();
         if (capturer != null) {
             try {

@@ -491,8 +491,10 @@ if (!app.requestSingleInstanceLock()) {
     guardPermissions(ses);
     handleDisplayMedia(ses);
     followTitlebarColors();
-    // Quiet, and only in a packaged build - see updater.js.
-    updater.install();
+    // Quiet, and only in a packaged build - see updater.js. The window is
+    // passed as a getter rather than a value: an update can land long after
+    // this runs, by which time the window may have been closed and reopened.
+    updater.install(() => mainWindow);
     registerProtocol();
     createWindow();
 
