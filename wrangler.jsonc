@@ -16,6 +16,17 @@
     "directory": ".",
     "binding": "ASSETS"
   },
+  // One instance per room code, and its handlers never run concurrently -
+  // which is the only reason two browsers can be told the same answer about
+  // who is hosting. sqlite classes so this works on every plan tier.
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM_HOST", "class_name": "RoomHost" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RoomHost"] }
+  ],
   "kv_namespaces": [
     {
       "binding": "PROFILES_KV",

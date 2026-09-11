@@ -19,6 +19,10 @@ export default {
         return await handleRoom(request, env, ctx);
       }
 
+      if (url.pathname === '/api/host' || url.pathname === '/api/host/') {
+        return await handleHost(request, env);
+      }
+
       // Static assets fallback
       if (env.ASSETS) {
         return await env.ASSETS.fetch(request);
@@ -154,6 +158,162 @@ async function handleProfile(request, env) {
   }
 
   return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
+}
+
+/**
+ * Who is hosting a room, decided in one place.
+ *
+ * A room's members all talk through one of them, and everybody else has to
+ * agree on which one - including people who have not arrived yet, since the
+ * room code has to lead them to the same peer the existing members are on.
+ *
+ * The browsers cannot settle that between themselves. They were trying to:
+ * whoever holds the broker id `<prefix><CODE>` was treated as the host, but a
+ * broker keeps that id registered for a while after its owner has gone, so
+ * "the id is taken" never distinguished a live host from a departed one. Two
+ * peers could each believe they were hosting, and the room quietly became two
+ * rooms wearing the same code.
+ *
+ * A Durable Object has exactly one instance per name, and its handlers do not
+ * run concurrently - so a claim either wins or loses, and everyone is told the
+ * same answer. That is the whole reason this exists.
+ *
+ * The host holds a lease rather than a title: it says it is still there every
+ * few seconds, and if it stops, the lease expires and somebody else may take
+ * it. A host that has been away long enough to lose the lease is told so the
+ * next time it checks in, which is how it learns to stand down instead of
+ * carrying on as a second room.
+ */
+export class RoomHost {
+  constructor(state) {
+    this.state = state;
+    this.room = null;
+  }
+
+  async load() {
+    if (this.room === null) {
+      this.room = (await this.state.storage.get('host')) || { hostId: null, generation: 0, lastSeen: 0 };
+    }
+    return this.room;
+  }
+
+  async save(room) {
+    this.room = room;
+    await this.state.storage.put('host', room);
+  }
+
+  /** A lease nobody has renewed for this long is nobody's. */
+  static get LEASE_MS() {
+    return 20000;
+  }
+
+  held(room, now) {
+    return !!room.hostId && now - room.lastSeen < RoomHost.LEASE_MS;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const now = Date.now();
+    const room = await this.load();
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+    const peerId = typeof body.peerId === 'string' ? body.peerId.slice(0, 128) : '';
+
+    if (url.pathname === '/host') {
+      return json({
+        hostId: this.held(room, now) ? room.hostId : null,
+        generation: room.generation,
+      });
+    }
+
+    if (url.pathname === '/claim') {
+      // Granted when the seat is free, when the last holder stopped saying it
+      // was there, or when the asker already had it. Otherwise the asker is
+      // told who does, which is the answer it actually needs.
+      if (!this.held(room, now) || room.hostId === peerId) {
+        const next = { hostId: peerId, generation: room.generation + 1, lastSeen: now };
+        await this.save(next);
+        return json({ ok: true, hostId: next.hostId, generation: next.generation });
+      }
+      return json({ ok: false, hostId: room.hostId, generation: room.generation });
+    }
+
+    if (url.pathname === '/heartbeat') {
+      if (room.hostId === peerId) {
+        await this.save({ hostId: peerId, generation: room.generation, lastSeen: now });
+        return json({ ok: true, hostId: peerId, generation: room.generation });
+      }
+      // Somebody else holds it now. Saying so is what stops this peer going on
+      // as a second host.
+      return json({
+        ok: false,
+        hostId: this.held(room, now) ? room.hostId : null,
+        generation: room.generation,
+      });
+    }
+
+    if (url.pathname === '/release') {
+      if (room.hostId === peerId) {
+        await this.save({ hostId: null, generation: room.generation + 1, lastSeen: 0 });
+      }
+      return json({ ok: true });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: Object.assign({ 'Content-Type': 'application/json' }, CORS_HEADERS),
+  });
+}
+
+/**
+ * The host lease, over HTTP.
+ *
+ * Answers `available: false` when the binding is not configured rather than
+ * failing, so a deployment without the Durable Object keeps working exactly as
+ * it did before - the browsers fall back to the room code's own broker id.
+ */
+async function handleHost(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const url = new URL(request.url);
+  const isPost = request.method === 'POST';
+  const body = isPost ? await request.clone().json().catch(() => ({})) : {};
+  const code = String((isPost ? body.code : url.searchParams.get('code')) || '')
+    .trim()
+    .toUpperCase();
+  if (!ROOM_CODE_REGEX.test(code)) {
+    return jsonResponse({ error: 'Invalid room code' }, 400);
+  }
+
+  if (!env.ROOM_HOST || typeof env.ROOM_HOST.idFromName !== 'function') {
+    return jsonResponse({ available: false });
+  }
+
+  const action = isPost ? String(body.action || 'heartbeat') : 'host';
+  if (!['host', 'claim', 'heartbeat', 'release'].includes(action)) {
+    return jsonResponse({ error: 'Unknown action' }, 400);
+  }
+
+  try {
+    const stub = env.ROOM_HOST.get(env.ROOM_HOST.idFromName(code));
+    const answer = await stub.fetch('https://room/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerId: isPost ? body.peerId : null }),
+    });
+    const data = await answer.json();
+    return jsonResponse(Object.assign({ available: true }, data));
+  } catch (err) {
+    console.warn('host lease failed:', err);
+    // Same shape as a missing binding: the browsers carry on without it.
+    return jsonResponse({ available: false });
+  }
 }
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes

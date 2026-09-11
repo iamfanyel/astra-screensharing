@@ -18,8 +18,47 @@
   const HEARTBEAT_TIMEOUT_MS = 25000;
   const BROKER_RECONNECT_TIMEOUT_MS = 25000;
 
-  /** How many refusals of the room's id mean somebody really holds it. */
-  const GATEWAY_ATTEMPTS = 3;
+  /** How often the host renews its claim. Must be well inside the lease. */
+  const LEASE_RENEW_MS = 6000;
+
+  /** How long to wait on the lease before carrying on without it. */
+  const LEASE_TIMEOUT_MS = 4000;
+
+  /**
+   * Ask the server who is hosting a room, or say that it is us.
+   *
+   * The browsers cannot settle this between themselves - see RoomHost in
+   * worker.js for why - so one place answers for all of them. Every failure
+   * here is silent and returns null: a room must still work when the lease is
+   * unreachable, and without it the code's own broker id is the fallback,
+   * which is exactly how this worked before.
+   */
+  async function hostLease(action, code, peerId) {
+    if (!code) return null;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const giveUp = setTimeout(() => controller && controller.abort(), LEASE_TIMEOUT_MS);
+    try {
+      const options = action === 'host'
+        ? { method: 'GET' }
+        : {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, action, peerId }),
+          };
+      if (controller) options.signal = controller.signal;
+      const url = action === 'host'
+        ? '/api/host?code=' + encodeURIComponent(code)
+        : '/api/host';
+      const res = await fetch(url, options);
+      if (!res.ok) return null;
+      const answer = await res.json();
+      return answer && answer.available === false ? null : answer;
+    } catch (_) {
+      return null;
+    } finally {
+      clearTimeout(giveUp);
+    }
+  }
 
   function randomCode(length = 6) {
     const bytes = new Uint32Array(length);
@@ -211,6 +250,7 @@
           });
           this._hubListening = true;
           this._startHeartbeat();
+          this._claimHostLease();
           peer.on('connection', (conn) => this._acceptMember(conn));
           peer.on('disconnected', () => {
             if (this.left) return;
@@ -399,7 +439,13 @@
           }
         }, JOIN_TIMEOUT_MS);
 
-        peer.on('open', () => {
+        // Asked for straight away so it is usually answered by the time the
+        // broker connection is up.
+        const whoIsHosting = hostLease('host', roomCode, null)
+          .then((answer) => (answer && answer.hostId) || null)
+          .catch(() => null);
+
+        peer.on('open', async () => {
           peer.on('disconnected', () => {
             if (signal.left) return;
             peer.reconnect();
@@ -412,11 +458,23 @@
             }
           });
 
+          // Where the room actually is. The code's own broker id is only the
+          // room's first host; once that host has been replaced, the id can be
+          // left registered to somebody who is no longer running the room, and
+          // joining it is how people ended up in a room of their own. The
+          // lease knows who took over. Started before the peer opened, so the
+          // two waits overlap, and it falls back to the old answer when the
+          // lease cannot be reached.
+          const fallbackId = window.ASTRA.idPrefix + roomCode;
+          const known = await whoIsHosting;
+          if (settled) return;
+          const hostId = known || fallbackId;
+
           // Connect metadata is relayed by the broker inside a single
           // signalling message, so it has to stay small. Pictures go over the
           // data channel once the connection is open - see setState below and
           // the push in room.js right after joining.
-          const conn = peer.connect(window.ASTRA.idPrefix + roomCode, {
+          const conn = peer.connect(hostId, {
             metadata: {
               name: cleanName(name),
               dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
@@ -661,12 +719,65 @@
         this.peer.on('connection', (conn) => this._acceptMember(conn));
       }
 
-      this._gatewayAttempts = 0;
       this._bindGatewayPeer();
       this._startHeartbeat();
+      // Claimed rather than assumed. If somebody else already holds it this
+      // comes back and puts us where the room actually is - which is the
+      // difference between one room and two wearing the same code.
+      this._claimHostLease();
 
       const me = this.roster.get(this.selfId);
       this.emit('host-changed', { hostId: this.selfId, hostName: me ? me.name : 'You' });
+    }
+
+    /**
+     * Say we are hosting, and believe the answer if we are not.
+     *
+     * Optimistic on purpose: the hub carries on immediately and is corrected a
+     * moment later if it lost. Waiting would stall the room every time the
+     * network is slow, and being briefly wrong costs nothing because the
+     * correction is authoritative - unlike the broker's "that id is taken",
+     * which a departed host leaves behind and which used to be read as proof
+     * somebody was there.
+     */
+    async _claimHostLease() {
+      if (this.left || !this.isHub || !this.code) return;
+      const answer = await hostLease('claim', this.code, this.selfId);
+      if (!answer || this.left || !this.isHub) return;
+      if (answer.ok) {
+        this._leaseHeld = true;
+        return;
+      }
+      this._leaseHeld = false;
+      if (!answer.hostId || answer.hostId === this.selfId) return;
+      this._standDownTo(answer.hostId);
+    }
+
+    /**
+     * Stop hosting and join the peer that really is.
+     *
+     * Only ever reached from an answer given by the lease, which is the one
+     * thing in the system that can tell a live host from a departed one.
+     */
+    _standDownTo(hostId) {
+      if (this.left || !this.isHub || !hostId || hostId === this.selfId) return;
+      console.warn('[signal] another peer holds the host lease; joining it instead');
+
+      // Told before their connections close, so they follow rather than hold
+      // an election among themselves and scatter.
+      this._fanout({ t: 'migrate-host', newHostId: hostId, oldHostId: this.selfId });
+      for (const [id, conn] of this.conns) {
+        if (id === this.selfId) continue;
+        try { conn.close(); } catch (_) {}
+      }
+      this.conns.clear();
+      if (this._memberLastSeen) this._memberLastSeen.clear();
+      if (this._gatewayPeer) {
+        try { this._gatewayPeer.destroy(); } catch (_) {}
+        this._gatewayPeer = null;
+      }
+      this._leaseHeld = false;
+      this._reconnectToNewHost(hostId);
     }
 
     _reconnectToNewHost(newHostId) {
@@ -781,6 +892,7 @@
 
       const now = Date.now();
       if (this.isHub) {
+        this._renewHostLease(now);
         for (const [id, conn] of this.conns) {
           if (id === this.selfId) continue;
           const lastSeen = this._memberLastSeen.get(id) || now;
@@ -803,6 +915,32 @@
       }
     }
 
+    /**
+     * Keep saying we are still hosting.
+     *
+     * A lease that stops being renewed expires, and somebody else may take it
+     * - which is what lets a room recover from a host that vanished. The same
+     * call is how a host that was away too long finds out it has been replaced
+     * and goes to join whoever took over.
+     */
+    _renewHostLease(now) {
+      if (this.left || !this.code) return;
+      if (this._leaseRenewedAt && now - this._leaseRenewedAt < LEASE_RENEW_MS) return;
+      this._leaseRenewedAt = now;
+      hostLease('heartbeat', this.code, this.selfId).then((answer) => {
+        if (!answer || this.left || !this.isHub) return;
+        if (answer.ok) {
+          this._leaseHeld = true;
+          return;
+        }
+        this._leaseHeld = false;
+        // Not ours any more. If the seat is simply empty, take it back;
+        // if somebody is in it, go and join them.
+        if (!answer.hostId) this._claimHostLease();
+        else if (answer.hostId !== this.selfId) this._standDownTo(answer.hostId);
+      });
+    }
+
     _bindGatewayPeer() {
       if (this._gatewayPeer || this.left || !this.isHub || !this.code) return;
 
@@ -822,66 +960,13 @@
             try { gw.destroy(); } catch (_) {}
             this._gatewayPeer = null;
           }
-          if (!(err && err.type === 'unavailable-id') || this.left || !this.isHub) return;
-
-          // The broker holds an id for a little while after its owner goes, so
-          // the first few refusals mean nothing.
-          this._gatewayAttempts = (this._gatewayAttempts || 0) + 1;
-          if (this._gatewayAttempts < GATEWAY_ATTEMPTS) {
+          if (err && err.type === 'unavailable-id' && !this.left && this.isHub) {
             setTimeout(() => this._bindGatewayPeer(), 1500);
-            return;
           }
-          // Still held, so it is held by somebody live.
-          this._yieldToRoomCode();
         });
       } catch (err) {
         console.warn('[signal] Failed to bind gateway peer', err);
       }
-    }
-
-    /**
-     * Stop being a hub, because somebody else is holding the room's id.
-     *
-     * That id *is* the room - it is what a code typed into the lobby resolves
-     * to - so whoever holds it is where everybody who joins from here on will
-     * arrive. A hub that cannot hold it is a second room wearing the same
-     * name, and the two drift apart with no way back: the people already on
-     * this one never see the people on that one, and reloading is the only
-     * thing that moves you between them.
-     *
-     * Rather than keep two rooms alive, this one hands its members to the
-     * holder and follows them there. The rule that settles it is simply
-     * "the room is whoever answers to the code", which every peer can apply
-     * on its own and all of them reach the same answer.
-     *
-     * If it turns out nobody is really there - the id was only lingering after
-     * its owner left - the connection never opens, the host heartbeat times
-     * out, and the usual election runs again and elects somebody, quite
-     * possibly this peer.
-     */
-    _yieldToRoomCode() {
-      if (this.left || !this.isHub || !this.code) return;
-      const gatewayId = window.ASTRA.idPrefix + this.code;
-      // The original host answers to the code itself and cannot be superseded
-      // this way; there is nobody else to hand over to.
-      if (gatewayId === this.selfId) return;
-
-      console.warn('[signal] the room code is held elsewhere; standing down');
-
-      // Told before the connections close, so they follow rather than hold an
-      // election among themselves and scatter.
-      this._fanout({ t: 'migrate-host', newHostId: gatewayId, oldHostId: this.selfId });
-
-      for (const [id, conn] of this.conns) {
-        if (id === this.selfId) continue;
-        try { conn.close(); } catch (_) {}
-      }
-      this.conns.clear();
-      if (this._memberLastSeen) this._memberLastSeen.clear();
-
-      this.isHub = false;
-      this._gatewayAttempts = 0;
-      this._reconnectToNewHost(gatewayId);
     }
 
     // -------------------------------------------------------------- outbound
@@ -921,6 +1006,11 @@
     }
 
     leave() {
+      // Handing the seat back rather than letting it time out means the next
+      // host can take over immediately instead of waiting out the lease.
+      if (this.isHub && this.code && this._leaseHeld) {
+        hostLease('release', this.code, this.selfId);
+      }
       this.left = true;
       this._stopHeartbeat();
       if (this._brokerDisconnectTimer) {
