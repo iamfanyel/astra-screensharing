@@ -262,6 +262,8 @@
     QUALITY,
     AudioMixer,
     captureScreen,
+    /** What a quality key means, for a caller that needs to re-read it. */
+    qualityFor: (key) => QUALITY[key] || null,
     captureCamera,
     captureMicrophone,
     stopStream,

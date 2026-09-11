@@ -926,7 +926,13 @@
         setStatus('Sharing.');
       }
 
-      state.mesh.setMaxVideoBitrate(capture.quality.bitrate, capture.quality.frameRate);
+      // Read again rather than trusted from before the call: on the desktop
+      // app the picker is open during it, and its gear can change the quality
+      // while the user is choosing what to share. The constraints for this
+      // capture were already sent by then, so the new answer is applied to the
+      // track that came back.
+      const settled = await settleQuality(capture.quality);
+      state.mesh.setMaxVideoBitrate(settled.bitrate, settled.frameRate);
       applyFluidity();
       state.mesh.publish();
 
@@ -992,6 +998,32 @@
       state.mesh.setDegradationPreference(on ? 'balanced' : 'maintain-resolution');
     }
     if (state.videoTrack) state.videoTrack.contentHint = on ? 'motion' : 'detail';
+  }
+
+  /**
+   * The quality the share actually ends up at.
+   *
+   * Identical to what was asked for everywhere except the desktop app, where
+   * the picker may have moved it while it was up. Constraints are `ideal`, so
+   * a source that cannot manage the new size keeps what it had rather than
+   * failing.
+   */
+  async function settleQuality(asked) {
+    const chosen = window.AstraMedia && window.AstraMedia.qualityFor
+      ? window.AstraMedia.qualityFor(el.quality.value)
+      : null;
+    if (!chosen || chosen === asked || !state.videoTrack) return asked || chosen;
+
+    const wanted = { frameRate: { ideal: chosen.frameRate } };
+    // `max` asks for the panel untouched, and naming a height would undo that.
+    if (chosen.height) wanted.height = { ideal: chosen.height };
+    try {
+      await state.videoTrack.applyConstraints(wanted);
+    } catch (err) {
+      console.warn('[astra] could not re-apply the picker quality', err);
+      return asked || chosen;
+    }
+    return chosen;
   }
 
   function stopSharing() {

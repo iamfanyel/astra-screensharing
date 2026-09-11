@@ -9,7 +9,9 @@
     "start": "electron .",
     "dev": "cross-env ASTRA_URL=http://localhost:3000 electron .",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "release": "electron-builder --publish always",
+    "release:draft": "electron-builder --publish always -c.publish.releaseType=draft"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
@@ -17,7 +19,7 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "dev.astra.screensharing",
+    "appId": "live.astrascreen.desktop",
     "productName": "Astra",
     "directories": {
       "output": "dist"
@@ -26,10 +28,12 @@
       "main.js",
       "preload.js",
       "config.js",
-      "picker/**/*"
+      "picker/**/*",
+      "updater.js"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -39,15 +43,39 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Astra",
       "uninstallDisplayName": "Astra",
-      "artifactName": "Astra-Setup-${version}.${ext}"
+      "artifactName": "Astra-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.social-networking"
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Network"
-    }
+      "category": "Network",
+      "icon": "build/icon.png"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "iamfanyel",
+        "repo": "astra-screensharing"
+      }
+    ],
+    "electronLanguages": [
+      "en-US",
+      "en-GB",
+      "pt-BR",
+      "pt-PT",
+      "es",
+      "fr",
+      "de",
+      "it"
+    ],
+    "compression": "maximum"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

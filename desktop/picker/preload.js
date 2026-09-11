@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('picker', {
   onSources: (handler) => {
     ipcRenderer.on('picker:sources', (_event, sources) => handler(sources));
   },
-  /** null cancels, which getDisplayMedia reports to the page as a denial. */
-  choose: (id) => ipcRenderer.send('picker:choose', id),
+  /**
+   * The whole decision in one message: which source, and what to share it
+   * with. null cancels, which getDisplayMedia reports to the page as a denial.
+   */
+  choose: (choice) => ipcRenderer.send('picker:choose', choice),
 });

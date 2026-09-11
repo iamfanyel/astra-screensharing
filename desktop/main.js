@@ -12,6 +12,7 @@
 const { app, BrowserWindow, session, desktopCapturer, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const { APP_URL } = require('./config');
+const updater = require('./updater');
 
 const APP_ORIGIN = new URL(APP_URL).origin;
 
@@ -286,10 +287,13 @@ function pickSource(sources) {
       resolve(value);
     };
 
-    const onChoose = (event, id) => {
+    const onChoose = (event, choice) => {
       // Ignore a message from any window other than the one we opened.
       if (event.sender !== picker.webContents) return;
-      finish(sources.find((source) => source.id === id) || null);
+      if (!choice || !choice.id) return finish(null);
+      const source = sources.find((item) => item.id === choice.id);
+      if (!source) return finish(null);
+      finish({ source, quality: choice.quality || null, audio: choice.audio });
     };
 
     ipcMain.on('picker:choose', onChoose);
@@ -300,7 +304,7 @@ function pickSource(sources) {
     picker.once('ready-to-show', async () => {
       picker.webContents.send('picker:sources', {
         sources: sources.map(toPickerItem),
-        quality: await readQuality(),
+        settings: await readShareSettings(),
       });
       picker.show();
     });
@@ -310,23 +314,67 @@ function pickSource(sources) {
 }
 
 /**
- * What the room is set to share at, for the picker to report.
+ * What the room is set to share at, for the picker to show and to change.
  *
- * Read out of the page rather than duplicated here, because the room owns the
- * setting and this is only telling you what it already says. It reaches into
- * one element by id, so a rename in the web app costs the readout and nothing
- * else - the picker hides that line when this comes back empty.
+ * Read out of the page rather than duplicated here, because the room owns
+ * these settings and the picker is only another way to reach them. It works
+ * through the room's own controls by id, so a rename in the web app costs this
+ * readout and nothing else - the picker hides the whole control when this
+ * comes back with nothing.
  */
-async function readQuality() {
+async function readShareSettings() {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   try {
-    const text = await mainWindow.webContents.executeJavaScript(
-      'document.getElementById("quality-val") && document.getElementById("quality-val").textContent',
-      true,
-    );
-    return typeof text === 'string' && text.trim() ? text.trim() : null;
+    const settings = await mainWindow.webContents.executeJavaScript(`(function () {
+      const select = document.getElementById('quality');
+      const audio = document.getElementById('system-audio');
+      if (!select) return null;
+      return {
+        quality: select.value,
+        options: Array.from(select.options).map(function (o) {
+          return { value: o.value, label: o.textContent.trim() };
+        }),
+        audio: audio ? audio.checked : false,
+      };
+    })()`, true);
+    if (!settings || !Array.isArray(settings.options) || !settings.options.length) return null;
+    // Only Windows has a system mix to offer, so only there is the switch real.
+    settings.audioSupported = process.platform === 'win32';
+    return settings;
   } catch (_) {
     return null;
+  }
+}
+
+/**
+ * Put the picker's answers back where the room keeps them.
+ *
+ * The room reads its own controls when a share starts, so writing to them is
+ * what makes the choice take effect - and it leaves the app agreeing with
+ * itself afterwards, rather than sharing at one setting while its own menu
+ * claims another.
+ */
+async function writeShareSettings(chosen) {
+  if (!mainWindow || mainWindow.isDestroyed() || !chosen) return;
+  const quality = JSON.stringify(chosen.quality == null ? null : String(chosen.quality));
+  const audio = JSON.stringify(typeof chosen.audio === 'boolean' ? chosen.audio : null);
+  try {
+    await mainWindow.webContents.executeJavaScript(`(function () {
+      const quality = ${quality};
+      const audio = ${audio};
+      const select = document.getElementById('quality');
+      if (select && quality && select.value !== quality) {
+        select.value = quality;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const box = document.getElementById('system-audio');
+      if (box && audio !== null && box.checked !== audio) {
+        box.checked = audio;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    })()`, true);
+  } catch (_) {
+    // The share still goes ahead; only the menu is left out of step.
   }
 }
 
@@ -382,7 +430,10 @@ function handleDisplayMedia(ses) {
         return;
       }
 
-      callback({ video: chosen, audio: systemAudioFor(request) });
+      // Written back before the capture starts, so the room's own controls
+      // agree with what is about to be shared.
+      await writeShareSettings(chosen);
+      callback({ video: chosen.source, audio: systemAudioFor(request, chosen) });
     },
     // Astra draws its own, so that the picker matches the app and behaves the
     // same on every Windows version rather than only where the OS supplies one.
@@ -400,8 +451,13 @@ function handleDisplayMedia(ses) {
  * implements it on Windows only; elsewhere this stays undefined and system
  * audio behaves exactly as it does in the browser.
  */
-function systemAudioFor(request) {
-  return request.audioRequested && process.platform === 'win32' ? 'loopback' : undefined;
+function systemAudioFor(request, chosen) {
+  if (process.platform !== 'win32') return undefined;
+  // The picker's switch wins where it was shown, because it is the last thing
+  // the user said about it. With no answer from there, the page's request
+  // stands, which is what happens on every other platform anyway.
+  const wanted = chosen && typeof chosen.audio === 'boolean' ? chosen.audio : request.audioRequested;
+  return wanted ? 'loopback' : undefined;
 }
 
 // One window per app: a second launch focuses the one already open rather than
@@ -435,6 +491,8 @@ if (!app.requestSingleInstanceLock()) {
     guardPermissions(ses);
     handleDisplayMedia(ses);
     followTitlebarColors();
+    // Quiet, and only in a packaged build - see updater.js.
+    updater.install();
     registerProtocol();
     createWindow();
 
