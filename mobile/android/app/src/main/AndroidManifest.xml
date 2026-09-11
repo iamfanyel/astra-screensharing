@@ -32,6 +32,16 @@
                 <data android:scheme="astra" android:host="auth" />
             </intent-filter>
 
+            <!-- A room invitation handed over by a browser. The site sends
+                 people here when it recognises a room link and finds the app
+                 installed - see js/open-in-app.js. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="astra" android:host="room" />
+            </intent-filter>
+
         </activity>
 
         <!-- Screen capture has to run in a foreground service, and from
