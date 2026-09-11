@@ -1,6 +1,6 @@
 {
   "name": "astra-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Screen and audio sharing",
   "author": "Fanyel",
@@ -43,7 +43,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Astra",
       "uninstallDisplayName": "Astra",
-      "artifactName": "Astra-Setup-${version}.${ext}",
+      "artifactName": "Astra-Setup.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "mac": {
