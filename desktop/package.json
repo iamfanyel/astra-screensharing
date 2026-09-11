@@ -1,6 +1,6 @@
 {
   "name": "astra-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Screen and audio sharing",
   "author": "Fanyel",
@@ -24,6 +24,7 @@
     "directories": {
       "output": "dist"
     },
+    "afterPack": "build/after-pack.js",
     "files": [
       "main.js",
       "preload.js",
