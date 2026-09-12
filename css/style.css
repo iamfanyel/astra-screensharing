@@ -2226,6 +2226,52 @@ button.tag-danger:hover {
   align-content: start;
 }
 
+/* The chat's scrollbar is drawn only while the pointer is in the chat.
+ *
+ * A scrollbar is a control, and one that nobody is reaching for is just a line
+ * down the side of the conversation. This leaves it out of the way until the
+ * chat is the thing being used.
+ *
+ * Only the thumb's colour changes, never the gutter's width: taking the width
+ * away would reflow every message the moment the pointer arrived, which is far
+ * more distracting than the bar ever was. The fade comes free from the
+ * transition on the global thumb rule.
+ *
+ * The pointer is the whole test, and typing deliberately is not: sitting in
+ * the message box with the mouse somewhere else is writing, not reading back,
+ * and a bar that appeared for the whole time someone was composing would be
+ * the thing this was meant to get rid of.
+ */
+.messages::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+#chat-panel:hover .messages::-webkit-scrollbar-thumb {
+  background: rgb(var(--ink) / 0.18);
+}
+
+#chat-panel:hover .messages::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--ink) / 0.32);
+}
+
+#chat-panel:hover .messages::-webkit-scrollbar-thumb:active {
+  background: rgb(var(--ink) / 0.45);
+}
+
+/* Firefox, which has no ::-webkit-scrollbar and is styled by the standard
+   properties instead - kept behind the same guard as the rules at the top of
+   this file, because setting `scrollbar-color` in Chromium switches off every
+   ::-webkit-scrollbar rule above. */
+@supports not selector(::-webkit-scrollbar) {
+  .messages {
+    scrollbar-color: transparent transparent;
+  }
+
+  #chat-panel:hover .messages {
+    scrollbar-color: rgb(var(--ink) / 0.18) transparent;
+  }
+}
+
 .message {
   display: flex;
   align-items: flex-start;
