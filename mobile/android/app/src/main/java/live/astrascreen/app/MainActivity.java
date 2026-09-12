@@ -63,6 +63,7 @@ public class MainActivity extends BridgeActivity {
         // soon as it loads rather than having to wait and retry.
         registerPlugin(ScreenCapturePlugin.class);
         registerPlugin(AppPlugin.class);
+        registerPlugin(AudioRoutePlugin.class);
         super.onCreate(savedInstanceState);
 
         // Added after the bridge's own, so this one is asked first.

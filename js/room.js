@@ -1531,6 +1531,18 @@
 
   async function populateOutputMenu() {
     if (!el.outputMenu || !el.audioOutput) return;
+
+    // On a phone the browser has no answer to give - Chrome on Android lists
+    // no outputs and cannot switch between them - so the app is asked first.
+    // See js/native-audio.js. Anywhere else this is empty and nothing changes.
+    const native = window.AstraNativeAudio && window.AstraNativeAudio.available()
+      ? await window.AstraNativeAudio.outputs()
+      : [];
+    if (native.length) {
+      renderNativeOutputs(native);
+      return;
+    }
+
     let outputs = [];
     if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
       try {
@@ -1606,6 +1618,43 @@
       noteItem.style.textAlign = 'center';
       noteItem.textContent = 'Managed by device audio settings';
       el.outputMenu.append(noteItem);
+    }
+  }
+
+  /**
+   * The phone's own outputs, which route natively rather than through a sink.
+   *
+   * There is no "System default" row here, unlike the browser list: Android
+   * always has one of these selected, so an entry meaning "whichever" would
+   * be a choice that does nothing and reads as the one already in use.
+   */
+  function renderNativeOutputs(outputs) {
+    el.audioOutput.hidden = false;
+    el.outputMenu.textContent = '';
+
+    for (const output of outputs) {
+      const item = document.createElement('div');
+      item.className = 'dock-dropdown-item';
+      item.setAttribute('role', 'option');
+      item.tabIndex = 0;
+      item.classList.toggle('is-selected', !!output.selected);
+      item.setAttribute('aria-selected', String(!!output.selected));
+      const span = document.createElement('span');
+      span.textContent = output.label;
+      item.append(span, checkSvgTemplate.cloneNode(true));
+      item.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const ok = await window.AstraNativeAudio.select(output.id);
+        toggleOutputMenu(false);
+        if (!ok) {
+          setStatus('That output could not be selected.', 'bad');
+          return;
+        }
+        // Read back rather than assumed: Android decides what it actually
+        // routed to, and a headset unplugged a moment ago moves it again.
+        populateOutputMenu();
+      });
+      el.outputMenu.append(item);
     }
   }
 
@@ -4805,6 +4854,13 @@
     if (localOfflineTimer) {
       clearTimeout(localOfflineTimer);
       localOfflineTimer = null;
+    }
+    // Give the phone's audio routing back. Astra puts the system into its
+    // call mode to move the room's sound off the media route, and a handset
+    // left that way after the room has gone would still be sending the volume
+    // keys to a call that is not happening.
+    if (window.AstraNativeAudio && window.AstraNativeAudio.available()) {
+      window.AstraNativeAudio.clear();
     }
     if (state.mesh) state.mesh.close();
     cleanUpCapture();
