@@ -429,6 +429,42 @@ async function deleteStoredRoom(request, env, ctx, code) {
   }
 }
 
+/**
+ * Whether anybody is holding this room open at this instant, or null.
+ *
+ * The stored record cannot answer that. A host says it is alive once a minute,
+ * and those heartbeats are deliberately kept out of KV for fifteen minutes at
+ * a time because writing one per minute per room would exhaust the day's quota
+ * on a single room. They land in `memoryRooms` instead, which belongs to one
+ * isolate - so an isolate that has not seen this room falls back to a KV copy
+ * whose `lastActive` may be a quarter of an hour behind, and checkRoomState
+ * calls anything five minutes behind expired.
+ *
+ * The host lease has none of that problem. The host renews it every six
+ * seconds against a twenty second expiry, and a Durable Object answers for the
+ * whole world rather than per isolate, so it is never stale and never differs
+ * between two people asking at once. When the cheap answer says a room is
+ * gone, this is the one worth asking before believing it.
+ *
+ * Null for every failure, including no binding at all: that is exactly the
+ * state before the lease existed, and the old answer stands.
+ */
+async function hostHolding(env, code) {
+  if (!env || !env.ROOM_HOST || typeof env.ROOM_HOST.idFromName !== 'function') return null;
+  try {
+    const stub = env.ROOM_HOST.get(env.ROOM_HOST.idFromName(code));
+    const answer = await stub.fetch('https://room/host', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerId: null }),
+    });
+    const data = await answer.json();
+    return data && data.hostId ? data.hostId : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function handleRoom(request, env, ctx) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
@@ -443,12 +479,36 @@ async function handleRoom(request, env, ctx) {
     }
 
     const room = await getStoredRoom(request, env, code);
+    const state = room ? checkRoomState(room) : null;
+
+    // Every unhappy answer here - gone, expired, or empty and in need of a new
+    // host - is read from a record that may be a quarter of an hour behind
+    // what is actually happening, and turning somebody away from a room their
+    // friends are sitting in is the worst of the three mistakes. So whenever
+    // the stored copy says anything other than "alive and hosted", ask the
+    // lease, which cannot be out of date.
+    if (!room || state.expired || state.needsHost) {
+      // Answered from the lease and not written back: caching this would mean
+      // the room went on looking alive here for another five minutes after the
+      // host actually left, and asking again costs one Durable Object read.
+      if (await hostHolding(env, code)) {
+        return jsonResponse({
+          exists: true,
+          expired: false,
+          active: true,
+          needsHost: false,
+          empty: false,
+          remainingMs: EMPTY_ROOM_TIMEOUT_MS,
+        });
+      }
+    }
+
     if (!room) {
       return jsonResponse({ exists: false, error: 'Room does not exist or has expired.' });
     }
 
-    const state = checkRoomState(room);
     if (state.expired) {
+      // Nobody holds the lease either, so it really has gone.
       await deleteStoredRoom(request, env, ctx, code);
       return jsonResponse({ exists: true, expired: true, error: 'This room has expired (empty for more than 5 minutes).' });
     }
