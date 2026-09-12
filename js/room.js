@@ -261,22 +261,49 @@
     document.title = roomCode + ' - astra';
   }
 
+  // Tells the inline watchdog in room/index.html that this file arrived, so it
+  // knows the splash has an owner and leaves it alone.
+  document.documentElement.dataset.roomReady = '1';
+
   // The signalling library comes from a CDN; say so plainly if it never arrived.
   if (typeof Peer === 'undefined') {
+    // An auto-join link has already raised the splash, and `.gate.working`
+    // hides the card this message is written into - so without dropping out of
+    // it the page sits on the loading dots for ever with the explanation
+    // behind them. There is nothing left to wait for either way: the autostart
+    // below does not run without Peer.
+    setGateLoading(false);
     el.gateSubmit.disabled = true;
     el.gateError.textContent =
       'Could not load the connection library. Check your network or any content blocker, then reload.';
     el.gateError.hidden = false;
   }
 
+  /**
+   * How long to wait for the room's status before going ahead without it.
+   *
+   * This answer is only an optimisation - it saves a doomed attempt on a room
+   * that really has gone - so waiting indefinitely for it costs far more than
+   * skipping it. `fallback` marks the answer as not to be trusted, which makes
+   * the join proceed exactly as it did before this check existed.
+   */
+  const ROOM_STATUS_TIMEOUT_MS = 5000;
+
   async function checkRoomStatus(code) {
     if (!code) return null;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const giveUp = setTimeout(() => controller && controller.abort(), ROOM_STATUS_TIMEOUT_MS);
     try {
-      const res = await fetch('/api/room?code=' + encodeURIComponent(code));
+      const res = await fetch(
+        '/api/room?code=' + encodeURIComponent(code),
+        controller ? { signal: controller.signal } : undefined,
+      );
       if (!res.ok) return { exists: true, fallback: true };
       return await res.json();
     } catch (_) {
       return { exists: true, fallback: true };
+    } finally {
+      clearTimeout(giveUp);
     }
   }
 
@@ -356,12 +383,50 @@
     startSession(AstraProfile.setName(el.gateName.value) || 'Guest');
   });
 
+  /**
+   * The longest the splash may run before it has to say something.
+   *
+   * Every wait inside startSession is meant to be bounded - the status check
+   * gives up after five seconds, Signal.join after twenty - but a promise that
+   * never settles produces no error to catch and no path to the code below, so
+   * what the person sees is a room that loads for ever. This is the guarantee
+   * that it stops, whatever the cause turns out to be, and that the answer is
+   * always a message and a button rather than dots.
+   *
+   * Comfortably past both of those, so it only fires for something that was
+   * not supposed to be able to happen.
+   */
+  const JOIN_WATCHDOG_MS = 35000;
+
+  let joinWatchdog = null;
+
+  function stopJoinWatchdog() {
+    if (joinWatchdog) {
+      clearTimeout(joinWatchdog);
+      joinWatchdog = null;
+    }
+  }
+
   async function startSession(name) {
     if (typeof Peer === 'undefined') return;
 
     el.gateSubmit.disabled = true;
     el.gateError.hidden = true;
     setGateLoading(true);
+
+    stopJoinWatchdog();
+    joinWatchdog = setTimeout(() => {
+      joinWatchdog = null;
+      // A join that lands late is still a join, so nothing is cancelled here -
+      // this only stops the page pretending that all is well.
+      if (state.signal) return;
+      setGateLoading(false);
+      el.gateError.textContent =
+        'Joining is taking longer than it should. Check your connection and try again.';
+      el.gateError.hidden = false;
+      el.gateSubmit.disabled = false;
+      el.gateSubmit.textContent = wantsCreate ? 'Create room' : 'Join';
+    }, JOIN_WATCHDOG_MS);
 
     try {
       let roomStatus = null;
@@ -400,8 +465,10 @@
       }
 
       await mixerReady;
+      stopJoinWatchdog();
       enterRoom();
     } catch (err) {
+      stopJoinWatchdog();
       console.error(err);
       if (state.mixer) {
         state.mixer.close();

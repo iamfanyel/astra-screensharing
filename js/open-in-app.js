@@ -101,5 +101,21 @@
   // Offered first, so it is already there if the automatic try is blocked -
   // which is the ordinary case in a browser the user has not clicked in yet.
   button.hidden = false;
-  handOver(true);
+
+  /**
+   * The automatic try waits for the document, and this is the whole reason
+   * this file is loaded where it is rather than simply run.
+   *
+   * Handing the page to another scheme from a script the parser has not
+   * finished with makes Chrome abandon the rest of the document. On the room
+   * page the scripts that matter come after this one, so media.js, mesh.js and
+   * room.js never ran, and what was left on screen was the loading splash with
+   * nothing behind it to ever replace it - a room that loads for ever. Firefox
+   * finishes parsing regardless, which is why it only happened in one of them.
+   *
+   * After `load` there is no parse left to lose, and the room page underneath
+   * is whole whether or not anything takes the link.
+   */
+  if (document.readyState === 'complete') handOver(true);
+  else window.addEventListener('load', () => handOver(true), { once: true });
 })();

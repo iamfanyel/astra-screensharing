@@ -109,6 +109,23 @@
       document.documentElement.dataset.autostart = '1';
       document.getElementById('gate').classList.add('working');
       document.getElementById('gate-loader').hidden = false;
+
+      // And a way back out of it. This splash covers the card that every
+      // message is written into, so anything that stops room.js running at all
+      // - a blocked CDN, a content blocker, a parse cut short - leaves a room
+      // that loads for ever and never says why. Being inline makes this the
+      // one piece of script certain to have run, so it is the only place the
+      // guarantee can live. room.js says it arrived by setting `roomReady`;
+      // this only asks whether it ever did, not whether joining has finished.
+      setTimeout(function () {
+        if (document.documentElement.dataset.roomReady === '1') return;
+        document.getElementById('gate').classList.remove('working');
+        document.getElementById('gate-loader').hidden = true;
+        var error = document.getElementById('gate-error');
+        if (!error) return;
+        error.textContent = 'Astra could not finish loading. Reload the page, and check any content blocker if it keeps happening.';
+        error.hidden = false;
+      }, 20000);
     })();
   </script>
 
