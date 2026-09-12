@@ -25,6 +25,24 @@
   const LEASE_TIMEOUT_MS = 4000;
 
   /**
+   * How long to wait before each attempt to get the broker back.
+   *
+   * PeerJS says `disconnected` when the socket drops, and reconnecting from
+   * that event without a pause is a loop: the attempt fails while the network
+   * is still down, which says `disconnected` again, which attempts again, for
+   * as long as the outage lasts. A dropped wifi connection can turn that into
+   * hundreds of connections a minute, and the public broker sits behind a rate
+   * limiter that counts them - so the room comes back to a working network and
+   * a broker that now refuses it for the better part of an hour.
+   *
+   * The first wait is short enough that a momentary blip recovers as quickly as
+   * it used to; after that they lengthen, so an outage costs a handful of
+   * attempts rather than thousands. Jittered, so a room full of people whose
+   * shared wifi dropped does not come back in lockstep.
+   */
+  const RECONNECT_DELAYS_MS = [250, 1000, 3000, 8000, 20000];
+
+  /**
    * Ask the server who is hosting a room, or say that it is us.
    *
    * The browsers cannot settle this between themselves - see RoomHost in
@@ -160,6 +178,61 @@
       this._memberLastSeen = new Map(); // hub only: member id -> timestamp
       this._hostLastSeen = 0; // member only: timestamp of last message from host
       this._brokerDisconnectTimer = null;
+      this._reconnectTimer = null;
+      this._reconnectAttempts = 0;
+      this._waitingForOnline = false;
+    }
+
+    /**
+     * Ask for the broker back, after a wait that grows with each failure.
+     *
+     * Nothing is attempted while the browser says it is offline: there is no
+     * point, and it is exactly the moment the old code tried hardest. The
+     * browser tells us when the network returns, and that is when to try.
+     */
+    _scheduleReconnect(peer) {
+      if (this.left || this._reconnectTimer) return;
+
+      // Nothing can be attempted while the browser says there is no network,
+      // and that is exactly the moment the old code tried hardest. Wait to be
+      // told it is back - once, however many times this is asked - and treat
+      // that as a fresh start: the failures behind us were a missing network
+      // rather than a busy broker, so making somebody sit through the longest
+      // delay afterwards would punish them for an outage that has ended.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        if (this._waitingForOnline) return;
+        this._waitingForOnline = true;
+        window.addEventListener('online', () => {
+          this._waitingForOnline = false;
+          this._reconnectAttempts = 0;
+          this._scheduleReconnect(peer);
+        }, { once: true });
+        return;
+      }
+
+      const step = Math.min(this._reconnectAttempts, RECONNECT_DELAYS_MS.length - 1);
+      const base = RECONNECT_DELAYS_MS[step];
+      this._reconnectTimer = setTimeout(() => {
+        this._reconnectTimer = null;
+        if (this.left || peer.destroyed || !peer.disconnected) return;
+        // Counted here rather than when it was scheduled: an attempt that was
+        // never made should not push the next one further away.
+        this._reconnectAttempts += 1;
+        try {
+          peer.reconnect();
+        } catch (_) {
+          // Already reconnecting, or gone. The next `disconnected` asks again.
+        }
+      }, base + Math.random() * base * 0.3);
+    }
+
+    /** The broker is back, so the next drop starts counting from scratch. */
+    _reconnected() {
+      this._reconnectAttempts = 0;
+      if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
     }
 
     emit(type, detail) {
@@ -224,6 +297,14 @@
         let settled = false;
 
         peer.on('open', () => {
+          // PeerJS says `open` again each time it gets the broker back, and
+          // everything below is one-time setup: running it twice adds a second
+          // `connection` listener, so every future member would be accepted
+          // twice. A reconnect only has to reset the backoff.
+          if (this._hubListening) {
+            this._reconnected();
+            return;
+          }
           settled = true;
           this.peer = peer;
           this.isHub = true;
@@ -254,7 +335,7 @@
           peer.on('connection', (conn) => this._acceptMember(conn));
           peer.on('disconnected', () => {
             if (this.left) return;
-            peer.reconnect();
+            this._scheduleReconnect(peer);
             if (!this._brokerDisconnectTimer) {
               this._brokerDisconnectTimer = setTimeout(() => {
                 if (peer.disconnected && !this.left) {
@@ -445,10 +526,18 @@
           .then((answer) => (answer && answer.hostId) || null)
           .catch(() => null);
 
+        let opened = false;
         peer.on('open', async () => {
+          // As in _openHub: this fires again on every reconnect, and below it
+          // registers listeners and reaches for the host.
+          if (opened) {
+            signal._reconnected();
+            return;
+          }
+          opened = true;
           peer.on('disconnected', () => {
             if (signal.left) return;
-            peer.reconnect();
+            signal._scheduleReconnect(peer);
             if (!signal._brokerDisconnectTimer) {
               signal._brokerDisconnectTimer = setTimeout(() => {
                 if (peer.disconnected && !signal.left) {
@@ -566,7 +655,7 @@
       peer.on('connection', (c) => this._acceptMember(c));
       peer.on('disconnected', () => {
         if (this.left) return;
-        peer.reconnect();
+        this._scheduleReconnect(peer);
         if (!this._brokerDisconnectTimer) {
           this._brokerDisconnectTimer = setTimeout(() => {
             if (peer.disconnected && !this.left) {

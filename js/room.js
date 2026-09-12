@@ -720,11 +720,32 @@
     el.gateLoader.hidden = !on;
   }
 
+  /**
+   * What to tell somebody about a failure they cannot see inside.
+   *
+   * The broker errors deserve better than one sentence. They arrive from
+   * PeerJS as a bare `network`, whatever actually happened, and the two
+   * things that actually happen have opposite answers: a connection that is
+   * down needs checking, and a broker that is refusing needs waiting.
+   *
+   * The browser knows which. `navigator.onLine` is only reliable in the
+   * negative - false genuinely means there is no network - and that is the
+   * half worth acting on. Otherwise the connection is fine and the broker is
+   * not answering, which on the shared public one is most often its rate
+   * limiter: it counts connection attempts per address and shuts the door for
+   * up to an hour, so "try again" is wrong advice and waiting is right. Said
+   * as a likelihood rather than a diagnosis, because the browser is not told
+   * why a socket was refused and this cannot honestly claim to know.
+   */
   function friendlyError(err) {
     if (!err) return 'Something went wrong.';
     if (err.type === 'browser-incompatible') return 'This browser cannot do WebRTC.';
     if (err.type === 'network' || err.type === 'server-error') {
-      return 'Could not reach the signalling broker. Check your connection and try again.';
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'You appear to be offline. Check your connection and try again.';
+      }
+      return 'Could not reach the signalling broker. It may be busy or turning '
+        + 'connections away for a while - wait a few minutes and try again.';
     }
     return err.message || String(err);
   }
