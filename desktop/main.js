@@ -10,6 +10,7 @@
  */
 
 const { app, BrowserWindow, screen, session, desktopCapturer, ipcMain, shell } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 const { APP_URL } = require('./config');
 const updater = require('./updater');
@@ -36,6 +37,60 @@ const ROOM_LINK = PROTOCOL + '://room';
 
 /** Where the user was when they started signing in, to put them back after. */
 let pendingReturnUrl = null;
+
+/**
+ * Where we remember that this machine needs the older screen capturer.
+ *
+ * Windows has two ways of listing monitors and they do not agree. The one
+ * Chromium prefers asks DirectX which outputs it can duplicate and offers only
+ * those; the older one walks the display devices and offers every active
+ * monitor. On most machines they say the same thing. On some - a second GPU, a
+ * monitor DirectX will not duplicate - the first is missing a screen, and it
+ * is missing it every single time, which is why asking again was never going
+ * to help.
+ *
+ * The feature can be turned off, but only on the command line before the app
+ * starts, and the shortfall is only visible once it is running. So it is
+ * written down when it is noticed and acted on at the next launch. Nobody who
+ * does not need it pays for it: DirectX capture is the faster of the two and
+ * stays the default everywhere it lists the monitors correctly.
+ */
+const CAPTURE_PREFS = path.join(app.getPath('userData'), 'capture.json');
+
+function capturePrefs() {
+  try {
+    return JSON.parse(fs.readFileSync(CAPTURE_PREFS, 'utf8')) || {};
+  } catch (_) {
+    return {};  // never written, or unreadable; the default is fine
+  }
+}
+
+function rememberGdiEnumeration() {
+  const prefs = capturePrefs();
+  if (prefs.gdiEnumeration) return false;  // already known
+  prefs.gdiEnumeration = true;
+  try {
+    fs.mkdirSync(path.dirname(CAPTURE_PREFS), { recursive: true });
+    fs.writeFileSync(CAPTURE_PREFS, JSON.stringify(prefs));
+    return true;
+  } catch (err) {
+    console.warn('[astra] could not remember the capture preference', err.message);
+    return false;
+  }
+}
+
+/**
+ * Turn off the DirectX capturer, for a machine that has been seen to need it.
+ *
+ * Appended to whatever is already disabled rather than replacing it, because
+ * overwriting the switch would quietly re-enable anything else turned off.
+ */
+if (process.platform === 'win32' && capturePrefs().gdiEnumeration) {
+  const already = app.commandLine.getSwitchValue('disable-features');
+  const features = already ? already.split(',') : [];
+  if (!features.includes('DirectXCapturer')) features.push('DirectXCapturer');
+  app.commandLine.appendSwitch('disable-features', features.join(','));
+}
 
 /** Matches --titlebar-h in the stylesheet: the strip the page draws for it. */
 const TITLEBAR_HEIGHT = 34;
@@ -344,6 +399,7 @@ function pickSource(sources) {
       picker.webContents.send('picker:sources', {
         sources: sources.map(toPickerItem),
         settings: await readShareSettings(),
+        missingMonitors,
       });
       picker.show();
     });
@@ -460,6 +516,13 @@ const SOURCE_RETRIES = 3;
 /** Long enough for a second display to finish being added to the list. */
 const SOURCE_RETRY_MS = 180;
 
+/**
+ * Set when the machine has more monitors than the capturer would list, for the
+ * picker to mention. Somebody looking for a screen that is not there needs to
+ * know it is Astra's fault and that restarting fixes it.
+ */
+let missingMonitors = null;
+
 function screensIn(sources) {
   return sources.filter((source) => source.id.startsWith('screen:')).length;
 }
@@ -511,6 +574,15 @@ async function listSources() {
     console.warn(
       `[astra] only ${screensIn(best)} of ${expected} monitors could be listed`,
     );
+    // Deterministic, not a race - so the answer is not to ask again but to ask
+    // differently, which can only be arranged before the app starts.
+    if (process.platform === 'win32') {
+      const noted = rememberGdiEnumeration();
+      if (noted) console.warn('[astra] the next launch will list them the older way');
+      missingMonitors = { found: screensIn(best), expected, restartFixes: true };
+    }
+  } else {
+    missingMonitors = null;
   }
   return best;
 }
