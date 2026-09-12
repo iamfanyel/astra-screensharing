@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Friend request — astra</title>
+<link rel="icon" href="../astralogo.png" />
+<link rel="stylesheet" href="../css/style.css?v=17" />
+<script src="../js/theme.js"></script>
+</head>
+<body class="invite">
+  <!-- Their banner, as atmosphere rather than as a picture: darkened and
+       blurred far past legibility, so the page feels like theirs without
+       asking anybody to look at it. Set from the profile by js/add.js. -->
+  <div id="invite-wash" class="invite-wash" aria-hidden="true"></div>
+
+  <!-- Astra loader shown while checking the link and loading the person's profile -->
+  <div class="gate-loader invite-loader" id="invite-loader" aria-label="Loading">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+  </div>
+
+  <main class="invite-card" id="invite-card" hidden>
+    <div class="invite-figure">
+      <div class="invite-glow" aria-hidden="true"></div>
+      <span id="invite-avatar" class="avatar invite-avatar"></span>
+    </div>
+
+    <div class="invite-identity">
+      <p class="invite-eyebrow" id="invite-eyebrow">Friend request</p>
+      <h1 class="invite-name" id="invite-name">&middot;&middot;&middot;</h1>
+      <p class="invite-sub" id="invite-sub">Checking the link&hellip;</p>
+    </div>
+
+    <div class="invite-actions" id="invite-actions" hidden>
+      <button type="button" id="invite-accept" class="btn btn-primary btn-block">Accept</button>
+      <a href="../" class="invite-decline" id="invite-decline">not now</a>
+    </div>
+
+    <p class="invite-note" id="invite-note" hidden></p>
+  </main>
+
+  <footer class="foot invite-foot">
+    <p class="muted">Fanyel @2026</p>
+  </footer>
+
+  <script src="../js/platform.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/profile.js"></script>
+  <script src="../js/native-app.js"></script>
+  <script src="../js/discord.js"></script>
+  <script src="../js/friends.js"></script>
+  <script src="../js/add.js"></script>
+</body>
+</html>

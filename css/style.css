@@ -657,6 +657,10 @@ body.resizing {
   overflow: hidden;
 }
 
+.topbar-left .chip-icon-btn {
+  flex: none;
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
@@ -755,6 +759,239 @@ body.sidebar-hidden .topbar-right {
   color: var(--muted);
 }
 
+/**
+ * The friends panel on the lobby.
+ *
+ * Below the join form and above the download row, because it is the third way
+ * into a room rather than the first: a code you were given, a room you are
+ * making, and then the people who might already be in one.
+ */
+.friends {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.friends-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.friends-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.friends-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.friend {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Their banner, under a fade, the way the room's member list draws it. */
+.friend-plate {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: 100% 100%, cover;
+  background-position: 0 0, center;
+  background-repeat: no-repeat, no-repeat;
+  transition: filter 0.2s ease;
+}
+
+.friend > :not(.friend-plate) {
+  position: relative;
+  z-index: 1;
+}
+
+.friend.has-banner:hover {
+  background: transparent;
+}
+
+.friend.has-banner:hover .friend-plate {
+  filter: brightness(1.1);
+}
+
+.friend.has-banner .friend-name {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.friend.has-banner .friend-sub {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.friend.has-banner .friend-dismiss {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.friend.has-banner .friend-dismiss:hover {
+  background: rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+}
+
+.friend:hover {
+  background: rgb(var(--ink) / 0.05);
+}
+
+/* An invitation is the one row with somewhere to go, so it is the one row
+   that looks like something rather than a list entry. */
+.friend-invited {
+  background: rgb(var(--ink) / 0.06);
+}
+
+
+.friend-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The picture is clipped, not the frame - the status dot sits on the edge and
+   would be cut in half by an overflow on the frame itself. */
+.friend-avatar img {
+  border-radius: 50%;
+}
+
+/* The status dot, on the corner of the picture. A ring in the card's own
+   colour cuts it out of whatever is behind it, so it reads on a photo. */
+.friend-avatar.is-online::after,
+.friend-avatar.is-in-room::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--speaking);
+}
+
+/* In a call is a different thing from merely here, and worth telling apart at
+   a glance: this is the one that means "interrupting them is a decision". */
+.friend-avatar.is-in-room::after {
+  background: var(--accent);
+}
+
+.friend-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.friend-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A small solid pill, sized to the row rather than to a form. */
+.friend-join {
+  appearance: none;
+  flex: none;
+  height: 24px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  /* Lower case, like every other button label on this page. */
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+
+.friend-join:hover {
+  opacity: 0.88;
+}
+
+.friend-join:focus-visible {
+  outline: 2px solid rgb(var(--ink) / 0.5);
+  outline-offset: 2px;
+}
+
+.friend.has-banner .friend-join {
+  background: #ffffff;
+  color: #121212;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.friend-dismiss {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.friend-dismiss:hover {
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text);
+}
+
+.friends-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .get-desktop {
   display: flex;
   align-items: center;
@@ -805,14 +1042,11 @@ body.sidebar-hidden .topbar-right {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 18.04%));
 }
 
-/* The two personal buttons sit brighter than the rest of the bar. */
-#toggle-profile,
+/* Settings sits as bright as the panel toggles. */
 #toggle-settings {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 18.04%));
 }
 
-#toggle-profile:hover,
-#toggle-profile[aria-pressed="true"],
 #toggle-settings:hover,
 #toggle-settings[aria-pressed="true"] {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 21.96%));
@@ -2993,6 +3227,16 @@ body.sidebar-hidden .toasts {
     font-size: 12px;
   }
 
+  .topbar-left .chip-icon-btn {
+    width: 30px;
+    padding: 0;
+  }
+
+  .topbar-left .chip-icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
   .topbar-right {
     width: auto;
     gap: 4px;
@@ -3495,8 +3739,126 @@ body.sidebar-hidden .toasts {
 }
 
 .settings-title {
-  margin: 0 0 14px;
+  margin: 0 0 8px;
   padding: 0 10px;
+}
+
+/* Who you are and a search, above the categories. */
+.settings-nav-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.settings-profile {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.settings-profile:hover {
+  background: rgb(var(--ink) / 0.05);
+}
+
+.settings-profile:focus-visible {
+  outline: 2px solid rgb(var(--ink) / 0.5);
+  outline-offset: 1px;
+}
+
+.settings-profile-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+
+.settings-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-profile-name {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-profile-sub svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.settings-profile:hover .settings-profile-sub {
+  color: var(--text);
+}
+
+.settings-search {
+  position: relative;
+  display: block;
+}
+
+.settings-search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* #id: the site-wide text field rule is input:not():not():not(), which would
+   otherwise win on padding and put the placeholder under the icon. */
+.settings-search #settings-search {
+  height: 40px;
+  padding: 0 12px 0 36px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 14px;
+}
+
+.settings-search #settings-search:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.3);
+}
+
+.settings-search #settings-search::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.settings-search-empty {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.is-search-hidden {
+  display: none !important;
 }
 
 .settings-tab {
@@ -3815,6 +4177,164 @@ body.sidebar-hidden .toasts {
   content: none;
 }
 
+/* ---------------------------------------------------- invite friends window */
+
+/* A small People: the same panel, the same rows on their banners, floated
+   under the top bar beside the button that opened it. */
+.friends-window {
+  position: fixed;
+  top: 58px;
+  /* Under its button beside the room code; js/room.js sets the left edge. */
+  left: 12px;
+  z-index: 65;
+  width: 290px;
+  max-width: calc(100vw - 24px);
+  max-height: min(420px, calc(100vh - 140px));
+  background: var(--bg-soft);
+  box-shadow: var(--shadow);
+  animation: friendsWindowIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes friendsWindowIn {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friends-window { animation: none; }
+}
+
+.friends-window-list {
+  min-height: 0;
+}
+
+/* Rows only hold a button, so they are not a pointer target themselves. */
+.friends-window-row {
+  cursor: default;
+}
+
+.friends-window-row.is-sent .avatar,
+.friends-window-row.is-sent .person-name {
+  opacity: 0.6;
+}
+
+/* Placeholder rows while the list is fetched. */
+.friends-window-skeleton .avatar,
+.friends-skeleton-bar {
+  background: rgb(var(--ink) / 0.08);
+  animation: friendsSkeletonPulse 1.2s ease-in-out infinite;
+}
+
+.friends-skeleton-bar {
+  height: 10px;
+  border-radius: 999px;
+}
+
+.friends-window-skeleton:hover {
+  background: transparent;
+}
+
+@keyframes friendsSkeletonPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friends-window-skeleton .avatar,
+  .friends-skeleton-bar { animation: none; }
+}
+
+.friends-window-empty {
+  padding: 18px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Shouted like HOST and KICK in People, and inked the same way. No hover:
+   the :hover twins below keep the shared button.tag:hover from recolouring it. */
+button.tag-invite,
+button.tag-invite:hover {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1.5px 7px 2.5px;
+  /* Less than HOST and KICK take: measured on the rendered pill, the full
+     0.08em left INVITE half a pixel right of centre, and 0.03em balances it
+     at 100%, 125% and 150% scaling. */
+  text-indent: 0.03em;
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+button.tag-invite:focus-visible {
+  outline: 2px solid rgb(var(--ink) / 0.5);
+  outline-offset: 2px;
+}
+
+button.tag-invite:disabled,
+button.tag-invite:disabled:hover {
+  background: rgb(var(--ink) / 0.12);
+  color: var(--muted);
+  cursor: default;
+}
+
+.person.has-banner button.tag-invite:not(:disabled),
+.person.has-banner button.tag-invite:not(:disabled):hover {
+  background: #ffffff;
+  color: #121212;
+}
+
+.person.has-banner button.tag-invite:disabled,
+.person.has-banner button.tag-invite:disabled:hover {
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* On a phone it rises from the bottom like People, Chat and Audio output. */
+@media (max-width: 860px) {
+  .friends-window {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    max-height: 70svh;
+    z-index: 60;
+    padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+    background: var(--panel);
+    animation: sheetIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .friends-window::before {
+    content: "";
+    align-self: center;
+    flex: none;
+    width: 44px;
+    height: 4px;
+    margin: 2px 0 8px;
+    border-radius: 999px;
+    background: rgb(var(--ink) / 0.22);
+  }
+
+  .friends-window h2 {
+    text-align: center;
+    font-size: 16px;
+    margin: 0 0 10px;
+  }
+
+  .friends-window-row {
+    padding: 10px;
+  }
+}
+
 /* Its own button rather than the profile modal's: that one sits on a photo
    banner, this one on a plain panel. Anchored to the card, not the body, so
    it holds its corner while the sections scroll under it. */
@@ -3932,6 +4452,20 @@ body.sidebar-hidden .toasts {
      group would just say it twice. */
   .settings-title {
     display: none;
+  }
+
+  .settings-nav-head {
+    margin-bottom: 16px;
+  }
+
+  .settings-profile {
+    padding: 8px 4px;
+  }
+
+  .settings-search #settings-search {
+    height: 44px;
+    font-size: 16px;
+    background: var(--bg-soft);
   }
 
   .settings-tab {
@@ -4248,6 +4782,8 @@ body.sidebar-hidden .toasts {
   width: min(380px, 100%);
   z-index: 1;
   animation: profileModalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  justify-content: center;
 }
 
 @keyframes profileModalPop {
@@ -4263,6 +4799,7 @@ body.sidebar-hidden .toasts {
 
 .profile-card {
   position: relative;
+  width: min(380px, 100%);
   background: var(--panel);
   border-radius: 16px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgb(var(--ink) / 0.08);
@@ -4694,8 +5231,497 @@ body.sidebar-hidden .toasts {
     gap: 4px;
   }
 
+  .topbar-left .chip-icon-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  .topbar-left .chip-icon-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
   .chip-icon {
     width: 13px;
     height: 13px;
   }
+}
+
+/* ------------------------------------------------------ friend request ---- */
+
+/**
+ * The page an invite link opens.
+ *
+ * One thing on it, centred, with the person's own banner behind it - darkened
+ * and blurred so far past legibility that it reads as atmosphere rather than
+ * as a picture. The point is that the page feels like theirs without asking
+ * anybody to study a photograph while deciding whether to accept.
+ */
+body.invite {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  padding: calc(24px + var(--sat)) 24px calc(24px + var(--sab));
+  font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.invite-wash {
+  position: fixed;
+  inset: -10%;
+  z-index: 0;
+  /* Nothing until a banner arrives, so a profile without one is simply the
+     ordinary dark page rather than a grey rectangle. */
+  background: none;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.invite-wash.has-banner {
+  opacity: 0.28;
+  filter: blur(56px) saturate(1.3) brightness(0.42);
+}
+
+.invite-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: min(460px, 100%);
+  text-align: center;
+  background: var(--panel);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: none;
+  padding: 48px 40px 42px;
+  overflow: hidden;
+}
+
+.invite-loader {
+  grid-row: 1;
+}
+
+/* The glow belongs to the picture, so it is a sibling under it rather than a
+   shadow on it - a shadow would follow the avatar's circle exactly and read
+   as a ring instead of light coming off them. */
+.invite-figure {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.invite-card:not([hidden]) {
+  animation: inviteFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes inviteFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * The light comes off the picture, so it is the picture's colour.
+ *
+ * js/add.js reads the dominant hue out of the avatar and sets --glow-color;
+ * clean white is the default fallback before an avatar is loaded, or when an
+ * avatar is letter-only or monochromatic.
+ */
+.invite-glow {
+  --glow-color: rgba(255, 255, 255, 0.28);
+  --glow-color-fade: rgba(255, 255, 255, 0.08);
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--glow-color) 0%,
+    var(--glow-color-fade) 42%,
+    transparent 70%
+  );
+  filter: blur(18px);
+  animation: inviteBreathe 5s ease-in-out infinite;
+  transition: background 0.5s ease;
+}
+
+@keyframes inviteBreathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.75; }
+  50% { transform: scale(1.04); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-glow { animation: none; }
+}
+
+.invite-avatar {
+  position: relative;
+  width: 136px;
+  height: 136px;
+  font-size: 48px;
+  font-weight: 600;
+  border: 0;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.invite-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.invite-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.invite-name {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.invite-sub {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.invite-sub.is-bad {
+  color: var(--danger);
+}
+
+.invite-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.invite-decline {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.invite-decline:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.invite-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.invite-foot {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 480px) {
+  .invite-card {
+    padding: 36px 24px 30px;
+    gap: 22px;
+    border-radius: var(--radius);
+  }
+
+  .invite-avatar {
+    width: 120px;
+    height: 120px;
+    font-size: 42px;
+  }
+
+  .invite-glow {
+    width: 230px;
+    height: 230px;
+  }
+}
+
+/* ------------------------------------------------- my invite card, in profile --- */
+
+/**
+ * Your personal invite card: raised by clicking "View card" in the profile editor.
+ * Features the user's banner subtly blurred on the surface behind,
+ * high-error-correction QR code with centered profile avatar,
+ * and a minimal clipboard copy icon.
+ */
+/* Under the banner, on the right of the avatar row. Icon-only button. */
+.profile-view-card-btn {
+  margin-left: auto;
+  margin-bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.profile-view-card-btn:hover {
+  background: rgb(var(--ink) / 0.14);
+}
+
+.profile-view-card-btn:active {
+  transform: scale(0.95);
+}
+
+.profile-view-card-btn:focus-visible {
+  outline: 2px solid rgb(var(--ink) / 0.5);
+  outline-offset: 2px;
+}
+
+.profile-view-card-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.profile-invite {
+  position: relative;
+  width: min(340px, 100%);
+  min-height: 395px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgb(var(--ink) / 0.08);
+  display: flex;
+  flex-direction: column;
+  animation: inviteCardZoomIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes inviteCardZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-invite { animation: none; }
+}
+
+.profile-invite-banner-wash {
+  position: absolute;
+  inset: -4px;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
+  filter: blur(4px) saturate(1.1);
+  opacity: 0.95;
+  transform: scale(1.02);
+  pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.profile-invite-surface-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(14, 14, 18, 0.18);
+  pointer-events: none;
+}
+
+.profile-invite-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.profile-invite-header .profile-close-btn {
+  position: static;
+  pointer-events: auto;
+}
+
+.profile-invite-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.profile-invite-title-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: auto 0;
+}
+
+.profile-invite-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.profile-invite-code {
+  display: grid;
+  place-items: center;
+  width: 220px;
+  height: 220px;
+  padding: 10px;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.profile-invite-code canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+.profile-invite-code.is-empty {
+  font-size: 12px;
+  color: #555555;
+  text-align: center;
+  padding: 18px;
+}
+
+.profile-invite-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(0, 0, 0, 0.12);
+  border-top-color: #111111;
+  animation: profileInviteSpin 0.75s linear infinite;
+}
+
+@keyframes profileInviteSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-invite-spinner {
+    animation-duration: 2s;
+  }
+}
+
+.profile-invite-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0.92;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  pointer-events: none;
+  user-select: none;
+  margin: auto 0;
+}
+
+.profile-invite-brand .profile-invite-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
+
+.profile-invite-brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-2px);
+}
+
+:root[data-theme="light"] .profile-invite-brand .profile-invite-logo {
+  filter: invert(1);
+}
+
+.profile-invite-copy-btn {
+  background: none;
+  border: 0;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.profile-invite-copy-btn:hover {
+  color: var(--text);
+  background: rgb(var(--ink) / 0.15);
+  transform: scale(1.1);
+}
+
+.profile-invite-copy-btn:active {
+  transform: scale(0.94);
+}
+
+.profile-invite-copy-btn.is-copied {
+  color: var(--speaking);
+}
+
+.profile-invite-copy-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.profile-invite[hidden] {
+  display: none !important;
 }

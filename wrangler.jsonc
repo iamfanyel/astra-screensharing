@@ -21,11 +21,15 @@
   // who is hosting. sqlite classes so this works on every plan tier.
   "durable_objects": {
     "bindings": [
-      { "name": "ROOM_HOST", "class_name": "RoomHost" }
+      { "name": "ROOM_HOST", "class_name": "RoomHost" },
+      // One per person, named by their Discord id. Presence changes every half
+      // minute per person, which is a write budget KV does not have.
+      { "name": "PRESENCE", "class_name": "Presence" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["RoomHost"] }
+    { "tag": "v1", "new_sqlite_classes": ["RoomHost"] },
+    { "tag": "v2", "new_sqlite_classes": ["Presence"] }
   ],
   "kv_namespaces": [
     {

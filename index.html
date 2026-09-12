@@ -109,6 +109,15 @@
 
     <p id="error" class="error" role="alert" hidden></p>
 
+    <!-- Friends. Absent for a guest: the list hangs off a Discord id, and
+         there is nothing to hang it on without one - see js/friends.js. -->
+    <section id="friends" class="friends" hidden>
+      <div class="friends-head">
+        <h2 class="friends-title">Friends</h2>
+      </div>
+      <ul id="friends-list" class="friends-list"></ul>
+    </section>
+
     <!-- The desktop build. Hidden inside the app itself, which is already it,
          and inside the Android app, where a Windows installer is no use.
          js/desktop-download.js does the hiding, and points this straight at
@@ -130,6 +139,7 @@
   <script src="js/profile.js"></script>
   <script src="js/native-app.js"></script>
   <script src="js/discord.js"></script>
+  <script src="js/friends.js"></script>
   <script src="js/lobby.js"></script>
   <script src="js/desktop-update.js"></script>
   <script src="js/desktop-download.js"></script>

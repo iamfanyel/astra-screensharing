@@ -277,8 +277,10 @@ window.AstraDiscord = (function () {
     url.search = '';
     url.hash = '';
     // Always come back through the site root, so only one redirect URI has to
-    // be registered in the Discord Developer Portal.
-    url.pathname = url.pathname.replace(/room\/?$/, '');
+    // be registered in the Discord Developer Portal. Unconditional rather than
+    // stripping known subpaths one at a time: /room/ used to be the only one,
+    // and /add/ quietly produced a redirect URI nobody had registered.
+    url.pathname = '/';
     return url.toString();
   }
 

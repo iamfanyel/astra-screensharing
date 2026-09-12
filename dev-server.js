@@ -11,6 +11,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -33,6 +34,27 @@ http
 
     if (url.pathname === '/api/room' || url.pathname === '/api/room/') {
       return handleApiRoom(req, res, url);
+    }
+
+    if (url.pathname === '/api/friends' || url.pathname === '/api/friends/') {
+      return handleApiFriends(req, res);
+    }
+
+    if (url.pathname === '/api/presence' || url.pathname === '/api/presence/') {
+      return handleApiPresence(req, res);
+    }
+
+    // A friend link, /add/K7QM3XPA: the same page for every code, as live.
+    if (/^\/add\/[A-Za-z0-9]{8}\/?$/.test(url.pathname)) {
+      if (url.pathname.endsWith('/')) {
+        res.writeHead(301, { Location: url.pathname.slice(0, -1) + url.search });
+        return res.end();
+      }
+      return fs.readFile(path.join(ROOT, 'add', 'index.html'), (err, body) => {
+        if (err) return send(res, 404, 'Not found');
+        res.writeHead(200, { 'Content-Type': TYPES['.html'], 'Cache-Control': 'no-cache' });
+        res.end(body);
+      });
     }
 
     let file = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname)));
@@ -361,6 +383,293 @@ function isDirectory(file) {
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * Friends and presence, locally.
+ *
+ * The deployed versions live in worker.js, on KV and a Durable Object. Neither
+ * exists on a laptop, so this keeps the same shapes in one JSON file beside
+ * the room and profile stores - enough to click through the whole feature
+ * before it goes anywhere near a deploy.
+ *
+ * The sign-in is real. Like the profile endpoint above, this asks Discord
+ * whether the token is good, so a local run exercises the same identity the
+ * live one does rather than a fake id that would hide the interesting bugs.
+ *
+ * Kept deliberately close to the worker: the same limits, the same lifetimes,
+ * the same refusals. A local run that behaves differently from production is
+ * worse than no local run, because it teaches you the wrong thing.
+ */
+const FRIENDS_FILE = path.join(ROOT, '.dev-friends.json');
+
+const FRIEND_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const FRIEND_CODE_REGEX = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
+const ROOM_INVITE_TTL_MS = 60 * 60 * 1000;
+const PRESENCE_TTL_MS = 90 * 1000;
+const MAX_FRIENDS = 100;
+const MAX_INVITES = 20;
+
+function loadDevFriends() {
+  try {
+    if (fs.existsSync(FRIENDS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(FRIENDS_FILE, 'utf8'));
+      return {
+        friends: data.friends || {},
+        codes: data.codes || {},
+        invites: data.invites || {},
+        presence: data.presence || {},
+      };
+    }
+  } catch (_) {}
+  return { friends: {}, codes: {}, invites: {}, presence: {} };
+}
+
+function saveDevFriends(data) {
+  try {
+    fs.writeFileSync(FRIENDS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (_) {}
+}
+
+/** The signed-in Discord user, or null. Asked of Discord, exactly as live. */
+async function discordUser(req) {
+  const auth = req.headers['authorization'] || '';
+  if (!auth.startsWith('Bearer ')) return null;
+  try {
+    const answer = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: auth },
+    });
+    if (!answer.ok) return null;
+    const user = await answer.json();
+    return user && user.id ? user : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let text = '';
+    req.on('data', (chunk) => (text += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(text));
+      } catch (_) {
+        resolve({});
+      }
+    });
+  });
+}
+
+function devCors(res) {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  });
+  res.end();
+}
+
+/**
+ * What a friend row needs, from the same store the profile endpoint writes.
+ * Pass the store in when drawing a whole list, so the file is read once.
+ */
+function devPublicProfile(id, profiles = loadDevProfiles()) {
+  const profile = profiles[id] || {};
+  return {
+    id,
+    name: typeof profile.name === 'string' && profile.name ? profile.name.slice(0, 32) : 'Someone',
+    avatar: typeof profile.avatar === 'string' ? profile.avatar : null,
+    banner: typeof profile.banner === 'string' ? profile.banner : null,
+  };
+}
+
+function normalizeFriendCode(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return FRIEND_CODE_REGEX.test(code) ? code : null;
+}
+
+/** Who a code belongs to. Codes are stored code -> id, as the worker's KV is. */
+function devCodeOwner(store, code) {
+  return code && Object.prototype.hasOwnProperty.call(store.codes, code) ? store.codes[code] : null;
+}
+
+/** Somebody's code, made on first ask and kept for good. */
+function devFriendCodeFor(store, id) {
+  for (const [code, owner] of Object.entries(store.codes)) {
+    if (owner === id) return code;
+  }
+  let code;
+  do {
+    code = Array.from(crypto.randomBytes(8), (b) => FRIEND_CODE_ALPHABET[b % 32]).join('');
+  } while (devCodeOwner(store, code));
+  store.codes[code] = id;
+  return code;
+}
+
+/** Invitations still inside their hour. */
+function devInvites(store, id, now) {
+  return (store.invites[id] || [])
+    .filter((invite) => invite && invite.from && now - (invite.at || 0) < ROOM_INVITE_TTL_MS)
+    .slice(-MAX_INVITES);
+}
+
+/** Same fingerprint as friendsVersion in worker.js - see there. */
+function devFriendsVersion(ids, invites) {
+  const text = ids.join(',') + '|' + invites.map((invite) => invite.from + ':' + invite.code).join(',');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36) + '.' + ids.length + '.' + invites.length;
+}
+
+function devFriendList(store, id) {
+  const list = store.friends[id];
+  return Array.isArray(list) ? list.slice(0, MAX_FRIENDS) : [];
+}
+
+async function handleApiFriends(req, res) {
+  if (req.method === 'OPTIONS') return devCors(res);
+
+  const user = await discordUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  const store = loadDevFriends();
+  const now = Date.now();
+
+  // Whose link this is - the page an invite opens has to name whose
+  // invitation it is before anybody agrees to anything.
+  const link = new URL(req.url, 'http://localhost').searchParams.get('link');
+  if (req.method === 'GET' && link !== null) {
+    const code = normalizeFriendCode(link);
+    if (!code) return sendJson(res, 400, { error: 'That link is not a friend link.' });
+    const owner = devCodeOwner(store, code);
+    if (!owner) return sendJson(res, 404, { error: 'That link does not belong to anyone.' });
+    return sendJson(res, 200, {
+      from: devPublicProfile(owner),
+      mine: owner === user.id,
+      already: devFriendList(store, user.id).includes(owner),
+    });
+  }
+
+  if (req.method === 'GET') {
+    const profiles = loadDevProfiles();
+    const ids = devFriendList(store, user.id);
+    const pending = devInvites(store, user.id, now);
+    const friends = ids.map((id) => devPublicProfile(id, profiles));
+    const invites = pending.map((invite) => ({
+      code: invite.code,
+      at: invite.at,
+      from: devPublicProfile(invite.from, profiles),
+    }));
+    return sendJson(res, 200, { friends, invites, version: devFriendsVersion(ids, pending), available: true });
+  }
+
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+
+  const body = await readJsonBody(req);
+  const action = String(body.action || '');
+
+  if (action === 'link') {
+    const code = devFriendCodeFor(store, user.id);
+    saveDevFriends(store);
+    return sendJson(res, 200, { code });
+  }
+
+  if (action === 'accept') {
+    const code = normalizeFriendCode(body.code);
+    if (!code) return sendJson(res, 400, { error: 'That link is not a friend link.' });
+
+    const owner = devCodeOwner(store, code);
+    if (!owner) return sendJson(res, 404, { error: 'That link does not belong to anyone.' });
+    if (owner === user.id) return sendJson(res, 400, { error: 'That is your own link.' });
+
+    const mine = devFriendList(store, user.id);
+    const theirs = devFriendList(store, owner);
+    if (!mine.includes(owner) && (mine.length >= MAX_FRIENDS || theirs.length >= MAX_FRIENDS)) {
+      return sendJson(res, 200, { ok: true, added: false, friend: devPublicProfile(owner) });
+    }
+    const added = !mine.includes(owner) || !theirs.includes(user.id);
+    if (!mine.includes(owner)) mine.push(owner);
+    if (!theirs.includes(user.id)) theirs.push(user.id);
+    store.friends[user.id] = mine;
+    store.friends[owner] = theirs;
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true, added, friend: devPublicProfile(owner) });
+  }
+
+  if (action === 'remove') {
+    const other = String(body.id || '');
+    if (!/^[0-9]{5,25}$/.test(other)) return sendJson(res, 400, { error: 'Bad id' });
+    store.friends[user.id] = devFriendList(store, user.id).filter((id) => id !== other);
+    store.friends[other] = devFriendList(store, other).filter((id) => id !== user.id);
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (action === 'invite') {
+    const to = String(body.to || '');
+    const code = String(body.code || '').trim().toUpperCase();
+    if (!ROOM_CODE_REGEX.test(code)) return sendJson(res, 400, { error: 'Bad room code' });
+    if (!devFriendList(store, user.id).includes(to)) {
+      return sendJson(res, 403, { error: 'Not a friend' });
+    }
+    // One per sender, so asking twice does not fill somebody's list.
+    const pending = devInvites(store, to, now).filter((invite) => invite.from !== user.id);
+    pending.push({ from: user.id, code, at: now });
+    store.invites[to] = pending.slice(-MAX_INVITES);
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (action === 'dismiss') {
+    const from = String(body.from || '');
+    store.invites[user.id] = devInvites(store, user.id, now).filter((invite) => invite.from !== from);
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  return sendJson(res, 400, { error: 'Unknown action' });
+}
+
+async function handleApiPresence(req, res) {
+  if (req.method === 'OPTIONS') return devCors(res);
+
+  const user = await discordUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  const store = loadDevFriends();
+  const now = Date.now();
+
+  if (req.method === 'POST') {
+    const body = await readJsonBody(req);
+    if (body.status === 'offline') {
+      store.presence[user.id] = { status: 'offline', at: 0 };
+    } else {
+      store.presence[user.id] = {
+        status: body.status === 'in-room' ? 'in-room' : 'online',
+        at: now,
+      };
+    }
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+
+  // Only your own friends, and anything unheard for PRESENCE_TTL_MS is gone -
+  // which is also how somebody who closed the tab stops showing as here.
+  const people = {};
+  const ids = devFriendList(store, user.id);
+  for (const id of ids) {
+    const here = store.presence[id];
+    const fresh = here && now - (here.at || 0) < PRESENCE_TTL_MS;
+    people[id] = fresh ? here.status : 'offline';
+  }
+  const version = devFriendsVersion(ids, devInvites(store, user.id, now));
+  return sendJson(res, 200, { people, version, available: true });
 }
 
 function send(res, code, text) {

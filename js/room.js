@@ -86,7 +86,6 @@
     resizeY: $('resize-y'),
     togglePeople: $('toggle-people'),
     toggleChat: $('toggle-chat'),
-    toggleProfile: $('toggle-profile'),
     toggleSettings: $('toggle-settings'),
     settingsModal: $('settings-modal'),
     settingsBackdrop: $('settings-backdrop'),
@@ -95,6 +94,11 @@
     settingsBack: $('settings-back'),
     settingsBarTitle: $('settings-bar-title'),
     settingsBody: $('settings-body'),
+    settingsProfile: $('settings-profile'),
+    settingsProfileAvatar: $('settings-profile-avatar'),
+    settingsProfileName: $('settings-profile-name'),
+    settingsSearch: $('settings-search'),
+    settingsSearchEmpty: $('settings-search-empty'),
     micTrigger: $('mic-trigger'),
     micDropdown: $('mic-dropdown'),
     micValue: $('mic-value'),
@@ -131,6 +135,17 @@
     audioOutput: $('audio-output'),
     outputMenu: $('output-menu'),
     outputList: $('output-list'),
+    inviteFriends: $('invite-friends'),
+    profileCard: $('profile-card'),
+    profileViewCard: $('profile-view-card'),
+    profileInvite: $('profile-invite'),
+    profileInviteBanner: $('profile-invite-banner'),
+    profileInviteBack: $('profile-invite-back'),
+    profileInviteClose: $('profile-invite-close'),
+    profileInviteCode: $('profile-invite-code'),
+    profileInviteCopy: $('profile-invite-copy'),
+    friendsMenu: $('friends-menu'),
+    friendsMenuList: $('friends-menu-list'),
     shareConfirm: $('share-confirm'),
     dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
@@ -570,12 +585,15 @@
 
   let openProfileModal = () => {};
   let closeProfileModal = () => {};
+  let modalBanner = null;
+  let modalAvatar = null;
 
   function setupProfileModal() {
-    if (!el.toggleProfile || !el.profileModal) return;
+    // Opened from Settings now, so the editor no longer needs a top-bar button.
+    if (!el.profileModal) return;
 
-    let modalBanner = AstraProfile.getBanner();
-    let modalAvatar = AstraProfile.getAvatar();
+    modalBanner = AstraProfile.getBanner();
+    modalAvatar = AstraProfile.getAvatar();
 
     function renderModalBadgesAndDiscord() {
       paintBadge(el.profileModalUserBadges, badgeOf(null, true));
@@ -601,14 +619,29 @@
       if (el.profileAvatarClear) el.profileAvatarClear.hidden = !modalAvatar;
     }
 
+    function showProfileCard() {
+      if (el.profileCard) el.profileCard.hidden = false;
+      if (el.profileInvite) el.profileInvite.hidden = true;
+      if (el.profileModalClose) el.profileModalClose.focus();
+    }
+
+    function showInviteCard() {
+      if (el.profileCard) el.profileCard.hidden = true;
+      openInvitePanel();
+      if (el.profileInviteClose) el.profileInviteClose.focus();
+    }
+
     function openModal() {
       modalBanner = AstraProfile.getBanner();
       modalAvatar = AstraProfile.getAvatar();
       el.profileModalName.value = AstraProfile.getName();
       renderModalBadgesAndDiscord();
       renderModalPreview();
+      showProfileCard();
+      if (el.profileViewCard) {
+        el.profileViewCard.hidden = !canShowInvitePanel();
+      }
       el.profileModal.hidden = false;
-      if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'true');
       document.addEventListener('keydown', handleModalKey);
       // Focus the close button, not the name field: opening the editor should
       // not put a caret in a box the person may not have come to change, but
@@ -621,7 +654,8 @@
 
     function closeModal() {
       el.profileModal.hidden = true;
-      if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'false');
+      showProfileCard();
+      closeInvitePanel();
       document.removeEventListener('keydown', handleModalKey);
     }
 
@@ -658,11 +692,10 @@
       toast('Profile updated');
     }
 
-    el.toggleProfile.addEventListener('click', () => {
-      if (el.profileModal.hidden) openModal();
-      else closeModal();
-    });
     el.profileModalClose.addEventListener('click', closeModal);
+    if (el.profileViewCard) el.profileViewCard.addEventListener('click', showInviteCard);
+    if (el.profileInviteBack) el.profileInviteBack.addEventListener('click', showProfileCard);
+    if (el.profileInviteClose) el.profileInviteClose.addEventListener('click', closeModal);
     el.profileModalBackdrop.addEventListener('click', closeModal);
     el.profileModalSave.addEventListener('click', saveChanges);
 
@@ -798,6 +831,7 @@
     // like nothing had happened. Only fires once the room is actually open,
     // so a failed join is never congratulated.
     chime('joined');
+    startPresence();
 
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
@@ -1100,7 +1134,7 @@
 
   /** The badge id to show for a peer, or '' for none. */
   function badgeOf(peer, isSelf) {
-    if (isSelf) return window.AstraDiscord ? window.AstraDiscord.badgeFor() : '';
+    if (isSelf) return (window.AstraDiscord && typeof window.AstraDiscord.badgeFor === 'function') ? window.AstraDiscord.badgeFor() : '';
     if (!peer) return '';
     return peer.badge || (peer.dev ? 'dev' : '');
   }
@@ -1761,6 +1795,208 @@
     }
   }
 
+  /**
+   * Handing this room to a friend.
+   *
+   * The room already has a copy-link button, and that is still the way to
+   * reach anybody. This is for the case the link does not cover: somebody who
+   * is not in the conversation you would paste it into. It leaves the
+   * invitation where they will find it - see handleFriends in worker.js - and
+   * promises nothing about when that is, because nothing here knows whether
+   * they are even at a computer.
+   */
+  /**
+   * Telling friends you are in a call.
+   *
+   * Only that you are in one. The code stays here - see the Presence class in
+   * worker.js for why - so this says "busy", not "come in".
+   *
+   * Stopped and declared on the way out rather than left to expire, because a
+   * friend list that takes a minute and a half to notice somebody left is a
+   * friend list people stop believing.
+   */
+  const PRESENCE_BEAT_MS = 30000;
+  let presenceBeat = null;
+
+  function startPresence() {
+    if (!window.AstraFriends || !window.AstraFriends.available()) return;
+    stopPresence();
+    window.AstraFriends.beat('in-room');
+    presenceBeat = setInterval(() => window.AstraFriends.beat('in-room'), PRESENCE_BEAT_MS);
+  }
+
+  function stopPresence(sayGone) {
+    if (presenceBeat) {
+      clearInterval(presenceBeat);
+      presenceBeat = null;
+    }
+    if (sayGone && window.AstraFriends && window.AstraFriends.available()) {
+      window.AstraFriends.beat('offline');
+    }
+  }
+
+  function toggleFriendsMenu(force) {
+    if (!el.friendsMenu || !el.inviteFriends) return;
+    const open = force === undefined ? el.friendsMenu.hidden : force;
+    if (el.friendsMenu.hidden === !open) return;
+    el.friendsMenu.hidden = !open;
+    el.inviteFriends.setAttribute('aria-expanded', String(open));
+    // Hung under its button on a desktop; a phone's sheet spans the width.
+    if (open && !compact.matches) {
+      const button = el.inviteFriends.getBoundingClientRect();
+      const width = el.friendsMenu.offsetWidth || 290;
+      el.friendsMenu.style.left = Math.max(12, Math.min(button.left, window.innerWidth - width - 12)) + 'px';
+      el.friendsMenu.style.top = Math.round(button.bottom + 8) + 'px';
+    } else {
+      el.friendsMenu.style.left = '';
+      el.friendsMenu.style.top = '';
+    }
+    if (el.dockSheetBackdrop) el.dockSheetBackdrop.hidden = !(open && compact.matches);
+    if (open) populateFriendsMenu();
+  }
+
+  /** Friends already invited to this room, so reopening the window remembers. */
+  const invitedFriends = new Set();
+
+  /** The list as last fetched, drawn at once on a reopen while it refreshes. */
+  let friendsMenuCache = null;
+  let friendsMenuRequest = 0;
+
+  /** Rows the shape of the real ones, so the window opens at its size. */
+  function drawFriendsSkeleton() {
+    el.friendsMenuList.textContent = '';
+    for (let i = 0; i < 3; i++) {
+      const item = document.createElement('li');
+      item.className = 'person friends-window-row friends-window-skeleton';
+      item.setAttribute('aria-hidden', 'true');
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      const bar = document.createElement('span');
+      bar.className = 'friends-skeleton-bar';
+      bar.style.width = [46, 62, 38][i] + '%';
+      item.append(avatar, bar);
+      el.friendsMenuList.append(item);
+    }
+    el.friendsMenuList.setAttribute('aria-busy', 'true');
+  }
+
+  async function populateFriendsMenu() {
+    if (!el.friendsMenuList || !window.AstraFriends) return;
+    const request = ++friendsMenuRequest;
+
+    if (friendsMenuCache) drawFriendsMenu(friendsMenuCache);
+    else drawFriendsSkeleton();
+
+    const answer = await window.AstraFriends.state();
+    const friends = answer ? answer.friends : null;
+    // Closed, or opened again, while this was on its way.
+    if (request !== friendsMenuRequest || el.friendsMenu.hidden) return;
+
+    if (!friends) {
+      if (friendsMenuCache) return;
+      el.friendsMenuList.removeAttribute('aria-busy');
+      el.friendsMenuList.textContent = '';
+      const failed = document.createElement('li');
+      failed.className = 'friends-window-empty';
+      failed.textContent = 'Could not load your friends. Try again in a moment.';
+      el.friendsMenuList.append(failed);
+      return;
+    }
+
+    friendsMenuCache = friends;
+    drawFriendsMenu(friends);
+  }
+
+  function drawFriendsMenu(friends) {
+    const code = state.signal && state.signal.code;
+    el.friendsMenuList.removeAttribute('aria-busy');
+    el.friendsMenuList.textContent = '';
+
+    if (!friends.length) {
+      const empty = document.createElement('li');
+      empty.className = 'friends-window-empty';
+      empty.textContent = 'No friends yet. Share your link from your profile.';
+      el.friendsMenuList.append(empty);
+      return;
+    }
+
+    for (const friend of friends) {
+      el.friendsMenuList.append(friendInviteRow(friend, code));
+    }
+  }
+
+  /**
+   * A friend, drawn the way People draws a member: their picture, their name
+   * over their own banner, and the one thing to do with them on the right.
+   */
+  function friendInviteRow(friend, code) {
+    const item = document.createElement('li');
+    const banner = friend.banner && AstraProfile.isBanner(friend.banner) ? friend.banner : null;
+    item.className = 'person friends-window-row' + (banner ? ' has-banner' : '');
+
+    const nameplate = document.createElement('div');
+    nameplate.className = 'person-nameplate';
+    nameplate.setAttribute('aria-hidden', 'true');
+    if (banner) {
+      nameplate.style.backgroundImage = NAMEPLATE_GRADIENT + ', url("' + banner.replace(/"/g, '%22') + '")';
+    } else {
+      nameplate.hidden = true;
+    }
+
+    const avatar = document.createElement('span');
+    avatar.className = 'avatar';
+    AstraProfile.paint(avatar, friend.name, friend.avatar);
+
+    const name = document.createElement('span');
+    name.className = 'person-name';
+    name.textContent = friend.name;
+
+    const tags = document.createElement('span');
+    tags.className = 'person-tags';
+    const send = document.createElement('button');
+    send.type = 'button';
+    send.className = 'tag tag-invite';
+    send.setAttribute('aria-label', 'Invite ' + friend.name);
+
+    const mark = (sent) => {
+      send.textContent = sent ? 'SENT' : 'INVITE';
+      send.disabled = sent || !code;
+      item.classList.toggle('is-sent', sent);
+    };
+    mark(invitedFriends.has(friend.id));
+
+    send.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!code || invitedFriends.has(friend.id)) return;
+      invitedFriends.add(friend.id);
+      mark(true);
+      const answer = await window.AstraFriends.inviteToRoom(friend.id, code);
+      if (!answer || answer.error) {
+        invitedFriends.delete(friend.id);
+        mark(false);
+        toast('Could not invite ' + friend.name, 'bad');
+        return;
+      }
+      toast('Invited ' + friend.name);
+    });
+
+    tags.append(send);
+    item.append(nameplate, avatar, name, tags);
+    return item;
+  }
+
+  if (el.inviteFriends) {
+    // Only ever shown to somebody who could have friends to show.
+    if (window.AstraFriends && window.AstraFriends.available()) el.inviteFriends.hidden = false;
+    el.inviteFriends.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleFriendsMenu();
+    });
+    if (el.friendsMenu) {
+      el.friendsMenu.addEventListener('click', (event) => event.stopPropagation());
+    }
+  }
+
   if (el.audioOutput) {
     el.audioOutput.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -1799,6 +2035,7 @@
     toggleShareMenu(false);
     toggleCameraMenu(false);
     toggleOutputMenu(false);
+    toggleFriendsMenu(false);
     hideQualityDropdown(0);
   });
   document.addEventListener('keydown', (event) => {
@@ -1806,6 +2043,7 @@
       toggleShareMenu(false);
       toggleCameraMenu(false);
       toggleOutputMenu(false);
+      toggleFriendsMenu(false);
     }
     const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     if (inInput || !state.signal) return;
@@ -4088,6 +4326,118 @@
     else if (settingsTabs.length) showSettingsSection(settingsTabs[0].dataset.section);
   }
 
+  /** Who you are, at the top of the rail, as a way into the profile editor. */
+  function renderSettingsProfile() {
+    // The same name the room shows for you, so the initial matches your tile.
+    const name = (state.signal && state.signal.self && state.signal.self.name) || AstraProfile.getName() || 'Guest';
+    if (el.settingsProfileAvatar) {
+      AstraProfile.paint(el.settingsProfileAvatar, name, AstraProfile.getAvatar());
+    }
+    if (el.settingsProfileName) el.settingsProfileName.textContent = name;
+  }
+
+  /** The rows a search can match inside a category. */
+  const SETTINGS_ITEM_SELECTOR = '.settings-field, .settings-check-row';
+
+  const searchText = (node) => (node ? node.textContent : '').replace(/\s+/g, ' ').toLowerCase();
+
+  /**
+   * Narrow the rail to the categories that have something matching, and each
+   * category to its matching rows. A category whose own name matches keeps
+   * all of its rows - asking for "audio" means the whole of it.
+   *
+   * Rows that share a data-search-group come and go together: finding the
+   * input device should not leave the output device beside it missing.
+   */
+  function filterSettings(raw) {
+    const query = String(raw || '').trim().toLowerCase();
+    let firstVisible = null;
+    let activeVisible = false;
+
+    for (const tab of settingsTabs) {
+      const section = $(tab.dataset.section);
+      if (!section) continue;
+      const items = Array.from(section.querySelectorAll(SETTINGS_ITEM_SELECTOR));
+      const wholeSection = !query || searchText(tab).includes(query);
+      let any = wholeSection;
+
+      const matchedGroups = new Set();
+      const matches = new Set();
+      for (const item of items) {
+        if (wholeSection || searchText(item).includes(query)) {
+          matches.add(item);
+          if (item.dataset.searchGroup) matchedGroups.add(item.dataset.searchGroup);
+        }
+      }
+      for (const item of items) {
+        const show = matches.has(item) || matchedGroups.has(item.dataset.searchGroup);
+        item.classList.toggle('is-search-hidden', !show);
+        if (show) any = true;
+      }
+
+      // A grid, or a heading, with nothing left under it goes too.
+      for (const grid of section.querySelectorAll('.settings-grid')) {
+        const keep = Array.from(grid.querySelectorAll(SETTINGS_ITEM_SELECTOR))
+          .some((item) => !item.classList.contains('is-search-hidden'));
+        grid.classList.toggle('is-search-hidden', !keep);
+      }
+      let heading = null;
+      let headingHasItems = false;
+      const closeHeading = () => {
+        if (heading) heading.classList.toggle('is-search-hidden', !headingHasItems);
+      };
+      for (const child of section.children) {
+        if (child.classList.contains('settings-heading')) {
+          closeHeading();
+          heading = child;
+          headingHasItems = false;
+        } else if (!child.classList.contains('is-search-hidden')) {
+          headingHasItems = true;
+        }
+      }
+      closeHeading();
+
+      tab.hidden = !any;
+      if (any && !firstVisible) firstVisible = tab;
+      if (any && tab.classList.contains('is-active')) activeVisible = true;
+    }
+
+    if (el.settingsSearchEmpty) el.settingsSearchEmpty.hidden = !!firstVisible;
+
+    // A desktop always shows a category; keep it on one that is still listed.
+    if (!compact.matches) {
+      if (firstVisible && !activeVisible) showSettingsSection(firstVisible.dataset.section);
+      // Back from "no match", where every category was put away.
+      const active = settingsTabs.find((tab) => tab.classList.contains('is-active'));
+      if (activeVisible && active && $(active.dataset.section)) $(active.dataset.section).hidden = false;
+      if (!firstVisible) {
+        for (const tab of settingsTabs) {
+          const section = $(tab.dataset.section);
+          if (section) section.hidden = true;
+        }
+      }
+    }
+  }
+
+  if (el.settingsSearch) {
+    el.settingsSearch.addEventListener('input', () => filterSettings(el.settingsSearch.value));
+    el.settingsSearch.addEventListener('keydown', (event) => {
+      // First Escape clears the search; only an empty field lets it close.
+      if (event.key === 'Escape' && el.settingsSearch.value) {
+        event.stopPropagation();
+        el.settingsSearch.value = '';
+        filterSettings('');
+      }
+    });
+  }
+
+  if (el.settingsProfile) {
+    el.settingsProfile.addEventListener('click', () => {
+      closeSettings();
+      openProfileModal();
+    });
+  }
+
   /**
    * The two voice device pickers. Both read the same enumerateDevices() call,
    * so opening the window costs one round trip rather than two.
@@ -4292,6 +4642,9 @@
     syncThemeUI();
     syncVolumeUI();
     populateAudioDevices();
+    renderSettingsProfile();
+    if (el.settingsSearch) el.settingsSearch.value = '';
+    filterSettings('');
     el.settingsModal.hidden = false;
     resetSettingsView();
     if (el.toggleSettings) el.toggleSettings.setAttribute('aria-pressed', 'true');
@@ -4588,6 +4941,214 @@
       const canKick = !!state.signal?.self?.host;
       el.profilePopupKickBtn.hidden = !canKick;
     }
+  }
+
+  /**
+   * Your own invite, in the window beside your own card.
+   *
+   * Raised only for yourself: the card is about whoever was clicked, and this
+   * is about somebody who is not here yet. And only when signed in, because
+   * the link names a Discord id and a guest has none to name.
+   *
+   * The link is the same every time - one code per person - so it is asked
+   * for once and kept.
+   */
+  let invitePanelLink = null;
+  let invitePanelAvatar = null;
+  let invitePanelPending = false;
+
+  function canShowInvitePanel() {
+    if (!el.profileInvite || !window.AstraFriends) return false;
+    return window.AstraFriends.available();
+  }
+
+  /**
+   * Draw the code.
+   *
+   * High error correction ('H') allows embedding the user's avatar in the center
+   * without affecting readability for cameras.
+   */
+  function drawInviteCode(link) {
+    const box = el.profileInviteCode;
+    if (!box) return;
+    box.textContent = '';
+    box.classList.remove('is-empty');
+
+    if (typeof qrcode !== 'function') {
+      box.classList.add('is-empty');
+      box.textContent = 'Code unavailable - copy the link instead.';
+      return;
+    }
+
+    let grid;
+    try {
+      grid = qrcode(0, 'H');
+      grid.addData(link);
+      grid.make();
+    } catch (_) {
+      box.classList.add('is-empty');
+      box.textContent = 'Code unavailable - copy the link instead.';
+      return;
+    }
+
+    const modules = grid.getModuleCount();
+    const scale = Math.max(3, Math.floor((220 * (window.devicePixelRatio || 1)) / modules));
+    const canvas = document.createElement('canvas');
+    canvas.width = modules * scale;
+    canvas.height = modules * scale;
+    const ink = canvas.getContext('2d');
+    ink.fillStyle = '#ffffff';
+    ink.fillRect(0, 0, canvas.width, canvas.height);
+    ink.fillStyle = '#000000';
+    for (let row = 0; row < modules; row++) {
+      for (let col = 0; col < modules; col++) {
+        if (grid.isDark(row, col)) ink.fillRect(col * scale, row * scale, scale, scale);
+      }
+    }
+
+    // Embed profile avatar in center (sized prominently)
+    const centerSize = Math.floor(canvas.width * 0.42);
+    const cx = Math.floor(canvas.width / 2);
+    const cy = Math.floor(canvas.height / 2);
+    const half = Math.floor(centerSize / 2);
+
+    function drawCenterAvatar(img) {
+      const pad = Math.max(3, Math.floor(scale * 0.65));
+      ink.save();
+      // White protective border circle
+      ink.beginPath();
+      ink.arc(cx, cy, half + pad, 0, Math.PI * 2);
+      ink.fillStyle = '#ffffff';
+      ink.fill();
+
+      // Clip circle for avatar
+      ink.beginPath();
+      ink.arc(cx, cy, half, 0, Math.PI * 2);
+      ink.clip();
+
+      if (img) {
+        ink.drawImage(img, cx - half, cy - half, centerSize, centerSize);
+      } else {
+        const name = (AstraProfile.getName() || 'Guest').trim();
+        ink.fillStyle = '#1e1e1e';
+        ink.fillRect(cx - half, cy - half, centerSize, centerSize);
+        ink.fillStyle = '#ffffff';
+        ink.font = `bold ${Math.floor(centerSize * 0.52)}px sans-serif`;
+        ink.textAlign = 'center';
+        ink.textBaseline = 'middle';
+        ink.fillText(name.charAt(0).toUpperCase(), cx, cy);
+      }
+      ink.restore();
+    }
+
+    const avatarUrl = modalAvatar || AstraProfile.getAvatar();
+    if (avatarUrl && AstraProfile.isAvatar(avatarUrl)) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => drawCenterAvatar(img);
+      img.onerror = () => drawCenterAvatar(null);
+      img.src = avatarUrl;
+    } else {
+      drawCenterAvatar(null);
+    }
+
+    box.append(canvas);
+  }
+
+  async function openInvitePanel() {
+    const panel = el.profileInvite;
+    if (!panel) return;
+
+    if (!canShowInvitePanel()) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    if (el.profileInviteBanner) {
+      let banner = modalBanner || AstraProfile.getBanner();
+      if (window.AstraDiscord && typeof window.AstraDiscord.getUser === 'function') {
+        const dUser = window.AstraDiscord.getUser();
+        if (dUser && dUser.bannerCdnUrl && (!modalBanner || modalBanner === AstraProfile.getBanner())) {
+          banner = dUser.bannerCdnUrl.replace('size=600', 'size=1024');
+        }
+      }
+      if (banner && (AstraProfile.isBanner(banner) || banner.startsWith('http'))) {
+        el.profileInviteBanner.style.backgroundImage = 'url("' + banner.replace(/"/g, '%22') + '")';
+      } else {
+        el.profileInviteBanner.style.backgroundImage = 'url("../astrabanner.png")';
+      }
+    }
+
+    // If we already loaded the link and code before, keep it without re-showing loader
+    if (invitePanelLink && el.profileInviteCode && el.profileInviteCode.querySelector('canvas')) {
+      const currentAvatar = modalAvatar || AstraProfile.getAvatar();
+      if (invitePanelAvatar !== currentAvatar) {
+        invitePanelAvatar = currentAvatar;
+        drawInviteCode(invitePanelLink);
+      }
+      return;
+    }
+
+    // First time loading: show small loading spinner only in the QR code area
+    if (el.profileInviteCode && !el.profileInviteCode.querySelector('canvas')) {
+      el.profileInviteCode.classList.remove('is-empty');
+      el.profileInviteCode.innerHTML = '<div class="profile-invite-spinner" aria-label="Loading"></div>';
+    }
+
+    if (invitePanelPending) return;
+    invitePanelPending = true;
+    const link = await window.AstraFriends.inviteLink();
+    invitePanelPending = false;
+
+    // Closed again while we were waiting: nothing to draw into.
+    if (panel.hidden) return;
+
+    if (!link) {
+      invitePanelLink = null;
+      if (el.profileInviteCode) {
+        el.profileInviteCode.classList.add('is-empty');
+        el.profileInviteCode.textContent = 'Could not create link. Try again.';
+      }
+      return;
+    }
+
+    invitePanelLink = link;
+    invitePanelAvatar = modalAvatar || AstraProfile.getAvatar();
+    drawInviteCode(link);
+  }
+
+  /** Put it away with the editor. The link stays the same for next time. */
+  function closeInvitePanel() {
+    if (el.profileInvite) el.profileInvite.hidden = true;
+  }
+
+  if (el.profileInviteCopy) {
+    // The button's own icon, put back after the tick has had its moment.
+    const copyIcon = el.profileInviteCopy.innerHTML;
+    const copiedIcon =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>';
+    let copiedTimer = null;
+
+    el.profileInviteCopy.addEventListener('click', async () => {
+      if (!invitePanelLink) return;
+      try {
+        await navigator.clipboard.writeText(invitePanelLink);
+      } catch (_) {
+        toast('Could not copy the link', 'bad');
+        return;
+      }
+      el.profileInviteCopy.classList.add('is-copied');
+      el.profileInviteCopy.setAttribute('title', 'Copied!');
+      el.profileInviteCopy.innerHTML = copiedIcon;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => {
+        el.profileInviteCopy.classList.remove('is-copied');
+        el.profileInviteCopy.setAttribute('title', 'Copy link');
+        el.profileInviteCopy.innerHTML = copyIcon;
+      }, 1500);
+    });
   }
 
   function positionProfilePopup(anchorEl) {
@@ -4960,12 +5521,12 @@
       navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
     }
     window.removeEventListener('resize', onCameraWindowResize);
-    if (el.toggleProfile) el.toggleProfile.setAttribute('aria-pressed', 'false');
     if (el.profileModal) el.profileModal.hidden = true;
     if (localOfflineTimer) {
       clearTimeout(localOfflineTimer);
       localOfflineTimer = null;
     }
+    stopPresence(true);
     // Give the phone's audio routing back. Astra puts the system into its
     // call mode to move the room's sound off the media route, and a handset
     // left that way after the room has gone would still be sending the volume

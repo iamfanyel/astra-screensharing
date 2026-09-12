@@ -6,6 +6,7 @@ node_modules/
 .claude/
 .dev-profiles.json
 .dev-rooms.json
+.dev-friends.json
 
 # Electron build output
 desktop/dist/

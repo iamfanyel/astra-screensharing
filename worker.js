@@ -23,6 +23,24 @@ export default {
         return await handleHost(request, env);
       }
 
+      if (url.pathname === '/api/friends' || url.pathname === '/api/friends/') {
+        return await handleFriends(request, env);
+      }
+
+      if (url.pathname === '/api/presence' || url.pathname === '/api/presence/') {
+        return await handlePresence(request, env);
+      }
+
+      // A friend link: /add/K7QM3XPA. The page is one static file; the code is
+      // read from the path by js/add.js, so every code serves the same page.
+      if (env.ASSETS && FRIEND_PATH_REGEX.test(url.pathname)) {
+        // Without the trailing slash, so the page's ../ paths land on the root.
+        if (url.pathname.endsWith('/')) {
+          return Response.redirect(new URL(url.pathname.slice(0, -1) + url.search, url).toString(), 301);
+        }
+        return await env.ASSETS.fetch(new Request(new URL('/add/', url), request));
+      }
+
       // Static assets fallback
       if (env.ASSETS) {
         return await env.ASSETS.fetch(request);
@@ -40,6 +58,18 @@ export default {
 };
 
 /**
+ * Tokens Discord has vouched for recently, per isolate.
+ *
+ * A signed-in lobby checks in and polls every 25 seconds and a room every 30,
+ * and each of those would otherwise be its own round trip to Discord - slow,
+ * and a rate limit waiting to happen. A minute is short enough that a revoked
+ * token stops working almost at once.
+ */
+const VERIFIED_TOKEN_TTL_MS = 60 * 1000;
+const MAX_VERIFIED_TOKENS = 500;
+const verifiedTokens = new Map();
+
+/**
  * Validates the Discord OAuth2 Bearer token directly with Discord API.
  * Returns the Discord user object if valid, or null.
  */
@@ -50,13 +80,23 @@ async function verifyDiscordToken(request) {
   const token = auth.slice(7).trim();
   if (!token) return null;
 
+  const now = Date.now();
+  const known = verifiedTokens.get(token);
+  if (known && now - known.at < VERIFIED_TOKEN_TTL_MS) return known.user;
+
   try {
     const res = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: 'Bearer ' + token },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      verifiedTokens.delete(token);
+      return null;
+    }
     const user = await res.json();
-    return user && user.id ? user : null;
+    if (!user || !user.id) return null;
+    if (verifiedTokens.size >= MAX_VERIFIED_TOKENS) verifiedTokens.clear();
+    verifiedTokens.set(token, { user, at: now });
+    return user;
   } catch (_) {
     return null;
   }
@@ -184,6 +224,79 @@ async function handleProfile(request, env) {
  * next time it checks in, which is how it learns to stand down instead of
  * carrying on as a second room.
  */
+/**
+ * Whether somebody is around, and whether they are in a call.
+ *
+ * One of these per person, named by their Discord id. A Durable Object rather
+ * than a value in KV for the same reason RoomHost is one: this changes every
+ * half minute per person, and KV's write budget is spent by a single room
+ * heartbeating - which is exactly the mistake that made rooms look expired
+ * while somebody was sitting in them.
+ *
+ * It holds almost nothing, deliberately. `at` is when they last said they were
+ * here, and anything older than PRESENCE_TTL_MS is simply not here any more -
+ * so going offline needs no message, which is good, because a browser that has
+ * been closed cannot send one.
+ *
+ * There is no room code in here. Being in a call is a thing a friend may see;
+ * which call, and whether they may walk into it, is a separate decision and
+ * not one this makes.
+ */
+export class Presence {
+  constructor(state) {
+    this.state = state;
+    this.here = null;
+    // When `here` last reached storage, as opposed to memory.
+    this.storedAt = 0;
+  }
+
+  async load() {
+    if (this.here === null) {
+      this.here = (await this.state.storage.get('here')) || { status: 'offline', at: 0 };
+      this.storedAt = this.here.at || 0;
+    }
+    return this.here;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const now = Date.now();
+    const here = await this.load();
+
+    if (url.pathname === '/beat') {
+      const body = await request.json().catch(() => ({}));
+      const status = body.status === 'in-room' ? 'in-room' : 'online';
+      const changed = status !== here.status;
+      this.here = { status, at: now };
+      // Memory answers every peek while this object is alive; storage only
+      // matters if it is evicted. So a repeat beat is written at most every
+      // PRESENCE_STORE_MS - a copy read back after an eviction is then at most
+      // that plus one beat old, still well inside PRESENCE_TTL_MS.
+      if (changed || now - this.storedAt >= PRESENCE_STORE_MS) {
+        this.storedAt = now;
+        await this.state.storage.put('here', this.here);
+      }
+      return json({ ok: true });
+    }
+
+    if (url.pathname === '/peek') {
+      const fresh = now - (here.at || 0) < PRESENCE_TTL_MS;
+      return json({ status: fresh ? here.status : 'offline' });
+    }
+
+    if (url.pathname === '/gone') {
+      // Said on the way out, so a friend list does not take a minute to catch
+      // up with somebody who closed the tab in front of them.
+      this.here = { status: 'offline', at: 0 };
+      this.storedAt = now;
+      await this.state.storage.put('here', this.here);
+      return json({ ok: true });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}
+
 export class RoomHost {
   constructor(state) {
     this.state = state;
@@ -315,6 +428,65 @@ async function handleHost(request, env) {
     return jsonResponse({ available: false });
   }
 }
+
+/**
+ * Friends.
+ *
+ * Astra has no accounts of its own and is not getting any: the one durable,
+ * verified name a person has here is their Discord id, which handleProfile
+ * already trusts enough to key a profile on. Everything below hangs off the
+ * same check, so a friend list is a second value under a name the server
+ * already knows how to prove.
+ *
+ * There is deliberately no way to search for somebody. A directory of everyone
+ * who has ever signed in is a thing to be abused and a thing to leak, and
+ * Astra already shares rooms by passing a link around - so friends are added
+ * the same way. Each person has one short code, made the first time they ask
+ * for it and the same ever after, so their link can be pasted anywhere and
+ * keeps working: astrascreen.live/add/K7QM3XPA.
+ *
+ * Who is online is not kept here: it changes every half minute per person,
+ * which is a write budget KV does not have, so it lives in the Presence
+ * Durable Object. What this does keep is room invitations, left where a friend
+ * will find them - one write when sent, read when they next look at the lobby.
+ */
+
+/**
+ * A friend code: eight characters from an alphabet without 0/O or 1/I, so it
+ * survives being read aloud or typed off a screen. 32^8 is about a trillion,
+ * which is far more than there are people to hand out and far too many to
+ * guess one's way into somebody's friend list.
+ */
+const FRIEND_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const FRIEND_CODE_REGEX = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
+const FRIEND_PATH_REGEX = /^\/add\/[A-Za-z0-9]{8}\/?$/;
+
+/** How long a room invitation waits to be noticed. A room outlives it rarely. */
+const ROOM_INVITE_TTL_S = 60 * 60;
+
+/**
+ * How long a heartbeat counts for.
+ *
+ * Comfortably more than twice the beat, so one dropped request does not make
+ * somebody flicker offline in front of their friends.
+ */
+const PRESENCE_TTL_MS = 90 * 1000;
+
+/** How often a Presence object re-stores an unchanged status. See its /beat. */
+const PRESENCE_STORE_MS = 45 * 1000;
+
+/**
+ * How many friends' presence one request will go and ask for.
+ *
+ * Each is a separate Durable Object, so each is a subrequest, and a Worker has
+ * a fixed budget of those. Reading the first few dozen and calling the rest
+ * offline is a better failure than a request that is refused entirely.
+ */
+const MAX_PRESENCE_LOOKUPS = 40;
+
+/** Nobody needs more than this, and it bounds every read below. */
+const MAX_FRIENDS = 100;
+const MAX_INVITES = 20;
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const STALE_HEARTBEAT_MS = 3 * 60 * 1000; // 3 minutes without heartbeat = treated as empty (tolerant of background tabs)
@@ -463,6 +635,337 @@ async function hostHolding(env, code) {
   } catch (_) {
     return null;
   }
+}
+
+/** A friend list, always an array, always bounded. */
+async function readFriends(kv, id) {
+  if (!kv) return [];
+  try {
+    const raw = await kv.get('friends:' + id);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.slice(0, MAX_FRIENDS) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * The public half of somebody's profile.
+ *
+ * Name and picture are what a friend row draws; the banner is for the page an
+ * invite link opens, which shows it behind the invitation. Nothing else from a
+ * profile is public, and nothing here is readable without either being their
+ * friend or holding a link they made.
+ */
+async function readPublicProfile(kv, id) {
+  const bare = { id, name: 'Someone', avatar: null, banner: null };
+  if (!kv) return bare;
+  try {
+    const raw = await kv.get('profile:' + id);
+    if (!raw) return bare;
+    const profile = JSON.parse(raw) || {};
+    return {
+      id,
+      name: typeof profile.name === 'string' && profile.name ? profile.name.slice(0, 32) : 'Someone',
+      avatar: typeof profile.avatar === 'string' ? profile.avatar : null,
+      banner: typeof profile.banner === 'string' ? profile.banner : null,
+    };
+  } catch (_) {
+    return bare;
+  }
+}
+
+/**
+ * Room invitations waiting for somebody, oldest first.
+ *
+ * The key's TTL restarts with every write, so an old entry can outlive its
+ * hour inside a list that keeps getting new ones; the age check drops it.
+ */
+async function readInvites(kv, id) {
+  if (!kv) return [];
+  try {
+    const raw = await kv.get('roominvites:' + id);
+    const list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) return [];
+    const now = Date.now();
+    return list
+      .filter((invite) => invite && invite.from && now - (invite.at || 0) < ROOM_INVITE_TTL_S * 1000)
+      .slice(-MAX_INVITES);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * A short fingerprint of who is on a list and who is asking you to join what.
+ *
+ * Presence polls carry it, so a lobby can tell nothing changed and skip
+ * fetching every friend's profile - pictures, banners and all - again.
+ * dev-server.js computes the same thing.
+ */
+function friendsVersion(ids, invites) {
+  const text = ids.join(',') + '|' + invites.map((invite) => invite.from + ':' + invite.code).join(',');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36) + '.' + ids.length + '.' + invites.length;
+}
+
+/** Both directions, because a friendship only one side knows about is a bug. */
+async function linkFriends(kv, a, b) {
+  if (!kv || a === b) return false;
+  const [aList, bList] = await Promise.all([readFriends(kv, a), readFriends(kv, b)]);
+  if (aList.includes(b) && bList.includes(a)) return false;  // already friends
+  if (aList.length >= MAX_FRIENDS || bList.length >= MAX_FRIENDS) return false;
+  if (!aList.includes(b)) aList.push(b);
+  if (!bList.includes(a)) bList.push(a);
+  await Promise.all([
+    kv.put('friends:' + a, JSON.stringify(aList)),
+    kv.put('friends:' + b, JSON.stringify(bList)),
+  ]);
+  return true;
+}
+
+function randomFriendCode() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  // 256 is a multiple of 32, so the modulo is unbiased.
+  return Array.from(bytes, (b) => FRIEND_CODE_ALPHABET[b % 32]).join('');
+}
+
+/** Codes are shown in capitals but typed however; read them back the same way. */
+function normalizeFriendCode(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return FRIEND_CODE_REGEX.test(code) ? code : null;
+}
+
+/**
+ * Somebody's friend code, made on first ask and kept for good.
+ *
+ * Two keys, one each way. A collision with an existing code is checked for and
+ * re-rolled; two first asks racing for the same person can each make one, and
+ * then both work, which costs nothing.
+ */
+async function friendCodeFor(kv, id) {
+  const existing = await kv.get('friendcodeof:' + id);
+  if (existing) return existing;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomFriendCode();
+    if (await kv.get('friendcode:' + code)) continue;
+    await Promise.all([
+      kv.put('friendcode:' + code, id),
+      kv.put('friendcodeof:' + id, code),
+    ]);
+    return code;
+  }
+  return null;
+}
+
+/** The stub for one person's presence, or null when there is no binding. */
+function presenceStub(env, id) {
+  if (!env || !env.PRESENCE || typeof env.PRESENCE.idFromName !== 'function') return null;
+  try {
+    return env.PRESENCE.get(env.PRESENCE.idFromName(id));
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Say you are here, and find out who else is.
+ *
+ * Both halves need the sign-in: you can only speak for yourself, and you can
+ * only ask about people who have agreed to be your friend. There is no way to
+ * ask about somebody else - that would make this a way to watch anybody whose
+ * id you could guess.
+ */
+async function handlePresence(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const user = await verifyDiscordToken(request);
+  if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  if (request.method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const mine = presenceStub(env, user.id);
+    if (!mine) return jsonResponse({ ok: false, available: false });
+    const path = body.status === 'offline' ? '/gone' : '/beat';
+    try {
+      await mine.fetch('https://presence' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: body.status }),
+      });
+    } catch (_) {
+      return jsonResponse({ ok: false });
+    }
+    return jsonResponse({ ok: true });
+  }
+
+  if (request.method !== 'GET') {
+    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
+  }
+
+  const kv = getKvNamespace(env);
+  const [friendIds, invites] = await Promise.all([readFriends(kv, user.id), readInvites(kv, user.id)]);
+  const ids = friendIds.slice(0, MAX_PRESENCE_LOOKUPS);
+  const people = {};
+
+  await Promise.all(ids.map(async (id) => {
+    const stub = presenceStub(env, id);
+    if (!stub) {
+      people[id] = 'offline';
+      return;
+    }
+    try {
+      const answer = await stub.fetch('https://presence/peek');
+      const data = await answer.json();
+      people[id] = data && data.status ? data.status : 'offline';
+    } catch (_) {
+      people[id] = 'offline';
+    }
+  }));
+
+  return jsonResponse({ people, version: friendsVersion(friendIds, invites), available: !!env.PRESENCE });
+}
+
+async function handleFriends(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const user = await verifyDiscordToken(request);
+  if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const kv = getKvNamespace(env);
+  if (!kv) return jsonResponse({ friends: [], invites: [], available: false });
+
+  /*
+   * Whose link this is.
+   *
+   * The page an invite opens has to say whose invitation it is before anybody
+   * agrees to anything - an unnamed "become friends?" is a thing nobody should
+   * click. A code that matches nobody says only that.
+   */
+  if (request.method === 'GET' && new URL(request.url).searchParams.has('link')) {
+    const code = normalizeFriendCode(new URL(request.url).searchParams.get('link'));
+    if (!code) return jsonResponse({ error: 'That link is not a friend link.' }, 400);
+    const inviter = await kv.get('friendcode:' + code);
+    if (!inviter) return jsonResponse({ error: 'That link does not belong to anyone.' }, 404);
+    const already = (await readFriends(kv, user.id)).includes(inviter);
+    return jsonResponse({
+      from: await readPublicProfile(kv, inviter),
+      mine: inviter === user.id,
+      already,
+    });
+  }
+
+  // Everything the friends panel draws, in one round trip: who they are, and
+  // anything waiting for them.
+  if (request.method === 'GET') {
+    const [ids, pending] = await Promise.all([readFriends(kv, user.id), readInvites(kv, user.id)]);
+
+    // An invitation is nearly always from a friend, whose profile is being
+    // read anyway - so each person is read once, whichever list names them.
+    const profiles = new Map();
+    const profileOf = (id) => {
+      if (!profiles.has(id)) profiles.set(id, readPublicProfile(kv, id));
+      return profiles.get(id);
+    };
+
+    // A room the sender has since closed is not worth showing, but this
+    // cannot know that - the age limit is what keeps the list from going stale.
+    const [friends, invites] = await Promise.all([
+      Promise.all(ids.map(profileOf)),
+      Promise.all(pending.map(async (invite) => ({
+        code: invite.code,
+        at: invite.at,
+        from: await profileOf(invite.from),
+      }))),
+    ]);
+
+    return jsonResponse({ friends, invites, version: friendsVersion(ids, pending), available: true });
+  }
+
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const action = String(body.action || '');
+
+  // Your link. The same every time, so it is one read after the first ask.
+  if (action === 'link') {
+    const code = await friendCodeFor(kv, user.id);
+    if (!code) return jsonResponse({ error: 'Could not make a link.' }, 500);
+    return jsonResponse({ code });
+  }
+
+  if (action === 'accept') {
+    const code = normalizeFriendCode(body.code);
+    if (!code) return jsonResponse({ error: 'That link is not a friend link.' }, 400);
+
+    const inviter = await kv.get('friendcode:' + code);
+    if (!inviter) return jsonResponse({ error: 'That link does not belong to anyone.' }, 404);
+    if (inviter === user.id) return jsonResponse({ error: 'That is your own link.' }, 400);
+
+    const added = await linkFriends(kv, inviter, user.id);
+    return jsonResponse({ ok: true, added, friend: await readPublicProfile(kv, inviter) });
+  }
+
+  if (action === 'remove') {
+    const other = String(body.id || '');
+    if (!/^\d{5,25}$/.test(other)) return jsonResponse({ error: 'Bad id' }, 400);
+    const [mine, theirs] = await Promise.all([readFriends(kv, user.id), readFriends(kv, other)]);
+    // Both sides, for the same reason they were linked on both sides - and
+    // only the sides that change, since KV writes are the scarce budget.
+    const writes = [];
+    if (mine.includes(other)) {
+      writes.push(kv.put('friends:' + user.id, JSON.stringify(mine.filter((id) => id !== other))));
+    }
+    if (theirs.includes(user.id)) {
+      writes.push(kv.put('friends:' + other, JSON.stringify(theirs.filter((id) => id !== user.id))));
+    }
+    await Promise.all(writes);
+    return jsonResponse({ ok: true });
+  }
+
+  // Leave a room invitation where a friend will find it. Only for friends:
+  // otherwise this is a way to put a link in a stranger's face.
+  if (action === 'invite') {
+    const to = String(body.to || '');
+    const code = String(body.code || '').trim().toUpperCase();
+    if (!ROOM_CODE_REGEX.test(code)) return jsonResponse({ error: 'Bad room code' }, 400);
+
+    const mine = await readFriends(kv, user.id);
+    if (!mine.includes(to)) return jsonResponse({ error: 'Not a friend' }, 403);
+
+    // One invitation per sender: asking twice should not fill somebody's list.
+    const pending = (await readInvites(kv, to)).filter((invite) => invite.from !== user.id);
+    pending.push({ from: user.id, code, at: Date.now() });
+    await kv.put('roominvites:' + to, JSON.stringify(pending.slice(-MAX_INVITES)), {
+      expirationTtl: ROOM_INVITE_TTL_S,
+    });
+    return jsonResponse({ ok: true });
+  }
+
+  if (action === 'dismiss') {
+    const from = String(body.from || '');
+    const pending = await readInvites(kv, user.id);
+    const left = pending.filter((invite) => invite.from !== from);
+    if (left.length !== pending.length) {
+      await kv.put('roominvites:' + user.id, JSON.stringify(left), {
+        expirationTtl: ROOM_INVITE_TTL_S,
+      });
+    }
+    return jsonResponse({ ok: true });
+  }
+
+  return jsonResponse({ error: 'Unknown action' }, 400);
 }
 
 async function handleRoom(request, env, ctx) {
