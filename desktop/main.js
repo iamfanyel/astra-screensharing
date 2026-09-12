@@ -515,6 +515,27 @@ async function listSources() {
   return best;
 }
 
+/**
+ * What this build is, for the settings panel to show.
+ *
+ * The page can read its own Chromium version out of the user agent, but not
+ * which Astra it is running inside or which Electron carries it - and those
+ * are the two that matter when somebody reports a bug from a build nobody can
+ * identify. Answered from here because only the main process knows the app's
+ * version; the rest is what this process was compiled against.
+ *
+ * A read of three strings, and nothing writable: the page already learns as
+ * much about the browser from navigator.userAgent.
+ */
+function reportVersions() {
+  ipcMain.handle('astra:versions', () => ({
+    app: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    arch: process.arch,
+  }));
+}
+
 function handleDisplayMedia(ses) {
   ses.setDisplayMediaRequestHandler(
     async (request, callback) => {
@@ -588,6 +609,7 @@ if (!app.requestSingleInstanceLock()) {
     guardPermissions(ses);
     handleDisplayMedia(ses);
     followTitlebarColors();
+    reportVersions();
     // Quiet, and only in a packaged build - see updater.js. The window is
     // passed as a getter rather than a value: an update can land long after
     // this runs, by which time the window may have been closed and reopened.

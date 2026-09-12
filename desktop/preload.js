@@ -35,6 +35,17 @@ contextBridge.exposeInMainWorld('astraUpdate', {
 });
 
 /**
+ * Which Astra this is, for the build line in settings.
+ *
+ * One call, no arguments, and nothing it could change. The page shows it so a
+ * bug report can name the build it came from, which is otherwise guesswork -
+ * the site is the same for everybody, and the app around it is not.
+ */
+contextBridge.exposeInMainWorld('astraBuild', {
+  versions: () => ipcRenderer.invoke('astra:versions'),
+});
+
+/**
  * Keep the system's window buttons in the app's colours.
  *
  * Windows paints minimise/maximise/close itself, over the strip the page

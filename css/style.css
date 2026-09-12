@@ -3336,6 +3336,29 @@ body.sidebar-hidden .toasts {
   overflow-y: auto;
 }
 
+/**
+ * The build line under the categories.
+ *
+ * `margin-top: auto` in the rail's flex column pushes it to the bottom, so it
+ * sits below the categories however many there are rather than at a measured
+ * distance that a new one would break.
+ *
+ * Selectable, unlike the rest of the chrome around it: its only job is to be
+ * copied into a message.
+ */
+.settings-build {
+  margin: auto 0 0;
+  padding: 16px 10px 2px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  opacity: 0.7;
+  white-space: pre-line;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
 .settings-title,
 .settings-heading {
   font-size: 13px;
@@ -3809,6 +3832,14 @@ body.sidebar-hidden .toasts {
     width: 22px;
     height: 22px;
     opacity: 1;
+  }
+
+  /* The list is short and the screen is tall, so the line follows the last row
+     instead of being pushed to the very bottom with a gap above it. */
+  .settings-build {
+    margin-top: 0;
+    padding: 18px 4px 2px;
+    text-align: center;
   }
 
   /* Nothing is "current" in a list you are choosing from. */
