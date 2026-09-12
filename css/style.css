@@ -547,6 +547,73 @@ body.resizing {
   pointer-events: none;
 }
 
+/**
+ * The reconnecting screen.
+ *
+ * Above the room so nothing underneath can be clicked while the connection is
+ * not there to carry it, and below .gate-leaving so that deliberately leaving
+ * is never covered by a screen saying the room is coming back.
+ *
+ * The mark breathes rather than spins. A spinner reads as work being done at a
+ * steady rate, and this is a wait of unknown length - most often a second or
+ * two, occasionally a minute - so a slow pulse says "still here" without
+ * implying progress that nobody is measuring.
+ */
+.gate-reconnecting {
+  z-index: 45;
+  animation: gateFadeIn 0.18s ease;
+}
+
+.reconnect-card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.reconnect-mark {
+  width: 68px;
+  height: 68px;
+  animation: reconnectPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes reconnectPulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Somebody who has asked for less motion still needs to know it is working,
+   so the movement goes and the fade stays. */
+@media (prefers-reduced-motion: reduce) {
+  .reconnect-mark {
+    animation: reconnectFade 2s ease-in-out infinite;
+  }
+
+  @keyframes reconnectFade {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+}
+
+.reconnect-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reconnect-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* The leave overlay sits above everything, including the closed-room card. */
 .gate-leaving {
   z-index: 50;

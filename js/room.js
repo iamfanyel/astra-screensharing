@@ -145,6 +145,7 @@
     closedReason: $('closed-reason'),
     backToStart: $('back-to-start'),
     leaving: $('leaving'),
+    reconnecting: $('reconnecting'),
     toasts: $('toasts'),
     profilePopup: $('profile-popup'),
     profilePopupBackdrop: $('profile-popup-backdrop'),
@@ -715,6 +716,19 @@
   setupProfileModal();
 
   /** Swap the gate between its form and the loading dots. */
+  /**
+   * The reconnecting screen.
+   *
+   * Only ever raised while a room is actually open - the gate has its own
+   * loader and its own errors, and covering it would replace a form somebody
+   * can act on with a screen they can only watch.
+   */
+  function showReconnecting(on) {
+    if (!el.reconnecting) return;
+    if (on && (tornDown || leaving || !state.signal || el.gate.hidden === false)) return;
+    el.reconnecting.hidden = !on;
+  }
+
   function setGateLoading(on) {
     el.gate.classList.toggle('working', on);
     el.gateLoader.hidden = !on;
@@ -850,6 +864,8 @@
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
+    signal.addEventListener('reconnecting', () => showReconnecting(true));
+    signal.addEventListener('reconnected', () => showReconnecting(false));
     signal.addEventListener('closed', (e) => showClosed(e.detail.reason));
     signal.addEventListener('kicked', (e) => showClosed(e.detail.reason || 'You were kicked from the room by the host.'));
     signal.addEventListener('host-changed', (e) => {
@@ -4922,6 +4938,9 @@
   const LOCAL_OFFLINE_GRACE_MS = 25000;
 
   function showClosed(reason) {
+    // Whatever this was, it is not coming back - so the screen that says it is
+    // goes first.
+    showReconnecting(false);
     el.closedReason.textContent = reason || 'The room ended.';
     el.closed.hidden = false;
     teardown();
@@ -5000,6 +5019,7 @@
   function leaveForLobby() {
     if (leaving) return; // a double-click should not queue two navigations
     leaving = true;
+    showReconnecting(false);
     // Before the teardown, which stops everything that could play it, and
     // early enough to be heard under the leaving overlay.
     chime('left');

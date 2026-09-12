@@ -730,6 +730,17 @@
   </div>
 
   <!-- Shown while a room is torn down and the lobby loads. -->
+  <!-- Shown while the connection to the signalling server is being rebuilt.
+       Above the room and below the leaving overlay: a room being torn down on
+       purpose should not sit behind a screen promising it is coming back. -->
+  <div id="reconnecting" class="gate gate-reconnecting" hidden role="status" aria-live="polite">
+    <div class="reconnect-card">
+      <img class="reconnect-mark" src="../astralogo.png" alt="" width="1920" height="1920" />
+      <p class="reconnect-text">Reconnecting…</p>
+      <p class="reconnect-sub">Hold on, the room is still here.</p>
+    </div>
+  </div>
+
   <div id="leaving" class="gate gate-leaving" hidden aria-label="Leaving the room">
     <div class="gate-loader">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>

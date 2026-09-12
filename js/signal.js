@@ -181,6 +181,7 @@
       this._reconnectTimer = null;
       this._reconnectAttempts = 0;
       this._waitingForOnline = false;
+      this._reconnecting = false;
     }
 
     /**
@@ -192,6 +193,14 @@
      */
     _scheduleReconnect(peer) {
       if (this.left || this._reconnectTimer) return;
+
+      // Said once per outage, not once per attempt: the room puts a screen up
+      // on the first of these and takes it down on `reconnected`, and a dozen
+      // of them would only make it flicker.
+      if (!this._reconnecting) {
+        this._reconnecting = true;
+        this.emit('reconnecting', {});
+      }
 
       // Nothing can be attempted while the browser says there is no network,
       // and that is exactly the moment the old code tried hardest. Wait to be
@@ -232,6 +241,10 @@
       if (this._reconnectTimer) {
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
+      }
+      if (this._reconnecting) {
+        this._reconnecting = false;
+        this.emit('reconnected', {});
       }
     }
 
