@@ -9,7 +9,7 @@
  * which is precisely when somebody is sharing their screen.
  */
 
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, screen, session, desktopCapturer, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const { APP_URL } = require('./config');
 const updater = require('./updater');
@@ -448,19 +448,77 @@ function followTitlebarColors() {
   });
 }
 
+const CAPTURE_OPTIONS = {
+  types: ['screen', 'window'],
+  thumbnailSize: { width: 320, height: 180 },
+  fetchWindowIcons: true,
+};
+
+/** How many times to ask again when a monitor is missing from the answer. */
+const SOURCE_RETRIES = 3;
+
+/** Long enough for a second display to finish being added to the list. */
+const SOURCE_RETRY_MS = 180;
+
+function screensIn(sources) {
+  return sources.filter((source) => source.id.startsWith('screen:')).length;
+}
+
+/**
+ * Every capture source, and every monitor rather than whichever one was ready
+ * first.
+ *
+ * getSources decides it has finished the moment every source it has heard
+ * about so far has a thumbnail. On a machine with one monitor that is the
+ * right answer. With two it is a race: if the first screen's thumbnail arrives
+ * before the second screen has even been added to the list, the list is
+ * considered complete, sealed, and the second monitor is dropped - it is only
+ * ever offered the one. The same happens to a display slow enough to miss the
+ * three second deadline inside Electron.
+ *
+ * Nothing here can change that, but it does not have to be believed. The
+ * `screen` module enumerates displays through the window system rather than
+ * through the capturer, so it is not in that race and it knows how many
+ * monitors there really are. When the answer is short, ask again.
+ *
+ * Bounded and best effort: a display the capturer genuinely cannot offer -
+ * one being captured exclusively by something else, say - would otherwise
+ * retry for ever, so after a few attempts the best answer so far is used.
+ */
+async function listSources() {
+  let best = [];
+  let expected = 1;
+  try {
+    expected = Math.max(1, screen.getAllDisplays().length);
+  } catch (_) {
+    // No display information; one round trip and whatever it says.
+  }
+
+  for (let attempt = 0; attempt < SOURCE_RETRIES; attempt++) {
+    if (attempt) await new Promise((done) => setTimeout(done, SOURCE_RETRY_MS));
+    let sources = [];
+    try {
+      sources = await desktopCapturer.getSources(CAPTURE_OPTIONS);
+    } catch (err) {
+      console.error('[astra] could not enumerate capture sources', err);
+      break;
+    }
+    if (screensIn(sources) > screensIn(best)) best = sources;
+    if (screensIn(best) >= expected) break;
+  }
+
+  if (screensIn(best) < expected) {
+    console.warn(
+      `[astra] only ${screensIn(best)} of ${expected} monitors could be listed`,
+    );
+  }
+  return best;
+}
+
 function handleDisplayMedia(ses) {
   ses.setDisplayMediaRequestHandler(
     async (request, callback) => {
-      let sources = [];
-      try {
-        sources = await desktopCapturer.getSources({
-          types: ['screen', 'window'],
-          thumbnailSize: { width: 320, height: 180 },
-          fetchWindowIcons: true,
-        });
-      } catch (err) {
-        console.error('[astra] could not enumerate capture sources', err);
-      }
+      const sources = await listSources();
 
       const chosen = sources.length ? await pickSource(sources) : null;
       if (!chosen) {
