@@ -79,4 +79,53 @@
     errorEl.hidden = true;
   });
 
+  /**
+   * The room code inside an invite link, or null for anything that is not one.
+   *
+   * Rooms are shared by sending the link, so the link is what ends up on the
+   * clipboard - and the code field is the obvious place to put it. Both kinds
+   * carry the code in the query string, spelled differently: the site's own
+   * links use `?room=`, and the `astra://` links the apps register use
+   * `?code=`.
+   *
+   * Anything without a query string is left alone, which is every code that
+   * was simply typed.
+   */
+  function codeInLink(text) {
+    let raw = String(text || '').trim();
+    const hash = raw.indexOf('#');
+    if (hash !== -1) raw = raw.slice(0, hash);
+    const query = raw.indexOf('?');
+    if (query === -1) return null;
+
+    let params;
+    try {
+      params = new URLSearchParams(raw.slice(query + 1));
+    } catch (_) {
+      return null;
+    }
+    const code = (params.get('room') || params.get('code') || '').trim().toUpperCase();
+    return window.ASTRA.roomCodePattern.test(code) ? code : null;
+  }
+
+  /**
+   * Paste rather than input, because by the time `input` runs the link is
+   * already gone: the field is six characters wide and the browser truncates a
+   * pasted value to fit, so the handler above would be sanitising "https:".
+   * The clipboard still has the whole thing.
+   *
+   * Assigning the value in script is not subject to maxlength either, so a
+   * longer code from an older build survives this where typing it would not.
+   */
+  codeInput.addEventListener('paste', (event) => {
+    const clipboard = event.clipboardData || window.clipboardData;
+    if (!clipboard) return;
+    const code = codeInLink(clipboard.getData('text'));
+    // Not a link: let the ordinary paste happen, and be tidied as always.
+    if (!code) return;
+    event.preventDefault();
+    codeInput.value = code;
+    errorEl.hidden = true;
+  });
+
 })();
