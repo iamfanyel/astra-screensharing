@@ -1185,6 +1185,16 @@
     if (el.camera) el.camera.disabled = true;
     try {
       if (state.mixer) await state.mixer.resume();
+
+      // The camera in use is let go before the next one is asked for. Every
+      // caller here is a restart - switching device, flipping to the other
+      // side - so there is nothing to preserve, and holding the old one open
+      // across the request is half of why switching did not work: the browser
+      // was being asked to open a second camera rather than change which one
+      // is on, and would rather hand back the one it already had. Some laptops
+      // will not open two at once either.
+      if (state.cameraStream) cleanUpCamera();
+
       const capture = await captureCamera(
         el.quality ? el.quality.value : '720',
         state.cameraFacing,
@@ -1192,10 +1202,6 @@
         // the wrong way round on a phone: there the direction is the choice.
         compact.matches ? null : state.cameraDeviceId,
       );
-
-      if (state.cameraStream) {
-        cleanUpCamera();
-      }
 
       state.cameraStream = capture.stream;
       state.cameraTrack = capture.stream.getVideoTracks()[0];
@@ -1236,6 +1242,17 @@
         setStatus('Could not start camera: ' + (err.message || err.name), 'bad');
       }
       cleanUpCamera();
+      // The old camera was released before this attempt, so a failure here
+      // leaves nothing running. Anyone still shown as having a camera on would
+      // be a tile that never paints.
+      if (state.cameraOn) {
+        state.cameraOn = false;
+        if (state.mesh) state.mesh.publish();
+        if (state.signal) state.signal.setState({ camera: false, cameraTrackId: null });
+        setCameraUI(false);
+        updateSelfTiles();
+        renderPeople();
+      }
     } finally {
       if (el.camera) el.camera.disabled = false;
     }

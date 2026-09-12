@@ -224,6 +224,28 @@
     return stream;
   }
 
+  /**
+   * Why a chosen camera is asked for exactly.
+   *
+   * `ideal` is a preference the browser is free to decline, and it declines
+   * this one routinely: asked for a camera while another is already open,
+   * Chromium hands back the one it has rather than opening a second. Picking a
+   * different camera from the menu then did nothing at all - the request
+   * succeeded, and the same webcam came back.
+   *
+   * A camera picked by name from a list is not a preference, so `exact` says
+   * so. The cost is that a device which has since been unplugged now throws
+   * instead of quietly returning something else, which is what the fallback
+   * below is for - the same forgiving behaviour, but deliberate, and only when
+   * the named camera really cannot be opened.
+   */
+  function unusableDevice(err) {
+    if (!err) return false;
+    return err.name === 'OverconstrainedError'   // no such device any more
+      || err.name === 'NotFoundError'            // unplugged between listing and asking
+      || err.name === 'NotReadableError';        // there, but something else holds it
+  }
+
   /** Capture camera video (front/user facing by default, or specific deviceId). */
   async function captureCamera(qualityKey, facingMode = 'user', deviceId = null) {
     const quality = QUALITY[qualityKey] || QUALITY['720'];
@@ -231,15 +253,23 @@
       frameRate: { ideal: quality.frameRate || 30 },
     };
     if (deviceId) {
-      video.deviceId = { ideal: deviceId };
+      video.deviceId = { exact: deviceId };
     } else if (facingMode) {
       video.facingMode = { ideal: facingMode };
     }
     if (quality.height) video.height = { ideal: quality.height };
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video,
-      audio: false,
-    });
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    } catch (err) {
+      if (!deviceId || !unusableDevice(err)) throw err;
+      // Whatever the system offers is better than no camera at all.
+      delete video.deviceId;
+      if (facingMode) video.facingMode = { ideal: facingMode };
+      stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    }
+
     const track = stream.getVideoTracks()[0];
     if (track && 'contentHint' in track) track.contentHint = 'motion';
     return { stream, quality };
