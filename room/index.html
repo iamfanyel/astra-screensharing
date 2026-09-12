@@ -196,8 +196,14 @@
     </div>
   </header>
 
-  <!-- Phone only: which speaker the room plays out of. -->
-  <div id="output-menu" class="dock-dropdown topbar-menu" role="listbox" aria-label="Audio output" hidden></div>
+  <!-- Which speaker the room plays out of. A plain dropdown on a desktop; on
+       a phone the stylesheet turns it into a sheet like People and Chat, and
+       the title below stops being hidden. Rows go in #output-list so the
+       heading survives a repopulate. -->
+  <div id="output-menu" class="dock-dropdown topbar-menu" hidden>
+    <h2 class="dock-sheet-title">Audio output</h2>
+    <div id="output-list" role="listbox" aria-label="Audio output"></div>
+  </div>
 
   <main id="stage" class="stage" hidden>
     <div id="grid" class="grid"></div>

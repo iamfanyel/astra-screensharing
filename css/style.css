@@ -2682,6 +2682,27 @@ button.tag-danger:hover {
   transform: scale(1);
 }
 
+/* An icon and its label, held together so the tick can stay at the far edge:
+   the row is space-between, and three loose children would spread apart. */
+.dock-dropdown-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dock-dropdown-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+/* The chosen row's icon comes up with its text rather than staying grey. */
+.dock-dropdown-item.is-selected .dock-dropdown-icon {
+  color: var(--text);
+}
+
 .dock-dropdown-check {
   width: 16px;
   height: 16px;
@@ -3955,6 +3976,75 @@ body.sidebar-hidden .toasts {
     top: auto;
     bottom: calc(100% + 6px);
     min-width: 0;
+  }
+
+  /* The audio output menu is a sheet too. It is opened from the top bar, and
+     a small flyout pinned under a corner up there is the one shape a phone
+     has no room for - so it rises from the bottom like People, Chat and the
+     share options, and reads as something the app put up rather than a
+     dropdown that happened to appear. */
+  #output-menu {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    max-width: none;
+    z-index: 60;
+    padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+    animation: sheetIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* The grab handle, the same one every other sheet wears. */
+  #output-menu::before {
+    content: "";
+    /* This pseudo-element is already spoken for: .dock-dropdown::before is the
+       invisible bridge that lets a pointer cross the gap from the trigger to
+       the flyout without the menu closing under it. Absolutely positioned off
+       the left edge - which is where the handle appeared until these three
+       lines put it back in the flow. A sheet is opened by tapping, so there is
+       no gap to bridge and nothing is lost.
+
+       In the flow it is the first item of a column flex container, so
+       align-self is what centres it; auto margins resolve to zero here. */
+    position: static;
+    inset: auto;
+    width: auto;
+    display: block;
+    align-self: center;
+    flex: none;
+    inline-size: 44px;
+    block-size: 4px;
+    margin: 2px 0 8px;
+    border-radius: 999px;
+    background: rgb(var(--ink) / 0.22);
+  }
+
+  /* Centred, the way a sheet announces itself - the same as the People and
+     Chat sheet's heading. The share sheet keeps its own left-aligned title,
+     which sits above a form rather than a list. */
+  #output-menu .dock-sheet-title {
+    text-align: center;
+    margin: 0 0 10px;
+    font-size: 16px;
+  }
+
+  /* Full-width rows with room to be hit with a thumb, rather than the tight
+     ones a pointer can manage. */
+  #output-menu .dock-dropdown-item {
+    padding: 14px 12px;
+    font-size: 15px;
+  }
+
+  #output-menu .dock-dropdown-lead {
+    gap: 14px;
+  }
+
+  #output-menu .dock-dropdown-icon {
+    width: 20px;
+    height: 20px;
   }
 
   /* Chosen from the top bar here, so the settings window does not ask twice. */

@@ -48,6 +48,17 @@ public class AudioRoutePlugin extends Plugin {
     /** What the audio mode was before a route was chosen, to put back after. */
     private Integer modeBefore;
 
+    /**
+     * What Astra has routed to, or null while the system is still deciding.
+     *
+     * Kept because the system cannot be asked. Until a route is chosen the
+     * audio manager answers `getCommunicationDevice()` with the earpiece - the
+     * device a *call* would use - while the room is playing out of the speaker
+     * like any other media. Believing it put the tick on the wrong row, on the
+     * one screen whose whole job is to say where the sound is going.
+     */
+    private String chosenId;
+
     private AudioManager audio() {
         Context context = getContext();
         if (context == null) return null;
@@ -74,21 +85,23 @@ public class AudioRoutePlugin extends Plugin {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            AudioDeviceInfo current = manager.getCommunicationDevice();
-            String currentId = current == null ? null : String.valueOf(current.getId());
+            String currentId = chosenId != null ? chosenId : defaultOutputId(manager);
             for (AudioDeviceInfo device : manager.getAvailableCommunicationDevices()) {
                 String label = labelFor(device);
                 if (label == null) continue;  // a type nobody would recognise
                 JSObject entry = new JSObject();
                 entry.put("id", String.valueOf(device.getId()));
                 entry.put("label", label);
+                entry.put("kind", kindFor(device));
                 entry.put("selected", String.valueOf(device.getId()).equals(currentId));
                 outputs.put(entry);
             }
         } else {
             // No list to ask for. Both of these exist on every handset, and the
-            // speakerphone switch is the only routing there is.
-            boolean onSpeaker = manager.isSpeakerphoneOn();
+            // speakerphone switch is the only routing there is. Untouched, it
+            // reads false while media still plays out of the speaker - so
+            // until something is chosen, the speaker is what to show.
+            boolean onSpeaker = chosenId == null || LEGACY_SPEAKER.equals(chosenId);
             outputs.put(legacyEntry(LEGACY_EARPIECE, "Phone", !onSpeaker));
             outputs.put(legacyEntry(LEGACY_SPEAKER, "Speaker", onSpeaker));
         }
@@ -123,6 +136,7 @@ public class AudioRoutePlugin extends Plugin {
             ok = true;
         }
 
+        if (ok) chosenId = id;
         call.resolve(new JSObject().put("ok", ok));
     }
 
@@ -148,15 +162,73 @@ public class AudioRoutePlugin extends Plugin {
                 modeBefore = null;
             }
         }
+        chosenId = null;
         call.resolve();
+    }
+
+    /**
+     * Where the room's sound is going before anybody has chosen.
+     *
+     * There is no call for "which output is media using", so this follows the
+     * order Android itself does: anything attached wins over the built-in
+     * speaker, and the speaker is what is left. It only has to be right about
+     * which row carries the tick - the sound is already going wherever Android
+     * decided, and nothing here moves it.
+     */
+    private String defaultOutputId(AudioManager manager) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
+        int[] preference = {
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_HEARING_AID,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+        };
+        for (int type : preference) {
+            for (AudioDeviceInfo device : manager.getAvailableCommunicationDevices()) {
+                if (device.getType() == type) return String.valueOf(device.getId());
+            }
+        }
+        return null;
     }
 
     private JSObject legacyEntry(String id, String label, boolean selected) {
         JSObject entry = new JSObject();
         entry.put("id", id);
         entry.put("label", label);
+        entry.put("kind", id);  // the legacy ids are the kinds
         entry.put("selected", selected);
         return entry;
+    }
+
+    /**
+     * What sort of thing an output is, for the page to draw an icon for.
+     *
+     * Sent alongside the label rather than worked out from it: a headset's
+     * label is whatever its maker called it, and picking an icon by reading
+     * "WH-1000XM4" is not something that can be got right.
+     */
+    private String kindFor(AudioDeviceInfo device) {
+        switch (device.getType()) {
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+                return "earpiece";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+                return "headphones";
+            case AudioDeviceInfo.TYPE_USB_HEADSET:
+            case AudioDeviceInfo.TYPE_USB_DEVICE:
+                return "usb";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+            case AudioDeviceInfo.TYPE_BLE_HEADSET:
+                return "bluetooth";
+            case AudioDeviceInfo.TYPE_HEARING_AID:
+                return "hearing-aid";
+            default:
+                return "speaker";
+        }
     }
 
     /**

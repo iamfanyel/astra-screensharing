@@ -130,6 +130,7 @@
     flipCamera: $('flip-camera'),
     audioOutput: $('audio-output'),
     outputMenu: $('output-menu'),
+    outputList: $('output-list'),
     shareConfirm: $('share-confirm'),
     dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
@@ -1527,6 +1528,49 @@
     if (el.outputMenu.hidden === !open) return;
     el.outputMenu.hidden = !open;
     el.audioOutput.setAttribute('aria-expanded', String(open));
+    // On a phone this is a sheet rather than a dropdown, and a sheet dims what
+    // is behind it - the same backdrop People, Chat and the share sheet raise.
+    if (el.dockSheetBackdrop) el.dockSheetBackdrop.hidden = !(open && compact.matches);
+  }
+
+  /**
+   * A picture for each sort of output, because on a phone the list is short
+   * and the difference between the two that matter - the earpiece you hold to
+   * your head and the speaker everyone hears - is far quicker to see than to
+   * read. The `kind` comes from the app rather than from the label: a
+   * headset's label is whatever its maker called it.
+   */
+  const OUTPUT_ICONS = {
+    earpiece: '<rect x="7" y="2" width="10" height="20" rx="2.5" /><path d="M10.5 5.5h3" />',
+    speaker: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />'
+      + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />',
+    headphones: '<path d="M3 18v-6a9 9 0 0 1 18 0v6" />'
+      + '<path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />',
+    bluetooth: '<path d="m7 7 10 10-5 5V2l5 5L7 17" />',
+    usb: '<circle cx="12" cy="20" r="1.5" /><path d="M12 18.5V4" />'
+      + '<path d="m9 7 3-4 3 4" /><path d="M12 12h4.5v3.5" /><path d="M12 15H8V9" />',
+  };
+
+  // A hearing aid gets the headphones glyph. Drawn as an ear at sixteen pixels
+  // it came out looking like a question mark, which is worse than unspecific -
+  // and it is worn in the ear, so the borrowed one is not a lie.
+  OUTPUT_ICONS['hearing-aid'] = OUTPUT_ICONS.headphones;
+
+  function outputIcon(kind) {
+    const paths = OUTPUT_ICONS[kind] || OUTPUT_ICONS.speaker;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'dock-dropdown-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    // The shapes are ours, from the table above - never anything a device
+    // called itself, which is the only string here that came from outside.
+    svg.innerHTML = paths;
+    return svg;
   }
 
   async function populateOutputMenu() {
@@ -1555,10 +1599,17 @@
 
     el.audioOutput.hidden = false;
 
-    el.outputMenu.textContent = '';
-    const entries = [{ deviceId: '', label: 'System default' }];
+    el.outputList.textContent = '';
+    // "Default" rather than "System default": on this menu the only other
+    // rows are the system's own outputs, so the longer name says nothing the
+    // list does not already say.
+    const entries = [{ deviceId: '', label: 'Default', kind: 'default' }];
     outputs.forEach((device, index) => {
-      entries.push({ deviceId: device.deviceId, label: device.label || 'Output ' + (index + 1) });
+      entries.push({
+        deviceId: device.deviceId,
+        label: device.label || 'Output ' + (index + 1),
+        kind: 'speaker',
+      });
     });
     if (!outputs.some((device) => device.deviceId === state.speakerDeviceId)) {
       state.speakerDeviceId = '';
@@ -1572,9 +1623,12 @@
       const match = entry.deviceId === state.speakerDeviceId;
       item.classList.toggle('is-selected', match);
       item.setAttribute('aria-selected', String(match));
+      const lead = document.createElement('span');
+      lead.className = 'dock-dropdown-lead';
       const span = document.createElement('span');
       span.textContent = entry.label;
-      item.append(span, checkSvgTemplate.cloneNode(true));
+      lead.append(outputIcon(entry.kind), span);
+      item.append(lead, checkSvgTemplate.cloneNode(true));
       item.addEventListener('click', (event) => {
         event.stopPropagation();
         state.speakerDeviceId = entry.deviceId;
@@ -1583,7 +1637,7 @@
         toggleOutputMenu(false);
         populateOutputMenu();
       });
-      el.outputMenu.append(item);
+      el.outputList.append(item);
     }
 
     if (typeof navigator.mediaDevices?.selectAudioOutput === 'function') {
@@ -1608,7 +1662,7 @@
           }
         } catch (_) {}
       });
-      el.outputMenu.append(pickItem);
+      el.outputList.append(pickItem);
     } else if (outputs.length === 0 && typeof HTMLMediaElement.prototype.setSinkId !== 'function') {
       const noteItem = document.createElement('div');
       noteItem.className = 'dock-dropdown-note';
@@ -1617,7 +1671,7 @@
       noteItem.style.color = 'var(--muted)';
       noteItem.style.textAlign = 'center';
       noteItem.textContent = 'Managed by device audio settings';
-      el.outputMenu.append(noteItem);
+      el.outputList.append(noteItem);
     }
   }
 
@@ -1630,7 +1684,7 @@
    */
   function renderNativeOutputs(outputs) {
     el.audioOutput.hidden = false;
-    el.outputMenu.textContent = '';
+    el.outputList.textContent = '';
 
     for (const output of outputs) {
       const item = document.createElement('div');
@@ -1639,9 +1693,15 @@
       item.tabIndex = 0;
       item.classList.toggle('is-selected', !!output.selected);
       item.setAttribute('aria-selected', String(!!output.selected));
+
+      // Icon and label travel together so the tick stays pinned to the far
+      // edge; three loose children in a space-between row would spread out.
+      const lead = document.createElement('span');
+      lead.className = 'dock-dropdown-lead';
       const span = document.createElement('span');
       span.textContent = output.label;
-      item.append(span, checkSvgTemplate.cloneNode(true));
+      lead.append(outputIcon(output.kind), span);
+      item.append(lead, checkSvgTemplate.cloneNode(true));
       item.addEventListener('click', async (event) => {
         event.stopPropagation();
         const ok = await window.AstraNativeAudio.select(output.id);
@@ -1654,7 +1714,7 @@
         // routed to, and a headset unplugged a moment ago moves it again.
         populateOutputMenu();
       });
-      el.outputMenu.append(item);
+      el.outputList.append(item);
     }
   }
 
