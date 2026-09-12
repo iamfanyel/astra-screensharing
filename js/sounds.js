@@ -144,17 +144,7 @@ window.AstraSounds = (function () {
 
     const audio = engine();
     if (!audio || !master) return;
-
-    // A context the browser has not let start yet keeps its clock stopped, so
-    // a note scheduled into one is not lost - it waits, and fires whenever the
-    // context is allowed to run. That used to be harmless because nothing
-    // played before the room had been clicked in; now that arriving makes a
-    // sound, a blocked one would go off at the first unrelated click, minutes
-    // later. Ask for the context and let this one go.
-    if (audio.state === 'suspended') {
-      audio.resume().catch(() => {});
-      if (audio.state === 'suspended') return;
-    }
+    if (audio.state === 'suspended') audio.resume().catch(() => {});
 
     try {
       const start = audio.currentTime + 0.01;

@@ -758,12 +758,6 @@
     el.roomCode.textContent = signal.code;
     document.title = signal.code + ' - astra';
 
-    // Your own arrival, heard by you. The room announces everybody else this
-    // way, and being the one person it stayed silent for made joining feel
-    // like nothing had happened. Only fires once the room is actually open,
-    // so a failed join is never congratulated.
-    chime('joined');
-
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
     history.replaceState(null, '', '?room=' + encodeURIComponent(signal.code));
@@ -4979,9 +4973,6 @@
   function leaveForLobby() {
     if (leaving) return; // a double-click should not queue two navigations
     leaving = true;
-    // Before the teardown, which stops everything that could play it, and
-    // early enough to be heard under the leaving overlay.
-    chime('left');
     sendRoomExitBeacon();
     // Say goodbye now rather than at unload, so the others see it immediately.
     if (state.signal) state.signal.leave();
