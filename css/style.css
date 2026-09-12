@@ -2152,6 +2152,29 @@ button.tag-danger:hover {
 }
 
 
+/**
+ * The text pills, nudged up half a pixel.
+ *
+ * These have no descenders - HOST and KICK are all capitals - so the letters
+ * fill only the upper part of a line box that still reserves room below the
+ * baseline for the tails of a g or a y. The box is centred; the ink is not,
+ * and it measured half a pixel low. Taking that half pixel off the top and
+ * giving it to the bottom moves the letters, not the pill, which keeps its
+ * height and stays level with the icon badges beside it.
+ */
+.tag-host,
+button.tag-danger {
+  padding-top: 1.5px;
+  padding-bottom: 2.5px;
+  /* And the letter-spacing back on the left. It is added after every
+     character including the last, so a centred line carries a trailing gap
+     the glyphs do not fill and the word sits half that gap to the left.
+     The indent is the whole gap rather than half of it because these pills
+     are shrink-to-fit: indenting also widens them, carrying the middle along
+     at half the rate, so half a gap only closed half the distance. */
+  text-indent: 0.08em;
+}
+
 .tag-host {
   background: var(--text);
   color: var(--bg);
@@ -2160,13 +2183,30 @@ button.tag-danger:hover {
   text-transform: uppercase;
 }
 
+/* Shouted like HOST beside it, and for the same reason: it is the one action
+   in the row that cannot be taken back. */
+button.tag-danger {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/**
+ * The icon badges.
+ *
+ * 19px tall, which is what the text pills beside them come to, and which after
+ * the 2px of padding top and bottom leaves a content box of exactly 15px - the
+ * size of the icon. An icon smaller than its box has to be centred in it, and
+ * half a pixel each side is the one amount that cannot be: it rounds, and the
+ * icon rides a pixel high. Matching the two exactly leaves nothing to round.
+ */
 .tag-dev,
 .tag-wife {
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 18px;
+  height: 19px;
   cursor: default;
 }
 
@@ -2180,8 +2220,8 @@ button.tag-danger:hover {
 
 .tag-badge-icon {
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
 }
 

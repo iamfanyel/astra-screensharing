@@ -3872,7 +3872,7 @@
       const kick = document.createElement('button');
       kick.type = 'button';
       kick.className = 'tag tag-danger';
-      kick.textContent = 'kick';
+      kick.textContent = 'Kick';
       kick.title = 'Kick ' + peer.name;
       kick.addEventListener('click', () => {
         if (confirm('Kick ' + peer.name + ' from the room?')) state.signal.kick(peer.id);
@@ -3964,8 +3964,13 @@
     wife: {
       title: "Developer's Wife",
       cls: 'tag-wife',
+      // Nudged up, because the heart is not drawn centred in its own viewBox:
+      // it runs from y 8.8 to y 19, putting its middle at 13.9 where the box's
+      // is 12. Measured at 0.77px low in the pill, which is 1.4 units at the
+      // size this renders. The pill itself centres what it is given, so the
+      // correction belongs to the shape rather than to the badge.
       svg:
-        '<path d="M12 19s-6-3.9-6-8a3.6 3.6 0 0 1 6-2.2A3.6 3.6 0 0 1 18 11c0 4.1-6 8-6 8Z" fill="#ffffff" stroke="none"/>',
+        '<path transform="translate(0 -1.4)" d="M12 19s-6-3.9-6-8a3.6 3.6 0 0 1 6-2.2A3.6 3.6 0 0 1 18 11c0 4.1-6 8-6 8Z" fill="#ffffff" stroke="none"/>',
     },
   };
 
@@ -3981,7 +3986,7 @@
       span.title = def.title;
       span.setAttribute('aria-label', def.title);
       span.innerHTML =
-        '<svg class="tag-badge-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+        '<svg class="tag-badge-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" ' +
         'stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" ' +
         'aria-hidden="true">' + def.svg + '</svg>';
       badgeTagTemplates.set(badgeId, span);
