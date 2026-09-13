@@ -31,6 +31,12 @@ export default {
         return await handlePresence(request, env);
       }
 
+      // The picture a friend link shows when it is pasted into a chat.
+      const cardMatch = url.pathname.match(FRIEND_CARD_PATH_REGEX);
+      if (cardMatch) {
+        return await serveFriendCard(env, url, cardMatch[1]);
+      }
+
       // A friend link: /add/K7QM3XPA. The page is one static file; the code is
       // read from the path by js/add.js, so every code serves the same page.
       if (env.ASSETS && FRIEND_PATH_REGEX.test(url.pathname)) {
@@ -38,7 +44,8 @@ export default {
         if (url.pathname.endsWith('/')) {
           return Response.redirect(new URL(url.pathname.slice(0, -1) + url.search, url).toString(), 301);
         }
-        return await env.ASSETS.fetch(new Request(new URL('/add/', url), request));
+        const page = await env.ASSETS.fetch(new Request(new URL('/add/', url), request));
+        return await withFriendLinkPreview(page, env, url);
       }
 
       // Static assets fallback
@@ -460,6 +467,18 @@ async function handleHost(request, env) {
 const FRIEND_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const FRIEND_CODE_REGEX = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
 const FRIEND_PATH_REGEX = /^\/add\/[A-Za-z0-9]{8}\/?$/;
+const FRIEND_CARD_PATH_REGEX = /^\/add\/([A-Za-z0-9]{8})\/card\.jpg$/;
+
+/**
+ * The link preview card: astrabannerfriends.png with the person's picture in
+ * its hole. Drawn in the owner's browser (js/friends.js) - a Worker cannot
+ * decode their WebP picture without a library this site has no build step
+ * for - and stored here, one per code.
+ */
+const FRIEND_CARD_MAX_CHARS = 400 * 1000;
+const FRIEND_CARD_VERSION_REGEX = /^[a-z0-9.]{1,40}$/;
+const FRIEND_CARD_WIDTH = 1200;
+const FRIEND_CARD_HEIGHT = 675;
 
 /** How long a room invitation waits to be noticed. A room outlives it rarely. */
 const ROOM_INVITE_TTL_S = 60 * 60;
@@ -713,6 +732,96 @@ function friendsVersion(ids, invites) {
   return (hash >>> 0).toString(36) + '.' + ids.length + '.' + invites.length;
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+/**
+ * Serve a code's preview card, or the plain art when none has been made yet.
+ *
+ * The page asks for it with ?v=<version>, which changes with the picture, so
+ * the stored card can be cached hard; a chat app that already fetched the old
+ * one is handed a new URL rather than having to notice a changed file.
+ */
+async function serveFriendCard(env, url, rawCode) {
+  const code = normalizeFriendCode(rawCode);
+  const kv = getKvNamespace(env);
+  const bytes = code && kv ? await kv.get('friendcard:' + code, 'arrayBuffer') : null;
+  if (!bytes) {
+    return Response.redirect(new URL('/astrabannerfriends.png', url).toString(), 302);
+  }
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': 'image/jpeg',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': url.searchParams.has('v') ? 'public, max-age=604800, immutable' : 'public, max-age=300',
+    },
+  });
+}
+
+/**
+ * The friend page with link-preview tags for whoever it belongs to.
+ *
+ * Chat apps and social sites read these without running any script, so they
+ * are written into the HTML here rather than by js/add.js. Only a name and a
+ * picture go out - exactly what anybody holding the link sees on the page.
+ */
+async function withFriendLinkPreview(page, env, url) {
+  if (!page.ok || typeof HTMLRewriter === 'undefined') return page;
+
+  const code = normalizeFriendCode(url.pathname.split('/')[2]);
+  const kv = getKvNamespace(env);
+  let name = null;
+  let version = null;
+  if (code && kv) {
+    const owner = await kv.get('friendcode:' + code);
+    if (owner) {
+      [name, version] = await Promise.all([
+        readPublicProfile(kv, owner).then((profile) => profile.name),
+        kv.get('friendcardv:' + code),
+      ]);
+    }
+  }
+
+  const pageUrl = new URL(url.pathname, url).toString();
+  const title = name ? name + ' wants to be friends on Astra' : 'A friend request on Astra';
+  const description = 'Open the link to accept and add ' + (name || 'them') + ' as a friend on Astra.';
+  const image = version
+    ? { url: new URL('/add/' + code + '/card.jpg?v=' + encodeURIComponent(version), url).toString(),
+        type: 'image/jpeg', width: FRIEND_CARD_WIDTH, height: FRIEND_CARD_HEIGHT }
+    : { url: new URL('/astrabannerfriends.png', url).toString(), type: 'image/png', width: 2400, height: 1350 };
+
+  const tags = [
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', 'Astra'],
+    ['property', 'og:url', pageUrl],
+    ['property', 'og:title', title],
+    ['property', 'og:description', description],
+    ['property', 'og:image', image.url],
+    ['property', 'og:image:secure_url', image.url],
+    ['property', 'og:image:type', image.type],
+    ['property', 'og:image:width', String(image.width)],
+    ['property', 'og:image:height', String(image.height)],
+    ['property', 'og:image:alt', title],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', title],
+    ['name', 'twitter:description', description],
+    ['name', 'twitter:image', image.url],
+    ['name', 'description', description],
+  ].map(([attr, key, value]) => '<meta ' + attr + '="' + key + '" content="' + escapeHtml(value) + '" />').join('\n');
+
+  const response = new HTMLRewriter()
+    .on('head', { element(head) { head.append(tags, { html: true }); } })
+    .transform(page);
+  const headers = new Headers(response.headers);
+  // Per code, and the name or picture can change: never cache one person's
+  // tags under another's URL.
+  headers.set('Cache-Control', 'no-cache');
+  return new Response(response.body, { status: response.status, headers });
+}
+
 /** Both directions, because a friendship only one side knows about is a bug. */
 async function linkFriends(kv, a, b) {
   if (!kv || a === b) return false;
@@ -898,11 +1007,50 @@ async function handleFriends(request, env) {
   const body = await request.json().catch(() => ({}));
   const action = String(body.action || '');
 
+  /*
+   * Your link preview card.
+   *
+   * Without an image, says which version is stored, so the page only draws
+   * and sends a new one when the picture has changed. With one, stores it.
+   * Only for somebody who already has a link: nobody else has a card to show.
+   */
+  if (action === 'card') {
+    const code = await kv.get('friendcodeof:' + user.id);
+    if (!code) return jsonResponse({ ok: false, linked: false });
+    if (!body.image) {
+      return jsonResponse({ ok: true, linked: true, version: await kv.get('friendcardv:' + code) });
+    }
+
+    const version = String(body.version || '');
+    const image = String(body.image || '');
+    const prefix = 'data:image/jpeg;base64,';
+    if (!FRIEND_CARD_VERSION_REGEX.test(version)) return jsonResponse({ error: 'Bad version' }, 400);
+    if (!image.startsWith(prefix) || image.length > FRIEND_CARD_MAX_CHARS) {
+      return jsonResponse({ error: 'Bad image' }, 400);
+    }
+    let bytes;
+    try {
+      bytes = Uint8Array.from(atob(image.slice(prefix.length)), (c) => c.charCodeAt(0));
+    } catch (_) {
+      return jsonResponse({ error: 'Bad image' }, 400);
+    }
+    // Served as image/jpeg, so it had better be one.
+    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+      return jsonResponse({ error: 'Bad image' }, 400);
+    }
+    await Promise.all([
+      kv.put('friendcard:' + code, bytes),
+      kv.put('friendcardv:' + code, version),
+    ]);
+    return jsonResponse({ ok: true, linked: true, version });
+  }
+
   // Your link. The same every time, so it is one read after the first ask.
+  // The card's stored version rides along, so the page can skip asking for it.
   if (action === 'link') {
     const code = await friendCodeFor(kv, user.id);
     if (!code) return jsonResponse({ error: 'Could not make a link.' }, 500);
-    return jsonResponse({ code });
+    return jsonResponse({ code, card: await kv.get('friendcardv:' + code) });
   }
 
   if (action === 'accept') {

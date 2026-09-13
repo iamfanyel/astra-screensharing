@@ -22,6 +22,9 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
 };
 
 http
@@ -44,16 +47,28 @@ http
       return handleApiPresence(req, res);
     }
 
+    // A friend link's preview card, as live: the stored one, or the plain art.
+    const cardMatch = url.pathname.match(/^\/add\/([A-Za-z0-9]{8})\/card\.jpg$/);
+    if (cardMatch) {
+      const card = loadDevFriends().cards[cardMatch[1].toUpperCase()];
+      if (!card) {
+        res.writeHead(302, { Location: '/astrabannerfriends.png' });
+        return res.end();
+      }
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' });
+      return res.end(Buffer.from(card.image, 'base64'));
+    }
+
     // A friend link, /add/K7QM3XPA: the same page for every code, as live.
     if (/^\/add\/[A-Za-z0-9]{8}\/?$/.test(url.pathname)) {
       if (url.pathname.endsWith('/')) {
         res.writeHead(301, { Location: url.pathname.slice(0, -1) + url.search });
         return res.end();
       }
-      return fs.readFile(path.join(ROOT, 'add', 'index.html'), (err, body) => {
+      return fs.readFile(path.join(ROOT, 'add', 'index.html'), 'utf8', (err, body) => {
         if (err) return send(res, 404, 'Not found');
         res.writeHead(200, { 'Content-Type': TYPES['.html'], 'Cache-Control': 'no-cache' });
-        res.end(body);
+        res.end(body.replace('</head>', devFriendPreviewTags(req, url) + '\n</head>'));
       });
     }
 
@@ -417,12 +432,13 @@ function loadDevFriends() {
       return {
         friends: data.friends || {},
         codes: data.codes || {},
+        cards: data.cards || {},
         invites: data.invites || {},
         presence: data.presence || {},
       };
     }
   } catch (_) {}
-  return { friends: {}, codes: {}, invites: {}, presence: {} };
+  return { friends: {}, codes: {}, cards: {}, invites: {}, presence: {} };
 }
 
 function saveDevFriends(data) {
@@ -494,17 +510,58 @@ function devCodeOwner(store, code) {
   return code && Object.prototype.hasOwnProperty.call(store.codes, code) ? store.codes[code] : null;
 }
 
-/** Somebody's code, made on first ask and kept for good. */
-function devFriendCodeFor(store, id) {
+/** Somebody's existing code, or null. */
+function devCodeOf(store, id) {
   for (const [code, owner] of Object.entries(store.codes)) {
     if (owner === id) return code;
   }
+  return null;
+}
+
+/** Somebody's code, made on first ask and kept for good. */
+function devFriendCodeFor(store, id) {
+  const existing = devCodeOf(store, id);
+  if (existing) return existing;
   let code;
   do {
     code = Array.from(crypto.randomBytes(8), (b) => FRIEND_CODE_ALPHABET[b % 32]).join('');
   } while (devCodeOwner(store, code));
   store.codes[code] = id;
   return code;
+}
+
+function devEscape(value) {
+  return String(value).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+/** The link-preview tags withFriendLinkPreview writes live, for a local look. */
+function devFriendPreviewTags(req, url) {
+  const origin = 'http://' + (req.headers.host || 'localhost:' + PORT);
+  const code = url.pathname.split('/')[2].toUpperCase();
+  const store = loadDevFriends();
+  const owner = devCodeOwner(store, code);
+  const name = owner ? devPublicProfile(owner).name : null;
+  const card = store.cards[code];
+  const title = name ? name + ' wants to be friends on Astra' : 'A friend request on Astra';
+  const description = 'Open the link to accept and add ' + (name || 'them') + ' as a friend on Astra.';
+  const image = card
+    ? origin + '/add/' + code + '/card.jpg?v=' + encodeURIComponent(card.version)
+    : origin + '/astrabannerfriends.png';
+  return [
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', 'Astra'],
+    ['property', 'og:url', origin + url.pathname],
+    ['property', 'og:title', title],
+    ['property', 'og:description', description],
+    ['property', 'og:image', image],
+    ['property', 'og:image:width', card ? '1200' : '2400'],
+    ['property', 'og:image:height', card ? '675' : '1350'],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', title],
+    ['name', 'twitter:image', image],
+  ].map(([attr, key, value]) => '<meta ' + attr + '="' + key + '" content="' + devEscape(value) + '" />').join('\n');
 }
 
 /** Invitations still inside their hour. */
@@ -572,10 +629,30 @@ async function handleApiFriends(req, res) {
   const body = await readJsonBody(req);
   const action = String(body.action || '');
 
+  if (action === 'card') {
+    const code = devCodeOf(store, user.id);
+    if (!code) return sendJson(res, 200, { ok: false, linked: false });
+    if (!body.image) {
+      return sendJson(res, 200, { ok: true, linked: true, version: store.cards[code] ? store.cards[code].version : null });
+    }
+    const version = String(body.version || '');
+    const image = String(body.image || '');
+    const prefix = 'data:image/jpeg;base64,';
+    if (!/^[a-z0-9.]{1,40}$/.test(version)) return sendJson(res, 400, { error: 'Bad version' });
+    if (!image.startsWith(prefix) || image.length > 400 * 1000) return sendJson(res, 400, { error: 'Bad image' });
+    const bytes = Buffer.from(image.slice(prefix.length), 'base64');
+    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+      return sendJson(res, 400, { error: 'Bad image' });
+    }
+    store.cards[code] = { version, image: bytes.toString('base64') };
+    saveDevFriends(store);
+    return sendJson(res, 200, { ok: true, linked: true, version });
+  }
+
   if (action === 'link') {
     const code = devFriendCodeFor(store, user.id);
     saveDevFriends(store);
-    return sendJson(res, 200, { code });
+    return sendJson(res, 200, { code, card: store.cards[code] ? store.cards[code].version : null });
   }
 
   if (action === 'accept') {

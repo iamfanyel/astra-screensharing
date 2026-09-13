@@ -109,7 +109,178 @@ window.AstraFriends = (function () {
     const answer = await ask('POST', { action: 'link' });
     if (!answer || !answer.code) return null;
     ownLink = new URL('/add/' + encodeURIComponent(answer.code), location.origin).toString();
+    // Whoever is about to share the link should have a preview card behind it.
+    // The answer already says which card is stored, so no second ask for that.
+    syncCard(answer.card || null);
     return ownLink;
+  }
+
+  /*
+   * The link preview card: the art from astrabannerfriends.png with your
+   * picture showing through its round hole, as chat apps show it when your
+   * link is pasted. Drawn here because this is where the picture decodes;
+   * the worker only stores and serves it.
+   */
+  const CARD_ART = '/astrabannerfriends.png';
+  /** Bump when the art or the layout below changes, so every card is redrawn. */
+  const CARD_DESIGN = 3;
+  const CARD_WIDTH = 1200;
+  const CARD_HEIGHT = 675;
+  // The hole in the art, measured on the 2400x1350 file: a circle spanning
+  // x 812-1589 and y 215-992. Halved for the card.
+  const CARD_HOLE = { x: 600.25, y: 301.75, r: 194.5 };
+  const CARD_SEEN_KEY = 'astra:friend-card';
+
+  let cardSyncing = false;
+  /** Asked for again while a sync was running: run once more when it ends. */
+  let cardSyncAgain = false;
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  /** A short hash, the same shape the worker's version check accepts. */
+  function fingerprint(text) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  /** The signed-in Discord user, or null. */
+  function discordUser() {
+    return window.AstraDiscord && window.AstraDiscord.getUser ? window.AstraDiscord.getUser() : null;
+  }
+
+  /** What the card shows: the picture, or null and the name its initial comes from. */
+  function cardSubject(user) {
+    const profile = window.AstraProfile;
+    const avatar = profile ? profile.getAvatar() : null;
+    const name = ((profile && profile.getName()) || (user && (user.global_name || user.username)) || 'Guest')
+      .trim()
+      .slice(0, 32);
+    return { avatar: avatar && profile.isAvatar(avatar) ? avatar : null, name };
+  }
+
+  function readSeenCard() {
+    try {
+      return JSON.parse(localStorage.getItem(CARD_SEEN_KEY) || 'null');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function rememberCard(account, version) {
+    try {
+      localStorage.setItem(CARD_SEEN_KEY, JSON.stringify({ account, version }));
+    } catch (_) {
+      /* private mode: it will just ask again next time */
+    }
+  }
+
+  async function drawCard(subject) {
+    const canvas = document.createElement('canvas');
+    canvas.width = CARD_WIDTH;
+    canvas.height = CARD_HEIGHT;
+    const ink = canvas.getContext('2d');
+    const [art, picture] = await Promise.all([
+      loadImage(CARD_ART),
+      subject.avatar ? loadImage(subject.avatar) : Promise.resolve(null),
+    ]);
+
+    ink.fillStyle = '#0e0e0e';
+    ink.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+    // A touch wider than the hole, so the art's anti-aliased rim lands on the
+    // picture rather than on the dark fill behind it.
+    const { x, y } = CARD_HOLE;
+    const r = CARD_HOLE.r + 3;
+    ink.save();
+    ink.beginPath();
+    ink.arc(x, y, r, 0, Math.PI * 2);
+    ink.clip();
+    if (picture) {
+      // Cover the circle, cropping the long side from the middle.
+      const scale = (r * 2) / Math.min(picture.width, picture.height);
+      const w = picture.width * scale;
+      const h = picture.height * scale;
+      ink.drawImage(picture, x - w / 2, y - h / 2, w, h);
+    } else {
+      // The same grey-and-initial the app draws for somebody without a picture.
+      let hash = 0;
+      for (const char of subject.name) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+      ink.fillStyle = 'hsl(0 0% ' + (32 + (hash % 20)) + '%)';
+      ink.fillRect(x - r, y - r, r * 2, r * 2);
+      ink.fillStyle = '#ffffff';
+      ink.font = '700 ' + Math.round(r * 0.95) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ink.textAlign = 'center';
+      ink.textBaseline = 'middle';
+      ink.fillText((subject.name.trim()[0] || '?').toUpperCase(), x, y + r * 0.04);
+    }
+    ink.restore();
+
+    ink.drawImage(art, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+    return canvas.toDataURL('image/jpeg', 0.88);
+  }
+
+  /**
+   * Make sure the stored card shows the current picture.
+   *
+   * Cheap when nothing changed: the version last confirmed for this account is
+   * remembered, so a matching one costs no request at all. Otherwise the server
+   * says what it holds - unless the caller already knows, as `inviteLink` does -
+   * and only a different one is drawn and sent. Somebody who has never made a
+   * link has no card to keep, and nothing is sent.
+   *
+   * `storedVersion` is what the server holds, when known: a version string, or
+   * null for no card yet. Leave it undefined to have it asked for.
+   */
+  async function syncCard(storedVersion) {
+    if (!available()) return;
+    if (cardSyncing) {
+      // The picture may have changed mid-sync; check again once this one ends.
+      cardSyncAgain = true;
+      return;
+    }
+
+    const user = discordUser();
+    const account = user && user.id ? String(user.id) : '';
+    const subject = cardSubject(user);
+    // The name only shows as the initial, so it only counts without a picture.
+    const version = CARD_DESIGN + '.' + fingerprint(subject.avatar || 'initial:' + subject.name);
+
+    const seen = readSeenCard();
+    if (seen && seen.account === account && seen.version === version) return;
+
+    cardSyncing = true;
+    try {
+      let current = storedVersion;
+      if (current === undefined) {
+        const status = await ask('POST', { action: 'card' });
+        if (!status || !status.linked) return;
+        current = status.version;
+      }
+      if (current !== version) {
+        const stored = await ask('POST', { action: 'card', version, image: await drawCard(subject) });
+        if (!stored || !stored.ok) return;
+      }
+      rememberCard(account, version);
+    } catch (_) {
+      // A card that could not be drawn leaves the plain art in its place.
+    } finally {
+      cardSyncing = false;
+      if (cardSyncAgain) {
+        cardSyncAgain = false;
+        syncCard();
+      }
+    }
   }
 
   /** Whose link a code is, before anything is agreed to. */
@@ -137,7 +308,7 @@ window.AstraFriends = (function () {
 
   return {
     available, state, presence, beat,
-    inviteLink, linkPreview, accept,
+    inviteLink, linkPreview, accept, syncCard,
     remove, inviteToRoom, dismiss,
   };
 })();

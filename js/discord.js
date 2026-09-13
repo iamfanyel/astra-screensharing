@@ -151,6 +151,11 @@ window.AstraDiscord = (function () {
         },
         body: JSON.stringify(patch),
       });
+      // A new picture (or, without one, a new initial) belongs on the friend
+      // link's preview card too. Costs nothing when the card already matches.
+      if (('avatar' in patch || 'name' in patch) && window.AstraFriends && window.AstraFriends.syncCard) {
+        window.AstraFriends.syncCard();
+      }
     } catch (err) {
       console.warn('[discord] Cloud profile sync failed:', err);
     }
