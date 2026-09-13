@@ -970,6 +970,16 @@
         refreshPeerTiles(e.detail.id);
       }
     });
+    // Our connection to this peer was replaced to match theirs; the old one's
+    // tracks are dead, so let the tiles pick up the new ones as they arrive.
+    state.mesh.addEventListener('reset', (e) => {
+      const id = e.detail.id;
+      state.remoteVideoTracks.delete(id);
+      state.remoteAudioTracks.delete(id);
+      state.remote.delete(id);
+      refreshPeerAudio(id);
+      refreshPeerTiles(id);
+    });
     state.mesh.addEventListener('connectionstate', (e) => {
       if (e.detail.state !== 'failed') return;
       const peer = state.signal.roster.get(e.detail.id);
@@ -2618,7 +2628,8 @@
   function syncTileLoading(tile) {
     if (!tile || !tile.loadingOverlay) return;
     const watching = state.peerWatching.get(tile.tileKey) === true;
-    const waiting = watching && !!tile.video.srcObject && !tile.video.videoWidth;
+    // No track yet counts as waiting: the tile is up before its frames are.
+    const waiting = watching && !tile.video.videoWidth;
     tile.loadingOverlay.hidden = !waiting;
   }
 
@@ -3521,6 +3532,37 @@
     updateEmptyState();
   }
 
+  /**
+   * Remove a peer's screen tile once their share has really stopped.
+   *
+   * Their flag already says it stopped. The frame count settles whether to
+   * believe it: still means it is over; moving means the share is running and
+   * the flag is stale, so the tile stays and is looked at again later.
+   */
+  const SHARE_STOP_SAMPLE_MS = 1200;
+  const SHARE_STALE_FLAG_RECHECK_MS = 5000;
+  const shareStopChecks = new Set();
+
+  async function confirmShareStopped(id, track) {
+    if (shareStopChecks.has(id) || !state.mesh) return;
+    shareStopChecks.add(id);
+    try {
+      const before = await state.mesh.framesReceived(id, track);
+      await new Promise((resolve) => setTimeout(resolve, SHARE_STOP_SAMPLE_MS));
+      const after = state.mesh ? await state.mesh.framesReceived(id, track) : null;
+      const peer = state.signal && state.signal.roster.get(id);
+      // Gone (peer-left cleans up) or sharing again (the tile is wanted).
+      if (!peer || peer.sharing) return;
+      if (before !== null && after !== null && after > before) {
+        setTimeout(() => refreshPeerTiles(id), SHARE_STALE_FLAG_RECHECK_MS);
+        return;
+      }
+      removeTile(tileKey(id, 'screen'));
+    } finally {
+      shareStopChecks.delete(id);
+    }
+  }
+
   /** Show remote tile(s) when that peer has live video, hide otherwise. */
   function refreshPeerTiles(id) {
     if (!state.signal || id === state.signal.selfId) return;
@@ -3636,21 +3678,18 @@
       }
     }
 
-    // Screen share tile
-    const screenTileKey = tileKey(id, 'screen');
-    // Frames outrank the flag. `sharing` is hearsay - it reaches here relayed
-    // through the hub, so it goes stale exactly when the hub is in trouble,
-    // and it goes stale for one person at a time. A track that is live and
-    // unmuted is this browser's own evidence that the share is still running,
-    // and tearing the tile down against it is how somebody's screen vanishes
-    // for a single viewer while everyone else still sees it.
+    // Screen share tile. Up the moment they say they are sharing, not when
+    // the first frame lands: connecting and decoding take a second or two, and
+    // a square that appears late reads as a room that is slow. Frames go in
+    // when they come.
     //
-    // Stopping properly still removes the tile: the sender parks its slot,
-    // which mutes the track at this end, and a muted track never reaches
-    // screenTrack in the first place.
-    if (!wantsSharing && !screenTrack) {
-      removeTile(screenTileKey);
-    } else if (screenTrack) {
+    // Taking it down is the careful half. `sharing` is relayed through the hub
+    // and can go stale for one viewer, and the track cannot settle it - Chrome
+    // leaves a stopped share's track live and unmuted here. So a tile that has
+    // a track is only removed once its frames have stopped too; see
+    // confirmShareStopped.
+    const screenTileKey = tileKey(id, 'screen');
+    if (wantsSharing) {
       const screenTitle = `${peerName}'s Screen`;
       const screenTile = tileFor(screenTileKey, screenTitle, id, 'screen');
       if (screenTile.nameText) {
@@ -3660,15 +3699,17 @@
       }
       screenTile.root.classList.remove('is-camera', 'user-tile');
       screenTile.root.classList.add('screen-tile');
-      screenTile.screenTrack = screenTrack;
+      if (screenTrack) screenTile.screenTrack = screenTrack;
       const { screenAudioTrack } = resolvePeerAudioTracks(id);
       screenTile.screenAudioTrack = screenAudioTrack;
       if (screenTile.updateVolumeUI) screenTile.updateVolumeUI();
       const isWatching = state.peerWatching.get(screenTileKey) === true;
       setTileWatching(screenTileKey, isWatching);
+    } else if (screenTrack && state.tiles.has(screenTileKey)) {
+      confirmShareStopped(id, screenTrack);
+    } else {
+      removeTile(screenTileKey);
     }
-    // Still sharing but nothing showable yet - a stalled or still-arriving
-    // track. Leave whatever tile is there rather than destroying it.
 
     // Clean up legacy tiles if any
     removeTile(tileKey(id, 'camera'));

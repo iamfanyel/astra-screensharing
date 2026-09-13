@@ -67,6 +67,17 @@
     return { type: description.type, sdp: withStartBitrate(description.sdp, startKbps) };
   }
 
+  /**
+   * The DTLS certificate fingerprint a description was made with, or null.
+   *
+   * Every RTCPeerConnection makes its own certificate, so a different one in an
+   * offer means the far end threw its connection away and started a new one.
+   */
+  function fingerprintOf(sdp) {
+    const match = /^a=fingerprint:(.+)$/m.exec(sdp || '');
+    return match ? match[1].trim() : null;
+  }
+
   function plainCandidate(candidate) {
     if (typeof candidate.toJSON === 'function') return candidate.toJSON();
     return {
@@ -217,6 +228,30 @@
         .filter((track) => track && track.kind === 'video' && track.readyState === 'live');
     }
 
+    /**
+     * Frames received so far on the receiver carrying `track`, or null.
+     *
+     * The honest test of whether a share is still running: a parked sender
+     * leaves the far track looking live and unmuted in Chrome, but this count
+     * stops moving the moment frames do.
+     */
+    async framesReceived(id, track) {
+      const peer = this.peers.get(id);
+      if (!peer || !track) return null;
+      const receiver = peer.pc.getReceivers().find((r) => r.track === track);
+      if (!receiver) return null;
+      try {
+        for (const report of (await receiver.getStats()).values()) {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            return typeof report.framesReceived === 'number' ? report.framesReceived : null;
+          }
+        }
+      } catch (_) {
+        /* closed mid-read */
+      }
+      return null;
+    }
+
     /** Swap what everybody receives from us. Pass null to publish nothing. */
     setLocalStream(stream) {
       this.localStream = stream;
@@ -349,7 +384,22 @@
     /** Handle one signalling blob from `from`. */
     async handleSignal(from, data) {
       if (!data) return;
-      const peer = this.peers.get(from) || this.add(from);
+      let peer = this.peers.get(from) || this.add(from);
+
+      // The far end rebuilt its connection to us - it saw us leave and come
+      // back, or reloaded - while ours is still the old one. The old one can
+      // never accept that offer (a new certificate needs a new transport), and
+      // media between us would stay dead until somebody refreshed. Start
+      // fresh to match; the new connection answers this offer.
+      if (data.description && data.description.type === 'offer' && peer.pc.remoteDescription) {
+        const incoming = fingerprintOf(data.description.sdp);
+        const known = fingerprintOf(peer.pc.remoteDescription.sdp);
+        if (incoming && known && incoming !== known) {
+          this.remove(from);
+          peer = this.add(from);
+          this.emit('reset', { id: from });
+        }
+      }
       const { pc } = peer;
 
       try {

@@ -16,6 +16,18 @@
   const JOIN_TIMEOUT_MS = 20000;
   const HEARTBEAT_INTERVAL_MS = 3000;
   const HEARTBEAT_TIMEOUT_MS = 25000;
+  /**
+   * How long the hub keeps a member whose data connection closed before
+   * telling the room they left.
+   *
+   * A blip on one member's link closes that connection, and the member comes
+   * straight back as a rejoin. Dropping them at once made everybody else tear
+   * down their media connection to that person - their screen and camera
+   * vanished for the whole room over a hiccup only one link had.
+   */
+  const REJOIN_GRACE_MS = 8000;
+  /** The least time between two attempts to get back to the same host. */
+  const QUIET_REJOIN_SPACING_MS = 2000;
   const BROKER_RECONNECT_TIMEOUT_MS = 25000;
 
   /** How often the host renews its claim. Must be well inside the lease. */
@@ -162,6 +174,15 @@
     return out;
   }
 
+  /** A roster entry handed to us by the hub, made safe to keep. */
+  function checkedPeer(p) {
+    // The hub is just another browser: check what it hands us.
+    if (!window.AstraProfile.isAvatar(p.avatar)) p.avatar = null;
+    if (!window.AstraProfile.isBanner(p.banner)) p.banner = null;
+    if (!Array.isArray(p.watching)) p.watching = [];
+    return p;
+  }
+
   class Signal extends EventTarget {
     constructor() {
       super();
@@ -176,6 +197,7 @@
       this._hubListening = false;
       this._heartbeatInterval = null;
       this._memberLastSeen = new Map(); // hub only: member id -> timestamp
+      this._rejoinTimers = new Map(); // hub only: member id -> pending drop
       this._hostLastSeen = 0; // member only: timestamp of last message from host
       this._brokerDisconnectTimer = null;
       this._reconnectTimer = null;
@@ -395,6 +417,7 @@
           Object.assign(member, statePatch(metadata));
         }
 
+        this._cancelRejoinTimer(member.id);
         this.conns.set(member.id, conn);
         this.roster.set(member.id, member);
         this._memberLastSeen.set(member.id, Date.now());
@@ -414,8 +437,33 @@
       });
 
       conn.on('data', (msg) => this._onHubData(conn, msg));
-      conn.on('close', () => this._dropMember(conn.peer));
-      conn.on('error', () => this._dropMember(conn.peer));
+      conn.on('close', () => this._memberConnectionLost(conn));
+      conn.on('error', () => this._memberConnectionLost(conn));
+    }
+
+    /**
+     * A member's connection to us went away. Give them REJOIN_GRACE_MS to come
+     * back before the room hears they left - see the constant.
+     */
+    _memberConnectionLost(conn) {
+      const id = conn.peer;
+      // Only the connection we are actually using counts: a rejoin replaces
+      // it, and the old one closing afterwards is not news.
+      if (this.left || this.conns.get(id) !== conn || this._rejoinTimers.has(id)) return;
+      this._rejoinTimers.set(id, setTimeout(() => {
+        this._rejoinTimers.delete(id);
+        if (this.conns.get(id) === conn) this._dropMember(id);
+      }, REJOIN_GRACE_MS));
+    }
+
+    _cancelRejoinTimer(id) {
+      clearTimeout(this._rejoinTimers.get(id));
+      this._rejoinTimers.delete(id);
+    }
+
+    _cancelRejoinTimers() {
+      for (const timer of this._rejoinTimers.values()) clearTimeout(timer);
+      this._rejoinTimers.clear();
     }
 
     kick(targetId) {
@@ -485,6 +533,7 @@
     }
 
     _dropMember(id, reason = 'left') {
+      this._cancelRejoinTimer(id);
       if (!this.conns.has(id) && !this.roster.has(id)) return;
       const member = this.roster.get(id);
       const name = member ? member.name : 'A participant';
@@ -654,13 +703,7 @@
       this.code = welcome.code;
       this.selfId = welcome.selfId;
       this.hostId = welcome.hostId;
-      for (const p of welcome.peers) {
-        // The hub is just another browser: check what it hands us.
-        if (!window.AstraProfile.isAvatar(p.avatar)) p.avatar = null;
-        if (!window.AstraProfile.isBanner(p.banner)) p.banner = null;
-        if (!Array.isArray(p.watching)) p.watching = [];
-        this.roster.set(p.id, p);
-      }
+      for (const p of welcome.peers) this.roster.set(p.id, checkedPeer(p));
       const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
       this.roster.set(this.selfId, newMember(this.selfId, name, false, selfDev));
       this._hostLastSeen = Date.now();
@@ -736,6 +779,44 @@
         case 'migrate-host':
           this._handleHostMigration(msg.newHostId, msg.oldHostId);
           break;
+        case 'welcome':
+          // Only after a reconnect: the first welcome is taken by join().
+          this._applyWelcome(msg);
+          break;
+      }
+    }
+
+    /**
+     * Bring the roster in line with the host's, after reconnecting to one.
+     *
+     * The host is the authority on who is in the room, and whoever we missed
+     * while away - somebody who joined, or left, or the host itself if we had
+     * dropped it - would otherwise stay missing until a reload. Everybody
+     * already known keeps their entry and just takes the host's flags.
+     */
+    _applyWelcome(msg) {
+      if (msg.hostId) this.hostId = msg.hostId;
+      const incoming = new Map();
+      for (const p of Array.isArray(msg.peers) ? msg.peers : []) {
+        if (!p || typeof p.id !== 'string' || p.id === this.selfId) continue;
+        incoming.set(p.id, checkedPeer(p));
+      }
+
+      for (const [id, member] of Array.from(this.roster)) {
+        if (id === this.selfId || incoming.has(id)) continue;
+        this.roster.delete(id);
+        this.emit('peer-left', { id, name: member.name, reason: 'left' });
+      }
+
+      for (const [id, p] of incoming) {
+        const known = this.roster.get(id);
+        if (known) {
+          Object.assign(known, p);
+          this.emit('peer-state', { id, patch: p });
+        } else {
+          this.roster.set(id, p);
+          this.emit('peer-joined', { peer: p });
+        }
       }
     }
 
@@ -745,23 +826,10 @@
       const oldHostId = this.hostId;
       if (oldHostId === this.selfId) return; // Self is already host, ignore
 
-      let oldHostName = 'The host';
-      if (oldHostId && this.roster.has(oldHostId)) {
-        const oldHost = this.roster.get(oldHostId);
-        if (oldHost) oldHostName = oldHost.name;
-        this.roster.delete(oldHostId);
-        this.emit('peer-left', { id: oldHostId, name: oldHostName, reason });
-      }
-
       // Ensure self is in roster
       if (!this.roster.has(this.selfId)) {
         const selfDev = !!(window.AstraDiscord && window.AstraDiscord.isDev());
         this.roster.set(this.selfId, newMember(this.selfId, 'Guest', false, selfDev));
-      }
-
-      if (this.roster.size === 0) {
-        this.emit('closed', { reason: 'All participants have left the room.' });
-        return;
       }
 
       // One search at a time. Several things can notice the host is gone at
@@ -769,7 +837,7 @@
       // to be there - and each starting its own would have them racing.
       if (this._findingHost) return;
       this._findingHost = true;
-      this._findNextHost(oldHostId).then(
+      this._findNextHost(oldHostId, reason).then(
         () => { this._findingHost = false; },
         () => { this._findingHost = false; },
       );
@@ -788,13 +856,32 @@
      * The old election is still here, for when the lease cannot be reached at
      * all. It is a guess, but a guess beats giving up.
      */
-    async _findNextHost(oldHostId) {
+    async _findNextHost(oldHostId, reason = 'left') {
       const answer = await hostLease('host', this.code, null);
       if (this.left || this.isHub) return;
 
-      if (answer && answer.hostId && answer.hostId !== oldHostId) {
-        if (answer.hostId === this.selfId) this._promoteToHub();
-        else this._handleHostMigration(answer.hostId, oldHostId);
+      // Still hosting: only our link to them broke. Go back to the same host
+      // without telling the room anybody left - that is what used to make a
+      // host's screen vanish for one person, for good, over a blip.
+      if (answer && answer.hostId && answer.hostId === oldHostId) {
+        // Back-to-back tries mean the host is not answering even though its
+        // lease has not run out yet; pace them until it does or it answers.
+        if (Date.now() - (this._lastQuietRejoin || 0) < QUIET_REJOIN_SPACING_MS) {
+          await new Promise((resolve) => setTimeout(resolve, QUIET_REJOIN_SPACING_MS));
+          if (this.left || this.isHub) return;
+        }
+        this._lastQuietRejoin = Date.now();
+        this._reconnectToNewHost(oldHostId, { quiet: true });
+        return;
+      }
+
+      if (answer && answer.hostId) {
+        if (answer.hostId === this.selfId) {
+          this._dropOldHost(oldHostId, reason);
+          this._promoteToHub();
+        } else {
+          this._handleHostMigration(answer.hostId, oldHostId);
+        }
         return;
       }
 
@@ -804,6 +891,7 @@
         const claim = await hostLease('claim', this.code, this.selfId);
         if (this.left || this.isHub) return;
         if (claim && claim.ok) {
+          this._dropOldHost(oldHostId, reason);
           this._promoteToHub();
           return;
         }
@@ -813,12 +901,21 @@
         }
       }
 
+      this._dropOldHost(oldHostId, reason);
       this._electFromRoster(oldHostId);
+    }
+
+    /** Tell the room a host that is really gone has left. */
+    _dropOldHost(oldHostId, reason) {
+      if (!oldHostId || oldHostId === this.selfId || !this.roster.has(oldHostId)) return;
+      const oldHost = this.roster.get(oldHostId);
+      this.roster.delete(oldHostId);
+      this.emit('peer-left', { id: oldHostId, name: oldHost ? oldHost.name : 'The host', reason });
     }
 
     /** The old way: lowest id wins. Only when there is no lease to ask. */
     _electFromRoster(oldHostId) {
-      const remaining = Array.from(this.roster.values());
+      const remaining = Array.from(this.roster.values()).filter((peer) => peer.id !== oldHostId);
       if (remaining.length === 0) {
         this.emit('closed', { reason: 'All participants have left the room.' });
         return;
@@ -940,7 +1037,8 @@
         try { conn.close(); } catch (_) {}
       }
       this.conns.clear();
-      if (this._memberLastSeen) this._memberLastSeen.clear();
+      this._memberLastSeen.clear();
+      this._cancelRejoinTimers();
       if (this._gatewayPeer) {
         try { this._gatewayPeer.destroy(); } catch (_) {}
         this._gatewayPeer = null;
@@ -949,7 +1047,13 @@
       this._reconnectToNewHost(hostId);
     }
 
-    _reconnectToNewHost(newHostId) {
+    /**
+     * Connect to `newHostId` as a returning member.
+     *
+     * `quiet` is for going back to the host we already had: nothing changed
+     * for the room, so there is no "is now the room host" to announce.
+     */
+    _reconnectToNewHost(newHostId, { quiet = false } = {}) {
       this.isHub = false;
       this.hostId = newHostId;
       // Watched by the broker's error handler: if nothing answers at this id,
@@ -989,10 +1093,19 @@
         conn.on('open', () => {
           this.conn = conn;
           this._reachingFor = null;
-          // The new host received flags in the metadata but no pictures, so
-          // send those on now that a data channel exists.
-          if (me && (me.avatar || me.banner)) {
-            this.setState({ avatar: me.avatar || null, banner: me.banner || null });
+          // The metadata carried only what fits through the broker. Send the
+          // rest - pictures, and which track is the screen or the camera - so
+          // a host that had to take us back as a newcomer knows it all again.
+          if (me) {
+            this.setState({
+              avatar: me.avatar || null,
+              banner: me.banner || null,
+              camera: !!me.camera,
+              screenTrackId: me.screenTrackId || null,
+              cameraTrackId: me.cameraTrackId || null,
+              screenAudioTrackId: me.screenAudioTrackId || null,
+              watching: Array.isArray(me.watching) ? me.watching : [],
+            });
           }
         });
 
@@ -1014,6 +1127,7 @@
 
       setTimeout(connectToHost, 350);
 
+      if (quiet) return;
       const newHost = this.roster.get(newHostId);
       this.emit('host-changed', { hostId: newHostId, hostName: newHost ? newHost.name : 'A participant' });
     }
@@ -1186,6 +1300,7 @@
       }
       this.left = true;
       this._stopHeartbeat();
+      this._cancelRejoinTimers();
       if (this._brokerDisconnectTimer) {
         clearTimeout(this._brokerDisconnectTimer);
         this._brokerDisconnectTimer = null;
