@@ -2397,10 +2397,10 @@ button.tag-danger:hover {
   cursor: grabbing;
 }
 
-/* A circular hole: the huge spread is clipped by the stage's overflow. */
+/* A circular hole: the huge spread is clipped by the stage's overflow. Its
+   inset comes from MASK_INSET in js/profile.js, which also sizes the crop. */
 .editor-mask {
   position: absolute;
-  inset: 12px;
   border-radius: 50%;
   box-shadow: 0 0 0 999px rgba(12, 12, 12, 0.66);
   pointer-events: none;

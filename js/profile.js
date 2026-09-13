@@ -13,6 +13,15 @@
   const AVATAR_KEY = 'astra:avatar';
   const SIZE = 256;
   const PREVIEW = 240; // the editor canvas, in CSS pixels
+  /**
+   * How far the round hole sits inside the editor canvas, in CSS pixels.
+   *
+   * The circle is the picture: what is inside it is what gets saved and what
+   * everybody sees, so it - not the square canvas around it - is what the
+   * picture has to cover. Set on the mask from here so the two cannot drift.
+   */
+  const MASK_INSET = 12;
+  const CIRCLE = PREVIEW - MASK_INSET * 2;
   const MAX_LENGTH = 45000; // data URL characters, allowing crisp 256px avatars
 
   function getName() {
@@ -123,6 +132,30 @@
   }
 
   /**
+   * Keep the picture over the whole circle, so the saved picture never shows
+   * the backdrop.
+   *
+   * A circle looks the same at every angle, so turning the picture needs no
+   * extra size - unlike covering a square, whose corners swing out. Written
+   * in the picture's own turned frame, the circle's centre may move until the
+   * circle touches an edge: `halfW - radius` one way, `halfH - radius` the
+   * other.
+   */
+  function clampCircleOffset(view, pictureW, pictureH, diameter) {
+    const radians = (view.rotation * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const radius = diameter / 2;
+    const maxU = Math.max(0, pictureW / 2 - radius);
+    const maxV = Math.max(0, pictureH / 2 - radius);
+    // Into the picture's frame, pinned there, and back out.
+    const u = Math.max(-maxU, Math.min(maxU, view.x * cos + view.y * sin));
+    const v = Math.max(-maxV, Math.min(maxV, -view.x * sin + view.y * cos));
+    view.x = u * cos - v * sin;
+    view.y = u * sin + v * cos;
+  }
+
+  /**
    * Hold the picture over the whole frame, so dragging can never expose the
    * backdrop behind it.
    *
@@ -172,15 +205,19 @@
     const bitmap = await createImageBitmap(file);
 
     const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
-    // Zoom 1 means "just covers", recomputed as the picture turns.
-    const baseScale = () =>
-      coverScale(bitmap.width, bitmap.height, PREVIEW, PREVIEW, view.rotation);
+    // Zoom 1 means the short side just spans the circle, at any rotation.
+    const baseScale = () => CIRCLE / Math.min(bitmap.width, bitmap.height);
 
     const ui = buildEditor();
     const ctx = ui.canvas.getContext('2d');
 
-    function draw(target, size) {
-      const k = size / PREVIEW;
+    /**
+     * Paint the view. `span` is how many preview pixels the target covers: the
+     * whole canvas for the preview, only the circle's square for the picture
+     * that is saved - so the save is exactly what the hole showed.
+     */
+    function draw(target, size, span) {
+      const k = size / span;
       target.clearRect(0, 0, size, size);
       target.fillStyle = '#161616';
       target.fillRect(0, 0, size, size);
@@ -199,8 +236,8 @@
     /** Re-pin the picture, then repaint. Every control goes through here. */
     const render = () => {
       const scale = baseScale() * view.zoom;
-      clampOffset(view, bitmap.width * scale, bitmap.height * scale, PREVIEW, PREVIEW);
-      draw(ctx, PREVIEW);
+      clampCircleOffset(view, bitmap.width * scale, bitmap.height * scale, CIRCLE);
+      draw(ctx, PREVIEW, PREVIEW);
     };
     render();
 
@@ -271,7 +308,7 @@
         const out = document.createElement('canvas');
         out.width = SIZE;
         out.height = SIZE;
-        draw(out.getContext('2d'), SIZE);
+        draw(out.getContext('2d'), SIZE, CIRCLE);
         const url = encode(out);
         if (url) return close(url);
         ui.error.textContent = 'That picture will not compress small enough. Try another one.';
@@ -312,7 +349,7 @@
       '<h2>Adjust your picture</h2>' +
       '<div class="editor-stage">' +
       '<canvas width="' + PREVIEW + '" height="' + PREVIEW + '"></canvas>' +
-      '<div class="editor-mask"></div>' +
+      '<div class="editor-mask" style="inset: ' + MASK_INSET + 'px"></div>' +
       '</div>' +
       '<label class="menu-row"><span>Size</span>' +
       '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
