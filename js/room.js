@@ -265,6 +265,9 @@
     focused: null,
   };
 
+  /** A 1x1 transparent GIF, for video posters that should show nothing. */
+  const TRANSPARENT_POSTER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
   // ---------------------------------------------------------------- the gate
 
   el.gateName.value = AstraProfile.getName();
@@ -3127,6 +3130,10 @@
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true; // audio plays through a separate element, never twice
+    // Android's WebView draws a grey play-button placeholder on any video with
+    // no frame to show - for an instant each time a camera or share starts or
+    // stops. A transparent poster replaces that placeholder with nothing.
+    video.poster = TRANSPARENT_POSTER;
     root.appendChild(video);
 
     let audio = null;
