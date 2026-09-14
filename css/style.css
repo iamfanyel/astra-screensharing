@@ -3208,7 +3208,7 @@ body.sidebar-hidden .toasts {
   .topbar {
     gap: 8px;
     padding: calc(8px + var(--sat)) 10px 8px;
-    min-height: calc(48px + var(--sat));
+    min-height: calc(54px + var(--sat));
   }
 
   .topbar-side {
@@ -3216,44 +3216,49 @@ body.sidebar-hidden .toasts {
   }
 
   .topbar-left .brand-mark.small {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     margin-left: 2px;
   }
 
   .topbar-left .chip {
-    padding: 4px 8px;
-    height: 30px;
-    font-size: 12px;
+    padding: 4px 10px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .topbar-left .chip .chip-icon {
+    width: 17px;
+    height: 17px;
   }
 
   .topbar-left .chip-icon-btn {
-    width: 30px;
+    width: 36px;
     padding: 0;
   }
 
   .topbar-left .chip-icon-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 19px;
+    height: 19px;
   }
 
   .topbar-right {
     width: auto;
-    gap: 4px;
+    gap: 5px;
   }
 
   .topbar-right .chip-icon-btn {
-    width: 30px;
-    height: 30px;
+    width: 36px;
+    height: 36px;
   }
 
   .topbar-right .chip-icon-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 19px;
+    height: 19px;
   }
 
   .topbar-menu {
-    top: calc(52px + var(--sat));
+    top: calc(58px + var(--sat));
     right: 8px;
   }
 
@@ -5216,36 +5221,38 @@ button.tag-invite:disabled:hover {
   }
 
   .topbar-right .chip-icon-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
   }
 
   .topbar-right .chip-icon-btn svg {
-    width: 15px;
-    height: 15px;
+    width: 17px;
+    height: 17px;
   }
 
   .topbar-left .chip {
-    padding: 4px 6px;
-    gap: 4px;
+    padding: 4px 8px;
+    height: 32px;
+    gap: 5px;
+    font-size: 13px;
   }
 
   .topbar-left .chip-icon-btn {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     padding: 0;
-    border-radius: 8px;
+    border-radius: 9px;
   }
 
   .topbar-left .chip-icon-btn svg {
-    width: 15px;
-    height: 15px;
+    width: 17px;
+    height: 17px;
   }
 
-  .chip-icon {
-    width: 13px;
-    height: 13px;
+  .topbar-left .chip .chip-icon {
+    width: 15px;
+    height: 15px;
   }
 }
 
