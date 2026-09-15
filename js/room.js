@@ -857,6 +857,13 @@
       selfId: signal.selfId,
       signal,
       iceServers: window.ASTRA.iceServers,
+      roleOf: (track) => {
+        if (track === state.videoTrack) return 'screen';
+        if (track === state.cameraTrack) return 'camera';
+        if (track === state.screenAudioTrack) return 'screen-audio';
+        if (state.mixer && track === state.mixer.track) return 'voice';
+        return null;
+      },
     });
     state.mesh.setLocalStream(state.localStream);
 
@@ -972,6 +979,11 @@
         refreshPeerAudio(e.detail.id);
         refreshPeerTiles(e.detail.id);
       }
+    });
+    // The peer said which of its slots carries what.
+    state.mesh.addEventListener('roles', (e) => {
+      refreshPeerAudio(e.detail.id);
+      refreshPeerTiles(e.detail.id);
     });
     // Our connection to this peer was replaced to match theirs; the old one's
     // tracks are dead, so let the tiles pick up the new ones as they arrive.
@@ -2634,6 +2646,42 @@
     // No track yet counts as waiting: the tile is up before its frames are.
     const waiting = watching && !tile.video.videoWidth;
     tile.loadingOverlay.hidden = !waiting;
+
+    if (!waiting) {
+      clearTimeout(tile.stallTimer);
+      tile.stallTimer = null;
+    } else if (!tile.stallTimer) {
+      tile.stallTimer = setTimeout(() => recoverStalledTile(tile), STALL_RECOVER_MS);
+    }
+  }
+
+  /**
+   * A share that has spun for this long is not coming by itself.
+   *
+   * What a refresh used to fix: the connection to that one person is stuck -
+   * a negotiation that never finished, a path that never opened - while
+   * everything else in the room is fine. Rebuild just that connection; the
+   * far end sees the new one and rebuilds its side to match (see
+   * handleSignal in mesh.js). Not more often than STALL_RETRY_MS per person,
+   * so a peer that genuinely cannot be reached is not hammered.
+   */
+  const STALL_RECOVER_MS = 10000;
+  const STALL_RETRY_MS = 30000;
+  const lastStallRecovery = new Map();
+
+  function recoverStalledTile(tile) {
+    tile.stallTimer = null;
+    if (state.tiles.get(tile.tileKey) !== tile || !state.mesh) return;
+    if (state.peerWatching.get(tile.tileKey) !== true || tile.video.videoWidth) return;
+    const id = tile.peerId;
+    const now = Date.now();
+    if (now - (lastStallRecovery.get(id) || 0) >= STALL_RETRY_MS) {
+      lastStallRecovery.set(id, now);
+      console.warn('[astra] share from ' + id + ' stalled; rebuilding that connection');
+      state.mesh.restart(id);
+    }
+    // Keep watching: if this did not do it, the next try comes round.
+    tile.stallTimer = setTimeout(() => recoverStalledTile(tile), STALL_RECOVER_MS);
   }
 
   function setTileWatching(tileKey, isWatching) {
@@ -3570,34 +3618,12 @@
     }
   }
 
-  /** Show remote tile(s) when that peer has live video, hide otherwise. */
-  function refreshPeerTiles(id) {
-    if (!state.signal || id === state.signal.selfId) return;
-    const peer = state.signal.roster.get(id);
-    if (!peer) {
-      for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
-      removeTile(id);
-      updateEmptyState();
-      return;
-    }
-    const peerName = peer.name || 'Guest';
-    const isHost = !!peer.host;
-    const isMuted = peer.mic === false;
-    const isDeafened = !!peer.deafened;
-
-    // 1. User square for peer (always present while peer in room)
-    const userKey = tileKey(id, 'user');
-    const userTile = tileFor(userKey, peerName, id, 'user');
-    userTile.root.classList.add('user-tile');
-    userTile.root.classList.remove('self');
-    const isSpeaking = state.speakingPeers.has(id);
-    userTile.root.classList.toggle('is-speaking', isSpeaking);
-    if (userTile.avatar) {
-      AstraProfile.paint(userTile.avatar, peerName, peer.avatar);
-    }
-    applyUserTileColor(userTile, peerName, peer.avatar);
-    updateTileUserBadge(userTile, peerName, isHost, isMuted, isDeafened);
-
+  /**
+   * Which of a peer's video tracks is the screen and which the camera, worked
+   * out from the tracks and their flags - for a peer on an older build that
+   * does not announce its slots. See Mesh#tracksByRole for the exact way.
+   */
+  function guessPeerVideoTracks(id, peer) {
     const trackSet = getOrCreateTrackSet(state.remoteVideoTracks, id);
     const stream = state.remote.get(id);
     if (stream) {
@@ -3671,6 +3697,48 @@
       }
     }
 
+    return { screenTrack, cameraTrack };
+  }
+
+  /** Show remote tile(s) when that peer has live video, hide otherwise. */
+  function refreshPeerTiles(id) {
+    if (!state.signal || id === state.signal.selfId) return;
+    const peer = state.signal.roster.get(id);
+    if (!peer) {
+      for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
+      removeTile(id);
+      updateEmptyState();
+      return;
+    }
+    const peerName = peer.name || 'Guest';
+    const isHost = !!peer.host;
+    const isMuted = peer.mic === false;
+    const isDeafened = !!peer.deafened;
+
+    // 1. User square for peer (always present while peer in room)
+    const userKey = tileKey(id, 'user');
+    const userTile = tileFor(userKey, peerName, id, 'user');
+    userTile.root.classList.add('user-tile');
+    userTile.root.classList.remove('self');
+    const isSpeaking = state.speakingPeers.has(id);
+    userTile.root.classList.toggle('is-speaking', isSpeaking);
+    if (userTile.avatar) {
+      AstraProfile.paint(userTile.avatar, peerName, peer.avatar);
+    }
+    applyUserTileColor(userTile, peerName, peer.avatar);
+    updateTileUserBadge(userTile, peerName, isHost, isMuted, isDeafened);
+
+    const wantsSharing = !!peer.sharing;
+    const wantsCamera = !!peer.camera;
+
+    // The peer's own word on which slot is which, when it has given it. Taken
+    // even while muted: the frames are on their way, and the spinner covers
+    // the wait.
+    const byRole = state.mesh ? state.mesh.tracksByRole(id) : null;
+    const { screenTrack, cameraTrack } = byRole
+      ? { screenTrack: byRole.screen, cameraTrack: byRole.camera }
+      : guessPeerVideoTracks(id, peer);
+
     // Camera attached to user square
     if (cameraTrack && wantsCamera) {
       userTile.root.classList.add('has-camera');
@@ -3743,6 +3811,7 @@
       tile.audio.srcObject = null;
       tile.audio.remove();
     }
+    clearTimeout(tile.stallTimer);
     tile.video.srcObject = null;
     tile.slot.remove();
     state.tiles.delete(tileKey);
@@ -3923,6 +3992,14 @@
   // -------------------------------------------------------------- remote audio
 
   function resolvePeerAudioTracks(id) {
+    // Announced by the peer: exact, and no guessing below needed.
+    const byRole = state.mesh ? state.mesh.tracksByRole(id) : null;
+    if (byRole) {
+      if (byRole.voice) state.peerVoiceTracks.set(id, byRole.voice);
+      else state.peerVoiceTracks.delete(id);
+      return { voiceTrack: byRole.voice, screenAudioTrack: byRole['screen-audio'] };
+    }
+
     const trackSet = getOrCreateTrackSet(state.remoteAudioTracks, id);
     const stream = state.remote.get(id);
     if (stream) {
@@ -4028,6 +4105,7 @@
   el.enableAudio.addEventListener('click', resumeAllAudio);
 
   function dropPeerMedia(id) {
+    lastStallRecovery.delete(id);
     for (const kind of TILE_KINDS) removeTile(tileKey(id, kind));
     removeTile(id);
     state.remoteVideoTracks.delete(id);

@@ -95,10 +95,16 @@
    */
   const DISCONNECT_GRACE_MS = 4000;
 
+  /** What a slot can be announced as carrying. Anything else is ignored. */
+  const ROLES = ['screen', 'camera', 'screen-audio', 'voice'];
+
   class Mesh extends EventTarget {
-    constructor({ selfId, signal, iceServers }) {
+    constructor({ selfId, signal, iceServers, roleOf }) {
       super();
       this.selfId = selfId;
+      // What a local track is for - 'screen', 'camera', 'screen-audio',
+      // 'voice' - or null. Announced per connection; see _announceRoles.
+      this.roleOf = typeof roleOf === 'function' ? roleOf : () => null;
       this.signal = signal;
       this.iceServers = iceServers;
       this.peers = new Map(); // id -> peer record
@@ -140,6 +146,14 @@
         boundTracks: new WeakSet(),
         recoverTimer: null,
         closed: false,
+        // What each of our slots carries, as last told to this peer.
+        sentRoles: null,
+        // What each of theirs carries, keyed by transceiver mid; null until a
+        // peer running this build says.
+        remoteRoles: null,
+        // Named a mid we had no transceiver for yet, so the next completed
+        // negotiation is worth telling the room about.
+        rolesPending: false,
       };
       this.peers.set(id, peer);
       // One more person to send to, so everyone's share of the uplink shrinks.
@@ -150,6 +164,8 @@
           peer.makingOffer = true;
           await pc.setLocalDescription();
           this.signal.send(id, { description: plainDescription(pc.localDescription, this._videoBitrate() / 1000) });
+          // New slots have mids now.
+          this._announceRoles(peer);
         } catch (err) {
           console.warn('[mesh] negotiation failed', err);
         } finally {
@@ -226,6 +242,33 @@
         .getReceivers()
         .map((receiver) => receiver.track)
         .filter((track) => track && track.kind === 'video' && track.readyState === 'live');
+    }
+
+    /**
+     * What this peer is sending, by role - `{ screen, camera, voice,
+     * 'screen-audio' }`, each a live track or null - in one pass.
+     *
+     * Null when the peer has never said (an older build), so the caller can
+     * fall back to guessing from the tracks themselves.
+     */
+    tracksByRole(id) {
+      const peer = this.peers.get(id);
+      if (!peer || !peer.remoteRoles) return null;
+      const out = { screen: null, camera: null, voice: null, 'screen-audio': null };
+      for (const transceiver of peer.pc.getTransceivers()) {
+        const role = transceiver.mid && peer.remoteRoles[transceiver.mid];
+        const track = role && transceiver.receiver.track;
+        if (track && track.readyState === 'live') out[role] = track;
+      }
+      return out;
+    }
+
+    /** Throw this connection away and negotiate a new one. */
+    restart(id) {
+      if (!this.peers.has(id)) return;
+      this.remove(id);
+      this.add(id);
+      this.emit('reset', { id });
     }
 
     /**
@@ -352,6 +395,32 @@
           console.warn('[mesh] could not publish track', err);
         }
       }
+      this._announceRoles(peer);
+    }
+
+    /**
+     * Tell this peer which of our slots carries what.
+     *
+     * Track ids cannot do it: a reused slot keeps the id of the first track it
+     * ever carried. And a parked slot cannot be told apart by looking - Chrome
+     * leaves it live and unmuted at the far end - so a receiver guessing could
+     * attach a share to a slot that will never send a frame, and spin forever.
+     * The transceiver's mid is the same at both ends of one connection, so
+     * mid -> role is exact. Sent only when it changes.
+     */
+    _announceRoles(peer) {
+      if (peer.closed) return;
+      const bySender = new Map(peer.slots.map((slot) => [slot.sender, slot]));
+      const roles = {};
+      for (const transceiver of peer.pc.getTransceivers()) {
+        const slot = transceiver.mid && bySender.get(transceiver.sender);
+        const role = slot && slot.track ? this.roleOf(slot.track) : null;
+        if (role) roles[transceiver.mid] = role;
+      }
+      const text = JSON.stringify(roles);
+      if (text === peer.sentRoles) return;
+      peer.sentRoles = text;
+      this.signal.send(peer.id, { roles });
     }
 
     /** Put a track on a slot, or null to park it. */
@@ -386,6 +455,19 @@
       if (!data) return;
       let peer = this.peers.get(from) || this.add(from);
 
+      if (data.roles && typeof data.roles === 'object') {
+        // From another browser: keep only string mids naming a known role.
+        const roles = {};
+        for (const [mid, role] of Object.entries(data.roles)) {
+          if (ROLES.includes(role)) roles[mid] = role;
+        }
+        peer.remoteRoles = roles;
+        const mids = new Set(peer.pc.getTransceivers().map((t) => t.mid));
+        peer.rolesPending = Object.keys(roles).some((mid) => !mids.has(mid));
+        this.emit('roles', { id: from });
+        return;
+      }
+
       // The far end rebuilt its connection to us - it saw us leave and come
       // back, or reloaded - while ours is still the old one. The old one can
       // never accept that offer (a new certificate needs a new transport), and
@@ -419,6 +501,13 @@
           if (description.type === 'offer') {
             await pc.setLocalDescription();
             this.signal.send(from, { description: plainDescription(pc.localDescription, this._videoBitrate() / 1000) });
+          }
+          // Mids settle once a round completes, on whichever side offered.
+          this._announceRoles(peer);
+          // A role that named a slot we did not have yet can resolve now.
+          if (peer.rolesPending) {
+            peer.rolesPending = false;
+            this.emit('roles', { id: from });
           }
         } else if (data.candidate) {
           try {
