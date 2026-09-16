@@ -28,7 +28,31 @@
   const REJOIN_GRACE_MS = 8000;
   /** The least time between two attempts to get back to the same host. */
   const QUIET_REJOIN_SPACING_MS = 2000;
-  const BROKER_RECONNECT_TIMEOUT_MS = 25000;
+  /**
+   * How long the broker may stay unreachable before the room is given up on -
+   * and only then if nothing else still connects us to the room.
+   *
+   * The broker only introduces people. A call already running goes through
+   * the data and media connections, which do not need it, so losing it is not
+   * losing the room. Closing on it after 25 seconds is what threw phones out:
+   * a phone that sleeps or switches network drops its broker socket first,
+   * and the retries, spaced out and paused while asleep, rarely beat that.
+   */
+  const BROKER_GIVE_UP_MS = 5 * 60 * 1000;
+
+  /**
+   * After waking up, how long everyone we have not heard from gets to answer
+   * before the heartbeat calls them gone. Timers do not run while a phone is
+   * asleep, so every "last heard" is stale on waking, including for people
+   * who never went anywhere.
+   */
+  const WAKE_GRACE_MS = 6000;
+
+  /** Page events that mean we may just have woken up. */
+  const WAKE_EVENTS = [[document, 'visibilitychange'], [window, 'online'], [window, 'pageshow']];
+
+  /** Broker error types that only say the broker is unreachable. */
+  const BROKER_TROUBLE = ['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'];
 
   /** How often the host renews its claim. Must be well inside the lease. */
   const LEASE_RENEW_MS = 6000;
@@ -199,11 +223,104 @@
       this._memberLastSeen = new Map(); // hub only: member id -> timestamp
       this._rejoinTimers = new Map(); // hub only: member id -> pending drop
       this._hostLastSeen = 0; // member only: timestamp of last message from host
-      this._brokerDisconnectTimer = null;
+      this._brokerGiveUpTimer = null;
       this._reconnectTimer = null;
       this._reconnectAttempts = 0;
       this._waitingForOnline = false;
       this._reconnecting = false;
+    }
+
+    /** Follow this broker connection: reconnect when it drops. Once per peer. */
+    _watchBroker(peer) {
+      if (peer.__astraWatched) return;
+      peer.__astraWatched = true;
+      peer.on('disconnected', () => {
+        if (this.left) return;
+        this._scheduleReconnect(peer);
+        this._armBrokerGiveUp(peer);
+      });
+
+      // Coming back to the page - unlocking the phone, switching back to the
+      // app, the network returning - is when a stalled room most needs a
+      // push, and when every timer that should have given it has been frozen.
+      if (!this._onWake) {
+        this._onWake = () => this._wake();
+        for (const [target, type] of WAKE_EVENTS) target.addEventListener(type, this._onWake);
+      }
+    }
+
+    _unwatchWake() {
+      if (!this._onWake) return;
+      for (const [target, type] of WAKE_EVENTS) target.removeEventListener(type, this._onWake);
+      this._onWake = null;
+    }
+
+    _wake() {
+      if (this.left || document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      // Resuming fires several of these at once; one pass is enough.
+      if (now - (this._lastWake || 0) < 1000) return;
+      this._lastWake = now;
+      const floor = now - HEARTBEAT_TIMEOUT_MS + WAKE_GRACE_MS;
+
+      // Give the people we could not hear while asleep a moment to answer.
+      if (this.isHub) {
+        for (const [id, seen] of this._memberLastSeen) {
+          if (seen < floor) this._memberLastSeen.set(id, floor);
+        }
+      } else if (this._hostLastSeen && this._hostLastSeen < floor) {
+        this._hostLastSeen = floor;
+      }
+      this._checkHeartbeat();
+
+      // And the broker straight away, rather than after whatever backoff was
+      // pending when the page went to sleep.
+      const peer = this.peer;
+      if (peer && peer.disconnected && !peer.destroyed) {
+        this._clearReconnectTimer();
+        this._reconnectAttempts = 0;
+        try {
+          peer.reconnect();
+        } catch (_) {
+          this._scheduleReconnect(peer);
+        }
+      }
+    }
+
+    _clearReconnectTimer() {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+
+    _clearBrokerGiveUp() {
+      clearTimeout(this._brokerGiveUpTimer);
+      this._brokerGiveUpTimer = null;
+    }
+
+    /** Whether we can still reach the room without the broker. */
+    _roomLinkAlive() {
+      if (this.isHub) {
+        for (const conn of this.conns.values()) if (conn && conn.open) return true;
+        return false;
+      }
+      return !!(this.conn && this.conn.open);
+    }
+
+    /**
+     * Give up on a broker that stays away - see BROKER_GIVE_UP_MS. While the
+     * room is still reachable without it, keep waiting instead.
+     */
+    _armBrokerGiveUp(peer) {
+      if (this._brokerGiveUpTimer) return;
+      this._brokerGiveUpTimer = setTimeout(() => {
+        this._brokerGiveUpTimer = null;
+        if (this.left || !peer.disconnected || peer.destroyed) return;
+        if (this._roomLinkAlive()) {
+          this._armBrokerGiveUp(peer);
+          return;
+        }
+        this.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
+      }, BROKER_GIVE_UP_MS);
     }
 
     /**
@@ -218,8 +335,11 @@
 
       // Said once per outage, not once per attempt: the room puts a screen up
       // on the first of these and takes it down on `reconnected`, and a dozen
-      // of them would only make it flicker.
-      if (!this._reconnecting) {
+      // of them would only make it flicker. Not said at all while the call
+      // still runs without the broker: covering a working room with
+      // "Reconnecting" would be the only thing wrong with it. Asked again on
+      // every failed attempt, so it does go up if the room link drops too.
+      if (!this._reconnecting && !this._roomLinkAlive()) {
         this._reconnecting = true;
         this.emit('reconnecting', {});
       }
@@ -260,10 +380,8 @@
     /** The broker is back, so the next drop starts counting from scratch. */
     _reconnected() {
       this._reconnectAttempts = 0;
-      if (this._reconnectTimer) {
-        clearTimeout(this._reconnectTimer);
-        this._reconnectTimer = null;
-      }
+      this._clearBrokerGiveUp();
+      this._clearReconnectTimer();
       if (this._reconnecting) {
         this._reconnecting = false;
         this.emit('reconnected', {});
@@ -272,6 +390,18 @@
 
     emit(type, detail) {
       this.dispatchEvent(new CustomEvent(type, { detail }));
+    }
+
+    /**
+     * Pass a broker error on to the room - unless it is one more failed try
+     * during an outage we are already retrying, which would otherwise pop a
+     * "could not reach the broker" toast every few seconds over a call that
+     * is still working.
+     */
+    _reportError(err) {
+      const brokerTrouble = err && BROKER_TROUBLE.includes(err.type);
+      if (brokerTrouble && this.peer && this.peer.disconnected && !this.left) return;
+      this.emit('error', err);
     }
 
     get self() {
@@ -368,17 +498,7 @@
           this._startHeartbeat();
           this._claimHostLease();
           peer.on('connection', (conn) => this._acceptMember(conn));
-          peer.on('disconnected', () => {
-            if (this.left) return;
-            this._scheduleReconnect(peer);
-            if (!this._brokerDisconnectTimer) {
-              this._brokerDisconnectTimer = setTimeout(() => {
-                if (peer.disconnected && !this.left) {
-                  this.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
-                }
-              }, BROKER_RECONNECT_TIMEOUT_MS);
-            }
-          });
+          this._watchBroker(peer);
           peer.on('close', () => {
             if (!this.left) this._handleHostLoss();
           });
@@ -386,7 +506,7 @@
         });
 
         peer.on('error', (err) => {
-          if (settled) return this.emit('error', err);
+          if (settled) return this._reportError(err);
           settled = true;
           peer.destroy();
           reject(err);
@@ -597,17 +717,7 @@
             return;
           }
           opened = true;
-          peer.on('disconnected', () => {
-            if (signal.left) return;
-            signal._scheduleReconnect(peer);
-            if (!signal._brokerDisconnectTimer) {
-              signal._brokerDisconnectTimer = setTimeout(() => {
-                if (peer.disconnected && !signal.left) {
-                  signal.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
-                }
-              }, BROKER_RECONNECT_TIMEOUT_MS);
-            }
-          });
+          signal._watchBroker(peer);
 
           // Where the room actually is. The code's own broker id is only the
           // room's first host; once that host has been replaced, the id can be
@@ -672,7 +782,7 @@
               signal._handleHostLoss('unreachable');
               return;
             }
-            return signal.emit('error', err);
+            return signal._reportError(err);
           }
           if (
             attempts < 2 &&
@@ -709,17 +819,7 @@
       this._hostLastSeen = Date.now();
       this._startHeartbeat();
       peer.on('connection', (c) => this._acceptMember(c));
-      peer.on('disconnected', () => {
-        if (this.left) return;
-        this._scheduleReconnect(peer);
-        if (!this._brokerDisconnectTimer) {
-          this._brokerDisconnectTimer = setTimeout(() => {
-            if (peer.disconnected && !this.left) {
-              this.emit('closed', { reason: 'Disconnected: connection to the signalling server was lost.' });
-            }
-          }, BROKER_RECONNECT_TIMEOUT_MS);
-        }
-      });
+      this._watchBroker(peer);
     }
 
     _onMemberData(msg) {
@@ -1172,11 +1272,6 @@
         return;
       }
 
-      if (this.peer && !this.peer.disconnected && this._brokerDisconnectTimer) {
-        clearTimeout(this._brokerDisconnectTimer);
-        this._brokerDisconnectTimer = null;
-      }
-
       const now = Date.now();
       if (this.isHub) {
         this._renewHostLease(now);
@@ -1301,10 +1396,9 @@
       this.left = true;
       this._stopHeartbeat();
       this._cancelRejoinTimers();
-      if (this._brokerDisconnectTimer) {
-        clearTimeout(this._brokerDisconnectTimer);
-        this._brokerDisconnectTimer = null;
-      }
+      this._clearBrokerGiveUp();
+      this._clearReconnectTimer();
+      this._unwatchWake();
       if (this.isHub) {
         const others = this.others();
         if (others.length === 0) {

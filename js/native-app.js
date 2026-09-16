@@ -222,7 +222,18 @@
     }
   }
 
+  /**
+   * Tell the app whether we are in a room, so it keeps running while we are -
+   * otherwise Android freezes it soon after it leaves the screen and the room
+   * drops it. A no-op in a browser, and on an app build without the method.
+   */
+  function setInCall(active) {
+    const native = bridge();
+    if (!native || typeof native.setInCall !== 'function') return;
+    native.setInCall({ active: !!active }).catch(() => {});
+  }
+
   window.AstraNativeAuth = {
-    available, openExternal, rememberReturn, takeReturn, applyInsets, CALLBACK,
+    available, openExternal, rememberReturn, takeReturn, applyInsets, setInCall, CALLBACK,
   };
 })();

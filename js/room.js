@@ -835,6 +835,7 @@
     // so a failed join is never congratulated.
     chime('joined');
     startPresence();
+    setNativeInCall(true);
 
     // Creating a room lands on ?create=1; rewrite so a refresh or a copied URL
     // rejoins the same room instead of opening a new one.
@@ -1850,6 +1851,21 @@
     presenceBeat = setInterval(() => window.AstraFriends.beat('in-room'), PRESENCE_BEAT_MS);
   }
 
+  /**
+   * The Android app keeps running in the background while this is on.
+   * `nativeCallHasMic` remembers that it has been asked again since the
+   * microphone was allowed, so turning the mic on and off does not restart the
+   * app's service every time.
+   */
+  let nativeCallHasMic = false;
+
+  function setNativeInCall(active) {
+    if (!active) nativeCallHasMic = false;
+    if (window.AstraNativeAuth && window.AstraNativeAuth.setInCall) {
+      window.AstraNativeAuth.setInCall(active);
+    }
+  }
+
   function stopPresence(sayGone) {
     if (presenceBeat) {
       clearInterval(presenceBeat);
@@ -2242,6 +2258,12 @@
         }
         state.micStream = await captureMicrophone(state.micDeviceId);
         state.mixer.add('mic', state.micStream);
+        // The microphone may only just have been allowed; asking again once
+        // lets the app's keep-alive service claim it, so the voice survives too.
+        if (!nativeCallHasMic) {
+          nativeCallHasMic = true;
+          setNativeInCall(true);
+        }
         // The gain node is new each time the mic starts, so the stored input
         // level has to be put back on it.
         applyInputVolume();
@@ -5636,6 +5658,7 @@
   function teardown() {
     if (tornDown) return;
     tornDown = true;
+    setNativeInCall(false);
     closeProfilePopup();
     toggleShareMenu(false);
     toggleCameraMenu(false);

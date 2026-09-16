@@ -68,6 +68,19 @@ public class AppPlugin extends Plugin {
         call.resolve(result);
     }
 
+    /**
+     * Say whether the page is in a room, so the app stays running while it is.
+     * Asked again when the microphone is first allowed, which lets the service
+     * take the microphone type too. See CallService.
+     */
+    @PluginMethod
+    public void setInCall(PluginCall call) {
+        boolean active = Boolean.TRUE.equals(call.getBoolean("active", false));
+        if (active) CallService.start(getContext());
+        else CallService.stop(getContext());
+        call.resolve();
+    }
+
     /** Hand a URL to whatever the user browses with. */
     @PluginMethod
     public void openExternal(PluginCall call) {
