@@ -6,6 +6,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.WebView;
@@ -75,6 +76,15 @@ public class MainActivity extends BridgeActivity {
         // the final say.
         WebView web = getBridge() == null ? null : getBridge().getWebView();
         if (web != null) web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
+        // The page runs in a process of its own, and by default Android is
+        // free to let it sink once nothing of the app is on screen. Asked to
+        // keep it as important as the app itself - which, in a room, is
+        // holding a foreground service - so a call is not frozen out from
+        // under the service that exists to keep it going.
+        if (web != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
 
         // A link that started the app cold: park it, and the page collects it
         // once there is a page.

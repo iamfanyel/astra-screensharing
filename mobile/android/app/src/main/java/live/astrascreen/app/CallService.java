@@ -10,8 +10,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -26,9 +28,16 @@ import androidx.annotation.Nullable;
  * foreground service is how an app tells Android it is doing something the
  * user is still relying on, the same way every calling app does.
  *
- * It does no work of its own. It holds the microphone type when the app may
- * use the microphone - so the user's voice also keeps going in the background
- * - and the data-sync type otherwise, which only keeps the process alive.
+ * It holds the microphone type when the app may use the microphone - so the
+ * user's voice also keeps going in the background - and the data-sync type
+ * otherwise, which only keeps the process alive.
+ *
+ * A running process is not enough on its own, though. With the screen off,
+ * Android lets the CPU sleep and the Wi-Fi radio doze a few minutes later,
+ * and a call whose phone cannot answer for that long is dropped by the room -
+ * then let back in when the phone next wakes, and dropped again. So it also
+ * holds the CPU and the Wi-Fi awake for as long as it runs, the way calling
+ * apps do.
  */
 public class CallService extends Service {
 
@@ -36,6 +45,11 @@ public class CallService extends Service {
     private static final String CHANNEL_ID = "astra_in_call";
     // Not the screen-share service's id: both can be up at once.
     private static final int NOTIFICATION_ID = 2;
+
+    private static final long CPU_LOCK_LIMIT_MS = 12L * 60 * 60 * 1000;
+
+    private PowerManager.WakeLock cpuLock;
+    private WifiManager.WifiLock wifiLock;
 
     public static void start(Context context) {
         Intent intent = new Intent(context, CallService.class);
@@ -81,10 +95,68 @@ public class CallService extends Service {
             .setOngoing(true)
             .build();
 
-        if (!goForeground(notification)) stopSelf();
+        if (!goForeground(notification)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        holdAwake();
         // If Android kills it anyway, the page it was keeping alive is gone
         // too; bringing this back alone would only leave a stale notification.
         return START_NOT_STICKY;
+    }
+
+    /**
+     * Keep the CPU and the Wi-Fi radio up for the call. Started again each time
+     * the page asks (see AppPlugin.setInCall), so it only takes them once.
+     */
+    private void holdAwake() {
+        try {
+            if (cpuLock == null) {
+                PowerManager power = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (power != null) {
+                    cpuLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Astra:call");
+                    cpuLock.setReferenceCounted(false);
+                    // Released when the call ends; the limit only guards
+                    // against a service that somehow outlives it.
+                    cpuLock.acquire(CPU_LOCK_LIMIT_MS);
+                }
+            }
+            if (wifiLock == null) {
+                WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wifi != null) {
+                    int mode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                        ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                        : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+                    wifiLock = wifi.createWifiLock(mode, "Astra:call");
+                    wifiLock.setReferenceCounted(false);
+                    wifiLock.acquire();
+                }
+            }
+        } catch (Throwable error) {
+            // The call still runs; it may just not survive a long sleep.
+            CrashLog.note("could not hold the phone awake: " + error);
+        }
+    }
+
+    private void letSleep() {
+        try {
+            if (cpuLock != null && cpuLock.isHeld()) cpuLock.release();
+        } catch (Throwable ignored) {
+            // Already gone.
+        }
+        try {
+            if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+        } catch (Throwable ignored) {
+            // Already gone.
+        }
+        cpuLock = null;
+        wifiLock = null;
+    }
+
+    @Override
+    public void onDestroy() {
+        letSleep();
+        super.onDestroy();
     }
 
     /**

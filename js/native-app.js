@@ -243,7 +243,28 @@
     native.setInCall({ active: !!active }).catch(() => {});
   }
 
+  /**
+   * Ask the phone, once ever, to leave the app out of battery optimisation -
+   * see AppPlugin.askToStayAwake. Once asked it is not asked again, whatever
+   * the answer: a refusal is a choice, and nagging on every room is worse
+   * than the problem.
+   */
+  const STAY_AWAKE_KEY = 'astra:asked-stay-awake';
+
+  function askToStayAwakeOnce() {
+    const native = bridge();
+    if (!native || typeof native.askToStayAwake !== 'function') return;
+    try {
+      if (localStorage.getItem(STAY_AWAKE_KEY)) return;
+      localStorage.setItem(STAY_AWAKE_KEY, '1');
+    } catch (_) {
+      return;
+    }
+    native.askToStayAwake().catch(() => {});
+  }
+
   window.AstraNativeAuth = {
-    available, openExternal, rememberReturn, takeReturn, applyInsets, setInCall, CALLBACK,
+    available, openExternal, rememberReturn, takeReturn, applyInsets, setInCall,
+    askToStayAwakeOnce, CALLBACK,
   };
 })();

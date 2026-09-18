@@ -1,9 +1,12 @@
 package live.astrascreen.app;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.WindowInsets;
 
 import com.getcapacitor.JSObject;
@@ -79,6 +82,36 @@ public class AppPlugin extends Plugin {
         if (active) CallService.start(getContext());
         else CallService.stop(getContext());
         call.resolve();
+    }
+
+    /**
+     * Ask, once, to be left out of battery optimisation.
+     *
+     * Everything else here keeps a call alive in the background as far as
+     * Android itself goes, but many phones go further on their own and still
+     * stop an optimised app a few minutes after it leaves the screen - which
+     * is the one moment a call cannot afford it. This is the system's own
+     * dialog; the page decides when to show it (see room.js). Resolves with
+     * whether the app is now exempt.
+     */
+    @PluginMethod
+    public void askToStayAwake(PluginCall call) {
+        JSObject result = new JSObject();
+        Context context = getContext();
+        PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        boolean exempt = power != null && power.isIgnoringBatteryOptimizations(context.getPackageName());
+        if (!exempt) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + context.getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Throwable error) {
+                CrashLog.note("could not ask about battery optimisation: " + error);
+            }
+        }
+        result.put("exempt", exempt);
+        call.resolve(result);
     }
 
     /** Hand a URL to whatever the user browses with. */

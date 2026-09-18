@@ -2001,9 +2001,12 @@
 
   function setNativeInCall(active) {
     if (!active) nativeCallHasMic = false;
-    if (window.AstraNativeAuth && window.AstraNativeAuth.setInCall) {
-      window.AstraNativeAuth.setInCall(active);
-    }
+    const native = window.AstraNativeAuth;
+    if (!native || !native.setInCall) return;
+    native.setInCall(active);
+    // The first room is when staying alive in the background starts to
+    // matter, so that is when the phone is asked - once ever.
+    if (active && native.askToStayAwakeOnce) native.askToStayAwakeOnce();
   }
 
   function stopPresence(sayGone) {
