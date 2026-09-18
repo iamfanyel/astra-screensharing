@@ -123,7 +123,7 @@ window.AstraFriends = (function () {
    */
   const CARD_ART = '/astrabannerfriends.png';
   /** Bump when the art or the layout below changes, so every card is redrawn. */
-  const CARD_DESIGN = 3;
+  const CARD_DESIGN = 4;
   const CARD_WIDTH = 1200;
   const CARD_HEIGHT = 675;
   // The hole in the art, measured on the 2400x1350 file: a circle spanning
@@ -159,7 +159,7 @@ window.AstraFriends = (function () {
     return window.AstraDiscord && window.AstraDiscord.getUser ? window.AstraDiscord.getUser() : null;
   }
 
-  /** What the card shows: the picture, or null and the name its initial comes from. */
+  /** What the card shows: the picture, or null and the name its colour comes from. */
   function cardSubject(user) {
     const profile = window.AstraProfile;
     const avatar = profile ? profile.getAvatar() : null;
@@ -213,16 +213,8 @@ window.AstraFriends = (function () {
       const h = picture.height * scale;
       ink.drawImage(picture, x - w / 2, y - h / 2, w, h);
     } else {
-      // The same grey-and-initial the app draws for somebody without a picture.
-      let hash = 0;
-      for (const char of subject.name) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-      ink.fillStyle = 'hsl(0 0% ' + (32 + (hash % 20)) + '%)';
-      ink.fillRect(x - r, y - r, r * 2, r * 2);
-      ink.fillStyle = '#ffffff';
-      ink.font = '700 ' + Math.round(r * 0.95) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-      ink.textAlign = 'center';
-      ink.textBaseline = 'middle';
-      ink.fillText((subject.name.trim()[0] || '?').toUpperCase(), x, y + r * 0.04);
+      // The same mark-on-colour the app shows for somebody without a picture.
+      await window.AstraProfile.drawMark(ink, subject.name, x, y, r);
     }
     ink.restore();
 
@@ -253,7 +245,7 @@ window.AstraFriends = (function () {
     const user = discordUser();
     const account = user && user.id ? String(user.id) : '';
     const subject = cardSubject(user);
-    // The name only shows as the initial, so it only counts without a picture.
+    // The name only shows as the colour, so it only counts without a picture.
     const version = CARD_DESIGN + '.' + fingerprint(subject.avatar || 'initial:' + subject.name);
 
     const seen = readSeenCard();
