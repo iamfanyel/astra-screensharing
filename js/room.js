@@ -1179,16 +1179,20 @@
   /**
    * Push the smoothness-vs-sharpness choice to both halves that express it.
    *
-   * 'balanced', not 'maintain-framerate': the latter protects the frame rate by
-   * shrinking the picture as far as it takes, and once it has done that it has
-   * no reason to climb back - it is meeting the target it was given. 'balanced'
-   * gives up a little of each instead, so a tight link costs some smoothness
-   * and some sharpness rather than all the sharpness.
+   * Either way the share stays at the resolution that was picked, the way
+   * Discord's does: a picture that shrinks under load is the one change a
+   * viewer always notices, and it rarely climbs back. What gives instead:
+   *
+   *  - fluidity on: nothing but the bitrate. The encoder keeps both the size
+   *    and the frame rate and spends fewer bits on each frame, so a tight link
+   *    costs some crispness in motion rather than smoothness or size.
+   *  - fluidity off: the frame rate, so each frame keeps its full detail -
+   *    the right trade for reading text.
    */
   function applyFluidity() {
     const on = fluidityOn();
     if (state.mesh) {
-      state.mesh.setDegradationPreference(on ? 'balanced' : 'maintain-resolution');
+      state.mesh.setDegradationPreference(on ? 'maintain-framerate-and-resolution' : 'maintain-resolution');
     }
     if (state.videoTrack) state.videoTrack.contentHint = on ? 'motion' : 'detail';
   }
@@ -1321,12 +1325,11 @@
 
       state.localStream.addTrack(state.cameraTrack);
       if (!state.sharing) {
-        // A webcam is motion, and a face going soft costs far less than a
-        // shared screen going illegible - so the camera keeps its frame rate
-        // rather than following the screen's 'balanced'. Guarded on !sharing
+        // A webcam is motion: like a share with fluidity on, it keeps its
+        // size and frame rate and lets the bitrate give. Guarded on !sharing
         // so it never overrides a live share, which owns the setting.
         state.mesh.setMaxVideoBitrate(capture.quality.bitrate, capture.quality.frameRate);
-        state.mesh.setDegradationPreference('maintain-framerate');
+        state.mesh.setDegradationPreference('maintain-framerate-and-resolution');
       }
       state.mesh.publish();
 

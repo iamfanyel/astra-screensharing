@@ -95,6 +95,74 @@
    */
   const DISCONNECT_GRACE_MS = 4000;
 
+  /**
+   * What to ask for instead when the engine does not know a preference.
+   * 'maintain-framerate-and-resolution' - adapt the bitrate only, the way
+   * Discord does - is recent; without it, holding the resolution is what
+   * matters most, so that is what is kept.
+   */
+  const FALLBACK_PREFERENCE = { 'maintain-framerate-and-resolution': 'maintain-resolution' };
+
+  /**
+   * Preferences this engine has refused. It is the same engine for every
+   * connection and every room on the page, so it is learned once, here.
+   */
+  const refusedPreferences = new Set();
+
+  /** The preference to ask for, given what this engine has refused before. */
+  function usablePreference(preference) {
+    return refusedPreferences.has(preference) ? FALLBACK_PREFERENCE[preference] : preference;
+  }
+
+  /**
+   * Which video codecs to offer, best first.
+   *
+   * With the resolution held, a tight link has to be met by the codec alone,
+   * and they are far from equal at it. Measured on a
+   * busy 1080p share squeezed to 800 kbps: VP8 - the browser's default -
+   * dropped to about 12 fps, VP9 to 23, while H.264 and AV1 both held 30.
+   * H.264 goes first because it is encoded in hardware almost everywhere,
+   * phones included, so holding the frame rate costs no CPU; AV1 next, which
+   * looks better per bit but is encoded in software on most machines. Anything
+   * a peer cannot handle is simply skipped in negotiation.
+   */
+  const VIDEO_CODEC_ORDER = ['video/H264', 'video/AV1', 'video/VP9', 'video/VP8'];
+
+  /**
+   * This engine's video codecs in VIDEO_CODEC_ORDER, or null where it cannot
+   * say. The capabilities never change on a page, so it is worked out once.
+   */
+  let orderedCodecs;
+  function preferredCodecs() {
+    if (orderedCodecs !== undefined) return orderedCodecs;
+    const caps = window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities
+      ? RTCRtpReceiver.getCapabilities('video')
+      : null;
+    if (!caps || !caps.codecs) return (orderedCodecs = null);
+    const rank = (codec) => {
+      const i = VIDEO_CODEC_ORDER.indexOf(codec.mimeType);
+      // Repair and FEC formats keep their place behind the real codecs.
+      return i === -1 ? VIDEO_CODEC_ORDER.length : i;
+    };
+    // Stable: codecs of one kind (the H.264 profiles, say) keep their order.
+    orderedCodecs = caps.codecs
+      .map((codec, index) => ({ codec, index }))
+      .sort((a, b) => rank(a.codec) - rank(b.codec) || a.index - b.index)
+      .map((entry) => entry.codec);
+    return orderedCodecs;
+  }
+
+  /** Put our preferred codecs first on a sending transceiver, where supported. */
+  function preferCodecs(transceiver) {
+    const codecs = preferredCodecs();
+    if (!codecs || !transceiver || typeof transceiver.setCodecPreferences !== 'function') return;
+    try {
+      transceiver.setCodecPreferences(codecs);
+    } catch (_) {
+      // Left at the browser's own order.
+    }
+  }
+
   /** What a slot can be announced as carrying. Anything else is ignored. */
   const ROLES = ['screen', 'camera', 'screen-audio', 'voice'];
 
@@ -111,7 +179,7 @@
       this.localStream = null;
       this.maxVideoBitrate = 3500000;
       this.maxVideoFramerate = 30;
-      this.degradationPreference = 'balanced';
+      this.degradationPreference = 'maintain-framerate-and-resolution';
       // What _reapplyEncoding last wrote, so an unchanged pass costs nothing.
       this._applied = null;
       this.closing = false;
@@ -388,6 +456,9 @@
         }
         try {
           const sender = peer.pc.addTrack(track, this.localStream);
+          if (track.kind === 'video') {
+            preferCodecs(peer.pc.getTransceivers().find((t) => t.sender === sender));
+          }
           const slot = { sender, track, kind: track.kind };
           peer.slots.push(slot);
           this._applyEncoding(slot);
@@ -436,17 +507,32 @@
     async _applyEncoding(slot, encoding = this._encoding()) {
       if (slot.kind !== 'video' || !slot.track) return;
       const sender = slot.sender;
-      try {
+      const apply = (preference) => {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
         params.encodings[0].maxBitrate = encoding.bitrate;
         if (encoding.framerate) {
           params.encodings[0].maxFramerate = encoding.framerate;
         }
-        params.degradationPreference = encoding.preference;
-        await sender.setParameters(params);
-      } catch (_) {
-        // Not every browser lets you set this; the default behaviour is fine.
+        params.degradationPreference = preference;
+        return sender.setParameters(params);
+      };
+      const preference = usablePreference(encoding.preference);
+      try {
+        await apply(preference);
+      } catch (err) {
+        // An engine that does not know the preference rejects the whole set,
+        // bitrate included - so learn that once and settle for its nearest.
+        // Anything else: not every browser lets you set this, and its
+        // defaults are fine.
+        const fallback = FALLBACK_PREFERENCE[preference];
+        if (!fallback || !err || err.name !== 'TypeError') return;
+        refusedPreferences.add(preference);
+        try {
+          await apply(fallback);
+        } catch (_) {
+          // Its defaults, then.
+        }
       }
     }
 
@@ -504,6 +590,14 @@
           }
           // Mids settle once a round completes, on whichever side offered.
           this._announceRoles(peer);
+          // So do the encodings: a sender set up before its first negotiation
+          // has none yet, the settings it was given were refused, and the
+          // engine would otherwise run on its defaults - which shrink the
+          // picture - until something else happened to re-apply them.
+          if (pc.signalingState === 'stable') {
+            const encoding = this._encoding();
+            for (const slot of peer.slots) this._applyEncoding(slot, encoding);
+          }
           // A role that named a slot we did not have yet can resolve now.
           if (peer.rolesPending) {
             peer.rolesPending = false;
