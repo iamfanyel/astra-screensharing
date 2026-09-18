@@ -3398,7 +3398,12 @@ body.sidebar-hidden .toasts {
 
 @media (max-width: 860px) {
   body.room {
-    grid-template-columns: 1fr;
+    /* minmax, not a bare 1fr: a 1fr column is never narrower than its
+       content, and a top bar one button too wide then widened the whole page.
+       A phone answers a page wider than its screen by laying it out wider
+       and scaling it down - which is how turning the camera on (and with it
+       the flip button) sent the dock down and to the right. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "top"
       "stage";
@@ -5548,6 +5553,21 @@ button.tag-invite:disabled:hover {
   height: 26px;
   filter: none;
   box-shadow: none;
+}
+
+/* The flip button only comes with the camera, and it is the one that tips
+   the top bar past a 390-430px phone - so while it is there the buttons give
+   up two pixels each rather than the room code being cut short. Narrower
+   phones have smaller buttons already; see below. */
+@media (min-width: 391px) and (max-width: 860px) {
+  .topbar:has(#flip-camera:not([hidden])) .chip-icon-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .topbar:has(#flip-camera:not([hidden])) .topbar-right {
+    gap: 4px;
+  }
 }
 
 /* Very narrow phones (iPhone SE, Galaxy S8, etc.) — hide the logo and shrink
