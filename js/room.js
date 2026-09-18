@@ -150,11 +150,14 @@
     shareMenuTitle: document.querySelector('#share-menu .dock-sheet-title'),
     dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
-    qualityVal: $('quality-val'),
-    qualityWrap: $('quality-wrap'),
     roomSounds: $('room-sounds'),
-    qualityTrigger: $('quality-trigger'),
-    qualityDropdown: $('quality-dropdown'),
+    shareQuality: $('share-quality'),
+    shareModes: $('share-modes'),
+    shareSetup: $('share-setup'),
+    shareSetupOptions: $('share-setup-options'),
+    shareSetupAudio: $('share-setup-audio'),
+    shareSetupGo: $('share-setup-go'),
+    shareSetupSummary: $('share-setup-summary'),
     status: $('status'),
     leave: $('leave'),
     closed: $('closed'),
@@ -1046,9 +1049,70 @@
       toggleShareMenu(true);
     } else if (state.sharing) {
       stopSharing();
+    } else if (usesShareSetup()) {
+      openShareSetup();
     } else {
       startSharing();
     }
+  }
+
+  /**
+   * Whether a share starts with the options window.
+   *
+   * In a desktop browser only. The desktop app has its own picker with the
+   * same options on it, and a phone has the share sheet, which already is
+   * this - so either would be asking the same question twice.
+   */
+  function usesShareSetup() {
+    return !!el.shareSetup && !compact.matches
+      && !(window.AstraPlatform && window.AstraPlatform.insideAnApp());
+  }
+
+  /** "1080p · 30fps", and "no audio" when it will be silent - as the picker says. */
+  function syncShareSetupSummary() {
+    // Drawn when the window opens, so a closed one has nothing to keep up.
+    if (!el.shareSetupSummary || el.shareSetup.hidden) return;
+    const option = el.quality.selectedOptions && el.quality.selectedOptions[0];
+    const parts = [option ? option.textContent.trim() : ''];
+    if (!el.systemAudio.checked) parts.push('no audio');
+    el.shareSetupSummary.textContent = parts.join(' · ');
+  }
+
+  function openShareSetup() {
+    toggleShareMenu(false);
+    el.shareSetupAudio.checked = el.systemAudio.checked;
+    syncQualityUI();
+    el.shareSetup.hidden = false;
+    syncShareSetupSummary();
+    el.shareSetupGo.focus();
+    document.addEventListener('keydown', onShareSetupKey);
+  }
+
+  function closeShareSetup() {
+    if (!el.shareSetup || el.shareSetup.hidden) return;
+    el.shareSetup.hidden = true;
+    document.removeEventListener('keydown', onShareSetupKey);
+    el.share.focus();
+  }
+
+  function onShareSetupKey(event) {
+    if (event.key === 'Escape') closeShareSetup();
+  }
+
+  if (el.shareSetup) {
+    el.shareSetup.addEventListener('click', (event) => {
+      if (event.target.closest('[data-close]')) closeShareSetup();
+    });
+    el.shareSetupAudio.addEventListener('change', () => {
+      el.systemAudio.checked = el.shareSetupAudio.checked;
+      syncShareSetupSummary();
+    });
+    // Straight on to the browser's own picker, inside this same click - the
+    // browser only opens it from something the user just did.
+    el.shareSetupGo.addEventListener('click', () => {
+      closeShareSetup();
+      startSharing();
+    });
   }
 
   /**
@@ -1242,7 +1306,8 @@
     const resized = await retuneScreen(state.videoTrack, key, state.shareNative);
     if (!state.sharing || turn !== retuneTurn) return;
     state.mesh.setMaxVideoBitrate(quality.bitrate, quality.frameRate);
-    const label = el.qualityVal ? el.qualityVal.textContent : el.quality.value;
+    const option = el.quality.selectedOptions && el.quality.selectedOptions[0];
+    const label = option ? option.textContent : el.quality.value;
     setStatus(resized
       ? 'Sharing at ' + label + '.'
       : 'Changed the frame rate and bitrate; the resolution needs the share started again.');
@@ -1673,8 +1738,7 @@
     // The sheet needs something behind it to dim the room and to catch the tap
     // that dismisses it.
     if (el.dockSheetBackdrop) el.dockSheetBackdrop.hidden = !open;
-    if (!open) hideQualityDropdown(0);
-    else toggleCameraMenu(false);
+    if (open) toggleCameraMenu(false);
   }
 
   /**
@@ -2154,7 +2218,6 @@
     toggleCameraMenu(false);
     toggleOutputMenu(false);
     toggleFriendsMenu(false);
-    hideQualityDropdown(0);
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -2175,60 +2238,6 @@
       toggleCamera();
     }
   });
-
-  let qualityDropdownTimer = null;
-
-  function toggleQualityDropdown(force) {
-    if (!el.qualityDropdown || !el.qualityTrigger) return;
-    const open = force === undefined ? el.qualityDropdown.hidden : force;
-    if (el.qualityDropdown.hidden === !open) return;
-    el.qualityDropdown.hidden = !open;
-    el.qualityTrigger.setAttribute('aria-expanded', String(open));
-    if (!open) return;
-    // In the phone sheet the list opens under its row, full width, and the
-    // stylesheet says so - these inline sides would only override it.
-    if (compact.matches) {
-      el.qualityDropdown.style.left = '';
-      el.qualityDropdown.style.right = '';
-      return;
-    }
-    const rect = el.shareMenu.getBoundingClientRect();
-    // Measure the real flyout rather than guessing: it is already laid out
-    // by now, and a hardcoded width silently drifts from the stylesheet.
-    const dropdownWidth = el.qualityDropdown.getBoundingClientRect().width;
-    if (rect.right + dropdownWidth + 16 > window.innerWidth) {
-      el.qualityDropdown.style.left = 'auto';
-      el.qualityDropdown.style.right = 'calc(100% + 8px)';
-    } else {
-      el.qualityDropdown.style.left = 'calc(100% + 8px)';
-      el.qualityDropdown.style.right = 'auto';
-    }
-  }
-
-  function showQualityDropdown() {
-    if (qualityDropdownTimer) clearTimeout(qualityDropdownTimer);
-    toggleQualityDropdown(true);
-  }
-
-  function hideQualityDropdown(delay = 0) {
-    if (qualityDropdownTimer) clearTimeout(qualityDropdownTimer);
-    if (delay > 0) {
-      qualityDropdownTimer = setTimeout(() => {
-        toggleQualityDropdown(false);
-      }, delay);
-    } else {
-      toggleQualityDropdown(false);
-    }
-  }
-
-  if (el.qualityWrap) {
-    el.qualityWrap.addEventListener('mouseenter', () => showQualityDropdown());
-    el.qualityWrap.addEventListener('mouseleave', () => hideQualityDropdown(150));
-  }
-
-  if (el.systemAudioRow) {
-    el.systemAudioRow.addEventListener('click', () => hideQualityDropdown(0));
-  }
 
   if (el.roomSounds) {
     el.roomSounds.checked = soundsOn();
@@ -2253,65 +2262,96 @@
     });
   }
 
-  if (el.qualityTrigger) {
-    el.qualityTrigger.addEventListener('click', (event) => {
-      event.stopPropagation();
-      toggleQualityDropdown();
-    });
-    el.qualityTrigger.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        toggleQualityDropdown();
-      }
+  /**
+   * The share quality, as the menu shows it.
+   *
+   * The hidden select holds the answer as one key - see QUALITY in media.js -
+   * and everything else reads that. On a desktop it is picked as two halves,
+   * resolution and frame rate; on a phone as one of two modes. Both are drawn
+   * from the select, so whichever changed it - either menu, or the desktop
+   * app's picker writing to it directly - the menu agrees.
+   */
+  function qualityHalves(key) {
+    const quality = QUALITY[key] || QUALITY['1080'];
+    return { res: quality.height ? String(quality.height) : 'max', fps: String(quality.frameRate) };
+  }
+
+  /** The key for a resolution and frame rate, read off QUALITY itself. */
+  function qualityKeyFor(res, fps) {
+    return Object.keys(QUALITY).find((key) => {
+      const halves = qualityHalves(key);
+      return halves.res === res && halves.fps === fps;
     });
   }
 
-  const dropdownItems = el.qualityDropdown
-    ? el.qualityDropdown.querySelectorAll('.dock-dropdown-item')
-    : [];
+  // The share menu's rows and the options window's segments, kept as one set.
+  const resOptions = [...document.querySelectorAll('#share-quality [data-res], #share-setup-options [data-res]')];
+  const fpsOptions = [...document.querySelectorAll('#share-quality [data-fps], #share-setup-options [data-fps]')];
+  const modeOptions = el.shareModes ? [...el.shareModes.querySelectorAll('[data-key]')] : [];
+  const PHONE_MODES = modeOptions.map((button) => button.dataset.key);
 
-  dropdownItems.forEach((item) => {
-    const pick = () => {
-      const val = item.getAttribute('data-value');
-      if (!val) return;
-      el.quality.value = val;
-      updateQualitySelection(val);
-      el.quality.dispatchEvent(new Event('change'));
-    };
+  function setChecked(button, on) {
+    button.setAttribute('aria-checked', String(on));
+    button.classList.toggle('is-selected', on);
+  }
 
-    item.addEventListener('click', (event) => {
+  function syncQualityUI() {
+    const key = el.quality.value;
+    const { res, fps } = qualityHalves(key);
+    for (const button of resOptions) setChecked(button, button.dataset.res === res);
+    for (const button of fpsOptions) setChecked(button, button.dataset.fps === fps);
+    for (const button of modeOptions) setChecked(button, button.dataset.key === key);
+  }
+
+  /**
+   * A phone offers two modes only, so it holds one of them: it starts on
+   * Default, and a desktop window narrowed to phone width moves to Default
+   * rather than show neither picked. Left alone while sharing - that would
+   * change a running share just because the window was resized.
+   */
+  function fitQualityToLayout() {
+    if (!compact.matches || state.sharing || PHONE_MODES.includes(el.quality.value)) return;
+    pickQuality(PHONE_MODES[0]);
+  }
+
+  function pickQuality(key) {
+    if (!QUALITY[key] || key === el.quality.value) return;
+    el.quality.value = key;
+    el.quality.dispatchEvent(new Event('change'));
+  }
+
+  /** A resolution or frame-rate button: change that half, keep the other. */
+  function onQualityHalf(event) {
+    const button = event.target.closest('[data-res], [data-fps]');
+    if (!button) return;
+    event.stopPropagation();
+    const now = qualityHalves(el.quality.value);
+    pickQuality(qualityKeyFor(button.dataset.res || now.res, button.dataset.fps || now.fps));
+  }
+
+  if (el.shareQuality) el.shareQuality.addEventListener('click', onQualityHalf);
+  if (el.shareSetupOptions) el.shareSetupOptions.addEventListener('click', onQualityHalf);
+
+  if (el.shareModes) {
+    el.shareModes.addEventListener('click', (event) => {
+      const button = event.target.closest('.share-mode');
+      if (!button) return;
       event.stopPropagation();
-      pick();
-    });
-
-    item.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        pick();
-      }
-    });
-  });
-
-  function updateQualitySelection(val) {
-    dropdownItems.forEach((item) => {
-      const isMatch = item.getAttribute('data-value') === val;
-      item.classList.toggle('is-selected', isMatch);
-      item.setAttribute('aria-selected', String(isMatch));
-      if (isMatch && el.qualityVal) {
-        const textSpan = item.querySelector('span');
-        if (textSpan) el.qualityVal.textContent = textSpan.textContent;
-      }
+      pickQuality(button.dataset.key);
     });
   }
 
   el.quality.addEventListener('change', () => {
-    updateQualitySelection(el.quality.value);
+    syncQualityUI();
+    syncShareSetupSummary();
     // Before a share this is only the choice for the next one.
     retuneShare();
   });
 
   el.systemAudio.addEventListener('change', () => setShareAudio(el.systemAudio.checked));
-  updateQualitySelection(el.quality.value);
+  fitQualityToLayout();
+  compact.addEventListener('change', fitQualityToLayout);
+  syncQualityUI();
 
   // -------------------------------------------------------------- microphone
 
@@ -4923,6 +4963,8 @@
     // dock where the other layout expects to find it.
     toggleShareMenu(false);
     toggleOutputMenu(false);
+    // The window is a desktop layout's; a phone asks through the sheet.
+    closeShareSetup();
   });
   if (el.settingsBackdrop) el.settingsBackdrop.addEventListener('click', closeSettings);
 
@@ -4977,12 +5019,8 @@
    */
   function handleBack() {
     // Menus float above whatever opened them, so they come off first.
-    const floating = [
-      el.qualityDropdown, el.micDropdown, el.speakerDropdown,
-      el.outputMenu, el.cameraMenu,
-    ];
+    const floating = [el.micDropdown, el.speakerDropdown, el.outputMenu, el.cameraMenu];
     if (floating.some((node) => node && !node.hidden)) {
-      hideQualityDropdown(0);
       closeDevicePickers(null);
       toggleOutputMenu(false);
       toggleCameraMenu(false);

@@ -257,54 +257,78 @@
     <div id="share-menu" class="dock-menu" hidden>
       <h2 class="dock-sheet-title">Share your screen</h2>
 
-      <div class="dock-menu-select-wrap" id="quality-wrap">
-        <div class="dock-menu-item dock-menu-select" id="quality-trigger" role="button" aria-haspopup="listbox" aria-expanded="false" tabindex="0">
-          <div class="dock-menu-info">
-            <span class="dock-menu-title">Quality</span>
-            <span class="dock-menu-sub" id="quality-val">1080p · 30fps</span>
-          </div>
-          <svg class="dock-menu-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
+      <!-- A desktop picks resolution and frame rate separately; a phone gets
+           two ready-made modes, the way Discord's mobile app does. Both write
+           to the hidden select below, which is what the room - and the desktop
+           app's picker - actually read. See js/room.js. -->
+      <div class="share-quality" id="share-quality">
+        <div class="share-group" role="radiogroup" aria-label="Resolution">
+          <p class="share-group-title">Resolution</p>
+          <button type="button" class="share-option" role="radio" data-res="720" aria-checked="false">720p<span class="share-radio" aria-hidden="true"></span></button>
+          <button type="button" class="share-option" role="radio" data-res="1080" aria-checked="false">1080p<span class="share-radio" aria-hidden="true"></span></button>
+          <button type="button" class="share-option" role="radio" data-res="max" aria-checked="false">Native<span class="share-radio" aria-hidden="true"></span></button>
         </div>
+        <div class="dock-menu-divider" role="separator"></div>
+        <div class="share-group" role="radiogroup" aria-label="Frame rate">
+          <p class="share-group-title">Frame rate</p>
+          <button type="button" class="share-option" role="radio" data-fps="30" aria-checked="false">30 FPS<span class="share-radio" aria-hidden="true"></span></button>
+          <button type="button" class="share-option" role="radio" data-fps="60" aria-checked="false">60 FPS<span class="share-radio" aria-hidden="true"></span></button>
+        </div>
+      </div>
 
-        <div class="dock-dropdown" id="quality-dropdown" role="listbox" aria-label="Share quality options" hidden>
-          <div class="dock-dropdown-item" role="option" data-value="720" tabindex="0">
-            <span>720p · 30fps</span>
-            <svg class="dock-dropdown-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-          </div>
-          <div class="dock-dropdown-item is-selected" role="option" data-value="1080" tabindex="0" aria-selected="true">
-            <span>1080p · 30fps</span>
-            <svg class="dock-dropdown-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-          </div>
-          <div class="dock-dropdown-item" role="option" data-value="1080-60" tabindex="0">
-            <span>1080p · 60fps</span>
-            <svg class="dock-dropdown-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-          </div>
-          <div class="dock-dropdown-item" role="option" data-value="max" tabindex="0">
-            <span>Native · 60fps</span>
-            <svg class="dock-dropdown-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-          </div>
+      <div class="share-modes" id="share-modes" role="radiogroup" aria-label="Stream Quality">
+        <p class="share-group-title">Stream Quality</p>
+        <div class="share-card">
+          <button type="button" class="share-mode" role="radio" data-key="720" aria-checked="false">
+            <svg class="share-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+              <path d="M10.5 18.5h3" />
+            </svg>
+            <span class="share-mode-text">
+              <span class="share-mode-name">Default</span>
+              <span class="share-mode-sub">Balanced quality and performance (720p, 30fps)</span>
+            </span>
+            <span class="share-radio" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="share-mode" role="radio" data-key="1080-60" aria-checked="false">
+            <svg class="share-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- A picture with its top-right corner left open for the sparkle.
+                   The sparkle is centred on that missing corner (19,5), and the
+                   frame stops 6.5 short of it both ways, so the gap is even. -->
+              <path d="M12.5 5H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6.5" />
+              <circle cx="8" cy="10" r="1.5" />
+              <path d="m19 14.5-3.1-3.1a2 2 0 0 0-2.8 0L5.5 19.5" />
+              <path d="M19 1q.6 3.4 4 4-3.4.6-4 4-.6-3.4-4-4 3.4-.6 4-4z" fill="currentColor" stroke-width="1.2" />
+            </svg>
+            <span class="share-mode-text">
+              <span class="share-mode-name">High quality</span>
+              <span class="share-mode-sub">For video and games (1080p, 60fps)</span>
+            </span>
+            <span class="share-radio" aria-hidden="true"></span>
+          </button>
         </div>
       </div>
 
       <select id="quality" class="sr-only" aria-hidden="true" tabindex="-1">
         <option value="720">720p · 30fps</option>
+        <option value="720-60">720p · 60fps</option>
         <option value="1080" selected>1080p · 30fps</option>
         <option value="1080-60">1080p · 60fps</option>
+        <option value="max-30">Native · 30fps</option>
         <option value="max">Native · 60fps</option>
       </select>
 
-      <div class="dock-menu-divider" role="separator"></div>
+      <div class="dock-menu-divider share-audio-divider" role="separator"></div>
 
+      <p class="share-group-title share-audio-title">Stream Audio</p>
       <label class="dock-menu-item dock-menu-action" id="system-audio-row">
         <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
           <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
         </svg>
-        <span class="dock-menu-label">Share system audio</span>
-        <input id="system-audio" type="checkbox" checked class="dock-menu-check" />
+        <span class="dock-menu-label">Share Stream Audio</span>
+        <input id="system-audio" type="checkbox" checked class="dock-menu-check is-switch" />
       </label>
 
       <button type="button" id="share-confirm" class="btn btn-primary btn-block dock-sheet-confirm">
@@ -592,6 +616,44 @@
     </div>
   </div>
 
+  <!-- Before a share in a browser: the options, in a window of their own, the
+       way the desktop app's picker shows them - minus the list of screens,
+       which the browser asks for itself straight after. Writes to the same
+       hidden select and audio box as the share menu. See js/room.js. -->
+  <div id="share-setup" class="profile-modal share-setup" role="dialog" aria-modal="true" aria-label="Screen Share" hidden>
+    <div class="profile-modal-backdrop" data-close></div>
+    <div class="profile-modal-dialog">
+      <div class="share-setup-card">
+        <div class="share-setup-body" id="share-setup-options">
+          <p class="share-setup-label">Resolution</p>
+          <div class="share-segments" role="radiogroup" aria-label="Resolution">
+            <button type="button" class="share-segment" role="radio" data-res="720" aria-checked="false">720p</button>
+            <button type="button" class="share-segment" role="radio" data-res="1080" aria-checked="false">1080p</button>
+            <button type="button" class="share-segment" role="radio" data-res="max" aria-checked="false">Native</button>
+          </div>
+
+          <p class="share-setup-label">Frame rate</p>
+          <div class="share-segments" role="radiogroup" aria-label="Frame rate">
+            <button type="button" class="share-segment" role="radio" data-fps="30" aria-checked="false">30 FPS</button>
+            <button type="button" class="share-segment" role="radio" data-fps="60" aria-checked="false">60 FPS</button>
+          </div>
+
+          <label class="share-setup-toggle">
+            <span class="share-setup-toggle-name">Share Stream Audio</span>
+            <input type="checkbox" id="share-setup-audio" class="dock-menu-check" />
+          </label>
+        </div>
+
+        <!-- What the share will go out at, as the desktop picker's footer
+             says it; the way on, opposite. -->
+        <footer class="share-setup-foot">
+          <span class="share-setup-summary" id="share-setup-summary" aria-live="polite"></span>
+          <button type="button" class="btn btn-primary" id="share-setup-go">Share Screen</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings: appearance and audio/video preferences. Separate from the
        profile editor, which stays where it is.
 
@@ -804,7 +866,7 @@
                 <span class="settings-label">Sounds</span>
                 <span class="settings-hint">Joining, leaving, messages and screen sharing.</span>
               </span>
-              <input id="room-sounds" type="checkbox" checked class="dock-menu-check" />
+              <input id="room-sounds" type="checkbox" checked class="dock-menu-check is-switch" />
             </label>
 
             <h3 class="settings-heading">Video</h3>
@@ -814,7 +876,7 @@
                 <span class="settings-label">Prioritize fluidity</span>
                 <span class="settings-hint">Keeps your screen smooth on a slow connection by lowering its quality, never its resolution.</span>
               </span>
-              <input id="fluidity" type="checkbox" checked class="dock-menu-check" />
+              <input id="fluidity" type="checkbox" checked class="dock-menu-check is-switch" />
             </label>
           </section>
         </div>

@@ -3071,6 +3071,196 @@ button.tag-danger {
   margin: 4px 4px;
 }
 
+/* ------------------------------------------------------- share setup */
+
+/* The browser's pre-share window: the desktop picker's footer and look, with
+   the options where its screens would be. */
+.share-setup .profile-modal-dialog {
+  width: min(520px, 100%);
+}
+
+.share-setup-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.share-setup-body {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 26px;
+}
+
+/* The window's own padding already spaces the first label. */
+.share-setup-body > .share-setup-label:first-child {
+  margin-top: 0;
+}
+
+.share-setup-label {
+  margin: 16px 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* One pill of segments, like the picker's Entire screen / Applications. */
+.share-segments {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgb(var(--ink) / 0.05);
+}
+
+.share-segment {
+  appearance: none;
+  border: 0;
+  border-radius: 9px;
+  padding: 12px 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.share-segment:hover {
+  color: var(--text);
+}
+
+.share-segment:focus-visible {
+  outline: 2px solid rgb(var(--ink) / 0.4);
+  outline-offset: -2px;
+}
+
+.share-segment.is-selected {
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text);
+}
+
+.share-setup-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgb(var(--ink) / 0.05);
+  cursor: pointer;
+}
+
+.share-setup-toggle-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.share-setup-summary {
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The picker's footer: what is being shared at on the left, the way on
+   on the right. */
+.share-setup-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 26px 20px;
+  border-top: 1px solid rgb(var(--ink) / 0.06);
+}
+
+/* ------------------------------------------------------ share quality */
+
+/* A desktop picks resolution and frame rate as two lists of radio rows; a
+   phone gets the two stream modes instead (see the compact block below). */
+.share-modes {
+  display: none;
+}
+
+.share-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.share-group-title {
+  margin: 0;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 55%));
+}
+
+.share-option {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.share-option:hover,
+.share-option:focus-visible {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.share-option.is-selected {
+  color: var(--text);
+}
+
+/* The radio circle, filled when picked - drawn rather than an input, so one
+   look serves both the desktop rows and the phone's mode cards.
+
+   Picked, it is one radial gradient: the dot and the fill are painted in a
+   single pass from the exact centre, so the dot cannot sit off it, and there
+   is no border or shadow edge beside the fill to leave a seam between them.
+   `--dot` is the dot's radius. */
+.share-radio {
+  --dot: 3px;
+  flex: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgb(var(--ink) / 0.35);
+  transition: box-shadow 0.15s ease;
+}
+
+.is-selected > .share-radio {
+  box-shadow: none;
+  background: radial-gradient(circle, var(--bg) 0 var(--dot), var(--text) calc(var(--dot) + 0.75px));
+}
+
 .dock-menu-action {
   display: flex;
   align-items: center;
@@ -4623,15 +4813,156 @@ button.tag-invite:disabled:hover {
     margin-top: 10px;
   }
 
-  /* The quality list has nowhere to fly out to in a full-width sheet, so it
-     opens over its row instead - upward, because the sheet is already at the
-     bottom of the screen and there is nothing below it to open into. */
-  #share-menu .dock-dropdown {
-    left: 0;
+  /* On a phone the quality is one of two modes, in a card - fewer choices,
+     each named for what it is for. */
+  #share-menu .dock-sheet-title {
+    text-align: center;
+    margin-bottom: 4px;
+  }
+
+  .share-quality,
+  .share-audio-divider {
+    display: none;
+  }
+
+  .share-modes {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #share-menu .share-group-title {
+    padding: 12px 4px 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .share-card {
+    border-radius: 14px;
+    background: rgb(var(--ink) / 0.06);
+    overflow: hidden;
+  }
+
+  .share-mode {
+    appearance: none;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .share-mode:active {
+    background: rgb(var(--ink) / 0.05);
+  }
+
+  /* A hairline between the modes, inset past the icons. */
+  .share-mode + .share-mode::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 54px;
     right: 0;
-    top: auto;
-    bottom: calc(100% + 6px);
+    height: 1px;
+    background: rgb(var(--ink) / 0.08);
+  }
+
+  .share-mode-icon {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 70%));
+  }
+
+  .share-mode-text {
+    flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .share-mode-name {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .share-mode-sub {
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--muted);
+  }
+
+  .share-mode .share-radio {
+    --dot: 4px;
+    width: 24px;
+    height: 24px;
+  }
+
+  .share-mode:not(.is-selected) .share-radio {
+    box-shadow: inset 0 0 0 2px rgb(var(--ink) / 0.35);
+  }
+
+  /* The audio switch sits in a card of its own, like the modes above it. */
+  #share-menu #system-audio-row {
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: rgb(var(--ink) / 0.06);
+  }
+
+  #share-menu #system-audio-row .dock-menu-label {
+    font-size: 15px;
+  }
+
+  /* On a phone the on/off settings are switches, the way a phone's own
+     settings look. `:root` lifts these over the light theme's tick, which is
+     otherwise the more specific rule. */
+  :root .dock-menu-check.is-switch {
+    width: 46px;
+    min-width: 46px;
+    max-width: 46px;
+    height: 28px;
+    min-height: 28px;
+    max-height: 28px;
+    flex: 0 0 46px;
+    aspect-ratio: auto;
+    border: 0;
+    border-radius: 999px;
+    background: rgb(var(--ink) / 0.2);
+    background-image: none;
+    position: relative;
+    transition: background-color 0.18s ease;
+  }
+
+  :root .dock-menu-check.is-switch::before {
+    content: "";
+    display: block;
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: transform 0.18s ease;
+  }
+
+  :root .dock-menu-check.is-switch:checked {
+    background: var(--text);
+    background-image: none;
+  }
+
+  :root .dock-menu-check.is-switch:checked::before {
+    transform: translateX(18px);
+    background: var(--bg);
   }
 
   /* The audio output menu is a sheet too. It is opened from the top bar, and

@@ -10,10 +10,17 @@
  * the video track does.
  */
 (function () {
+  /**
+   * Every resolution at both frame rates. The keys without a frame rate are
+   * the original four, kept as they were because the desktop app's picker and
+   * the room's own select pass them around by name.
+   */
   const QUALITY = {
     '720': { height: 720, frameRate: 30, bitrate: 2000000 },
+    '720-60': { height: 720, frameRate: 60, bitrate: 3000000 },
     '1080': { height: 1080, frameRate: 30, bitrate: 3500000 },
     '1080-60': { height: 1080, frameRate: 60, bitrate: 5500000 },
+    'max-30': { height: null, frameRate: 30, bitrate: 5500000 },
     max: { height: null, frameRate: 60, bitrate: 8000000 },
   };
 
