@@ -633,8 +633,13 @@ public class ScreenCapturePlugin extends Plugin {
         RtpParameters params = sender.getParameters();
         if (params == null) return;
 
+        // The picture keeps the size the room asked for, as it does on every
+        // other leg (see applyFluidity in room.js). With fluidity on nothing
+        // else gives either - DISABLED turns adaptation off, so a busy phone
+        // spends fewer bits per frame rather than shrinking or dropping them;
+        // off, the frame rate may give so each frame keeps its detail.
         params.degradationPreference = motion
-            ? RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            ? RtpParameters.DegradationPreference.DISABLED
             : RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION;
 
         // Generous, because this hop never leaves the phone - but not
