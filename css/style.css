@@ -3531,7 +3531,7 @@ body.sidebar-hidden .toasts {
 
   /* On mobile, stage centers the squares vertically and clears the dock with tight, balanced margins. */
   .stage {
-    padding: 10px 8px calc(var(--dock-h) + 14px);
+    padding: 10px 8px calc(var(--dock-h) + 14px + var(--sab));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3854,10 +3854,15 @@ body.sidebar-hidden .toasts {
     display: none;
   }
 
-  /* The panel is an overlay on a phone, so the dock centres on the window. */
+  /* The panel is an overlay on a phone, so the dock centres on the window.
+     It sits above the system's navigation bar, not just the window's edge:
+     the Android app draws edge to edge, and whether that bar overlaps the
+     page can change mid-room - Android re-lays the window out after the
+     camera and microphone permission prompts - so a fixed offset alone left
+     the dock sliding under it. --sab follows the bar; see native-app.js. */
   .dock {
     left: 50%;
-    bottom: 16px;
+    bottom: calc(16px + var(--sab));
     gap: 10px;
   }
 
@@ -3868,7 +3873,7 @@ body.sidebar-hidden .toasts {
 
   .toasts {
     left: 50%;
-    bottom: 86px;
+    bottom: calc(86px + var(--sab));
   }
 }
 

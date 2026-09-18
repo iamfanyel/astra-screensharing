@@ -180,7 +180,17 @@
       collectRoom();
     });
     // A rotation changes which edges are inset without the page reloading.
-    window.addEventListener('resize', applyInsets);
+    // So does a permission prompt: Android lays the window out again when the
+    // camera or microphone dialog closes, which is neither a visibility change
+    // nor always a resize - but it always hands focus back. The bars can
+    // still be settling when these fire, so each also asks once more a moment
+    // later.
+    const reinset = () => {
+      applyInsets();
+      setTimeout(applyInsets, 400);
+    };
+    window.addEventListener('resize', reinset);
+    window.addEventListener('focus', reinset);
   }
 
   // Wired on the platform, not on the plugin: whether the plugin handle exists
