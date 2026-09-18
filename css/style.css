@@ -232,6 +232,17 @@ body {
   background: var(--text);
 }
 
+/* The one destructive action in a menu - stopping a running share. */
+.btn-danger {
+  background: var(--danger-strong);
+  border: 0;
+  color: #ffffff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #d93636;
+}
+
 
 .btn-discord {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 13.33%));
@@ -2879,7 +2890,6 @@ button.tag-danger {
   background: rgb(var(--ink) / 0.08);
 }
 
-.dock-menu-item.is-disabled,
 .dock-menu-item:has(input:disabled),
 .dock-menu-item:has(select:disabled) {
   opacity: 0.45;

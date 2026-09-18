@@ -213,6 +213,39 @@
   }
 
   /**
+   * Move a running share to another quality, without asking for the screen
+   * again. The browser resizes the capture it already has; the Android app
+   * resizes its virtual display. Constraints are `ideal`, so a source that
+   * cannot manage the new size keeps what it had rather than failing.
+   *
+   * Resolves true when the picture itself was changed, false when only the
+   * caller's bitrate and frame-rate caps can follow (an app build that
+   * predates this, or a source that refused).
+   */
+  async function retuneScreen(track, qualityKey, native) {
+    const quality = QUALITY[qualityKey];
+    if (!quality || !track) return false;
+    if (native) {
+      const screen = window.AstraNativeScreen;
+      return !!(screen && await screen.reconfigure({
+        ...captureBox(quality),
+        frameRate: quality.frameRate,
+        bitrate: quality.bitrate,
+      }));
+    }
+    const wanted = { frameRate: { ideal: quality.frameRate } };
+    // `max` asks for the panel untouched, and naming a height would undo that.
+    if (quality.height) wanted.height = { ideal: quality.height };
+    try {
+      await track.applyConstraints(wanted);
+      return true;
+    } catch (err) {
+      console.warn('[astra] could not change the share quality', err);
+      return false;
+    }
+  }
+
+  /**
    * Shared audio is music, not speech, wherever it came from - the browser's
    * loopback or the phone's. Saying so keeps the encoder from treating it the
    * way it treats a voice.
@@ -292,8 +325,7 @@
     QUALITY,
     AudioMixer,
     captureScreen,
-    /** What a quality key means, for a caller that needs to re-read it. */
-    qualityFor: (key) => QUALITY[key] || null,
+    retuneScreen,
     captureCamera,
     captureMicrophone,
     stopStream,

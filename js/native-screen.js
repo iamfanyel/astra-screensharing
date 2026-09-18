@@ -149,5 +149,20 @@
     }
   }
 
-  window.AstraNativeScreen = { available, capture };
+  /**
+   * Change the quality of the running share - same box as capture() takes.
+   * False on an app build that cannot, so the caller can say so.
+   */
+  async function reconfigure(wanted) {
+    const native = plugin();
+    if (!native || typeof native.reconfigure !== 'function') return false;
+    try {
+      await native.reconfigure(wanted);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  window.AstraNativeScreen = { available, capture, reconfigure };
 })();

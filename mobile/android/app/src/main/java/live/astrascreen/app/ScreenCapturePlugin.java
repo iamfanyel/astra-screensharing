@@ -93,6 +93,8 @@ public class ScreenCapturePlugin extends Plugin {
     private PeerConnectionFactory factory;
     private EglBase eglBase;
     private PeerConnection connection;
+    private RtpSender videoSender;
+    private boolean captureMotion = true;
     private ScreenCapturerAndroid capturer;
     private VideoSource videoSource;
     private VideoTrack videoTrack;
@@ -334,6 +336,7 @@ public class ScreenCapturePlugin extends Plugin {
         // room already asks the user which they want, so the answer comes from
         // there rather than being assumed here.
         final boolean motion = Boolean.TRUE.equals(call.getBoolean("motion", Boolean.TRUE));
+        captureMotion = motion;
 
         CrashLog.note("building the texture helper and video source");
         textureHelper = SurfaceTextureHelper.create("AstraCapture", eglBase.getEglBaseContext());
@@ -376,7 +379,7 @@ public class ScreenCapturePlugin extends Plugin {
         CrashLog.note("building the peer connection");
         connection = factory.createPeerConnection(config, new LocalObserver());
         if (connection == null) throw new IllegalStateException("no peer connection");
-        RtpSender videoSender = connection.addTrack(videoTrack, Collections.singletonList("astra-screen"));
+        videoSender = connection.addTrack(videoTrack, Collections.singletonList("astra-screen"));
         tuneSender(videoSender, call, motion, fps);
         preferHardwareCodecs();
         if (audioTrack != null) {
@@ -781,6 +784,48 @@ public class ScreenCapturePlugin extends Plugin {
         ScreenAudioCapturer audio = screenAudio;
         if (audio == null) return captureTimeNs;
         return audio.onBuffer(buffer, audioFormat, channelCount, sampleRate, bytesRead, captureTimeNs);
+    }
+
+    /**
+     * Change the quality of a share that is already running.
+     *
+     * Takes the same box, frame rate and bitrate as start(). The virtual
+     * display is resized in place and the local leg retuned - no new consent,
+     * no new connection - so the room sees the picture change, not the share
+     * stop and start again. Done off the main thread: changeCaptureFormat
+     * waits on libwebrtc's capture thread.
+     */
+    @PluginMethod
+    public void reconfigure(PluginCall call) {
+        if (capturer == null || capturingAt == null) {
+            call.reject("There is no screen share to change.");
+            return;
+        }
+        final Integer longEdge = call.getInt("maxLongEdge");
+        final Integer shortEdge = call.getInt("maxShortEdge");
+        final int fps = Math.max(1, call.getInt("frameRate", captureFps));
+        new Thread(() -> {
+            synchronized (this) {
+                if (capturer == null) {
+                    call.reject("The share ended.");
+                    return;
+                }
+                maxLongEdge = longEdge;
+                maxShortEdge = shortEdge;
+                captureFps = fps;
+                Point size = captureSize();
+                try {
+                    capturer.changeCaptureFormat(size.x, size.y, fps);
+                    capturingAt = size;
+                    tuneSender(videoSender, call, captureMotion, fps);
+                    CrashLog.note("quality changed, now capturing " + size.x + "x" + size.y + "@" + fps);
+                    call.resolve();
+                } catch (Throwable error) {
+                    CrashLog.note("could not change the quality: " + error);
+                    call.reject("Could not change the quality.");
+                }
+            }
+        }, "AstraReconfigure").start();
     }
 
     /** The page's reply to the offer. */

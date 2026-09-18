@@ -48,7 +48,7 @@
 
   let leaving = false;
   let tornDown = false;
-  const { AudioMixer, captureScreen, captureCamera, captureMicrophone, stopStream, QUALITY } =
+  const { AudioMixer, captureScreen, retuneScreen, captureCamera, captureMicrophone, stopStream, QUALITY } =
     window.AstraMedia;
 
   const $ = (id) => document.getElementById(id);
@@ -147,6 +147,7 @@
     friendsMenu: $('friends-menu'),
     friendsMenuList: $('friends-menu-list'),
     shareConfirm: $('share-confirm'),
+    shareMenuTitle: document.querySelector('#share-menu .dock-sheet-title'),
     dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
     qualityVal: $('quality-val'),
@@ -1035,29 +1036,34 @@
 
   function toggleSharing(event) {
     if (el.share.disabled) return;
-    if (state.sharing) {
-      stopSharing();
-      return;
-    }
     // A phone has no room for the options caret, so the button opens them as a
-    // sheet and the share starts when they are confirmed.
+    // sheet - to start a share, or to change or stop one that is running.
     if (compact.matches) {
       // This same click is still on its way to the document, where the
       // outside-click handler would read it as a tap away from the sheet it
       // has only just opened.
       if (event) event.stopPropagation();
       toggleShareMenu(true);
+    } else if (state.sharing) {
+      stopSharing();
     } else {
       startSharing();
     }
   }
 
+  /**
+   * Start sharing - or, with a share already running, swap it for a fresh
+   * capture without stopping it: the room sees the picture change, never the
+   * share end. That is how sound is added to a share that began without it,
+   * since a capture cannot gain audio after the fact.
+   */
   async function startSharing() {
     if (!state.signal || !state.mesh) return;
     if (!window.AstraMedia.canShareScreen) {
       toast('Screen sharing is not supported on this device/browser', 'bad');
       return;
     }
+    const replacing = state.sharing;
     el.share.disabled = true;
     try {
       if (state.mixer) await state.mixer.resume();
@@ -1067,15 +1073,25 @@
       const capture = await captureScreen(el.quality.value, el.systemAudio.checked, {
         motion: fluidityOn(),
       });
+      const videoTrack = capture.stream.getVideoTracks()[0];
+      if (!videoTrack) {
+        stopStream(capture.stream);
+        throw new Error('No video track came back from the picker.');
+      }
+      // The old capture goes only once the new one is in hand, so cancelling
+      // the picker leaves the running share exactly as it was.
+      if (replacing) cleanUpCapture();
 
       state.videoStream = capture.stream;
-      state.videoTrack = capture.stream.getVideoTracks()[0];
-      if (!state.videoTrack) throw new Error('No video track came back from the picker.');
+      state.videoTrack = videoTrack;
+      state.shareNative = !!capture.native;
 
       // The browser's own "Stop sharing" bar ends the track behind our back.
-      state.videoTrack.addEventListener('ended', () => stopSharing());
+      videoTrack.addEventListener('ended', () => {
+        if (state.videoTrack === videoTrack) stopSharing();
+      });
 
-      state.localStream.addTrack(state.videoTrack);
+      state.localStream.addTrack(videoTrack);
 
       const screenAudioTrack = capture.stream.getAudioTracks()[0] || null;
       state.screenAudioTrack = screenAudioTrack;
@@ -1092,8 +1108,11 @@
             state.mesh.publish();
           }
         });
-        state.localStream.addTrack(screenAudioTrack);
-        if (capture.backgroundAudio === false) {
+        // The app always captures sound where Android allows; whether the
+        // room hears it is the tick box, which can change mid-share.
+        if (!el.systemAudio.checked) {
+          setStatus('Sharing without system audio.');
+        } else if (capture.backgroundAudio === false) {
           // Android only lets an app keep capturing sound while it is in front
           // unless it holds a microphone-typed foreground service, and this
           // one could not get it. The share is fine; the sound will cut out
@@ -1103,7 +1122,8 @@
         } else {
           setStatus('Sharing with system audio.');
         }
-      } else if (capture.native) {
+        if (el.systemAudio.checked) state.localStream.addTrack(screenAudioTrack);
+      } else if (capture.native && el.systemAudio.checked) {
         // The app asks Android for the sound every time, so arriving without
         // it means Android declined - the permission was refused, the phone is
         // older than 10, or whatever is playing has opted out of being
@@ -1125,7 +1145,7 @@
       // track that came back.
       const settled = await settleQuality(capture.quality);
       state.mesh.setMaxVideoBitrate(settled.bitrate, settled.frameRate);
-      chime('share-start');
+      if (!replacing) chime('share-start');
       applyFluidity();
       state.mesh.publish();
 
@@ -1133,26 +1153,21 @@
       if (state.signal) {
         state.signal.setState({
           sharing: true,
-          screenTrackId: state.videoTrack.id,
-          screenAudioTrackId: screenAudioTrack ? screenAudioTrack.id : null,
+          screenTrackId: videoTrack.id,
+          screenAudioTrackId: screenAudioSending() ? screenAudioTrack.id : null,
         });
       }
       setShareUI(true);
-      el.systemAudio.disabled = true;
-      el.quality.disabled = true;
-      if (el.qualityTrigger) el.qualityTrigger.classList.add('is-disabled');
-      if (el.systemAudioRow) el.systemAudioRow.classList.add('is-disabled');
-      hideQualityDropdown(0);
       updateSelfTiles();
       renderPeople();
     } catch (err) {
       if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
-        setStatus('Share cancelled.');
+        setStatus(replacing ? 'Kept the share as it was.' : 'Share cancelled.');
       } else {
         console.error(err);
         setStatus('Could not start sharing: ' + (err.message || err.name), 'bad');
       }
-      cleanUpCapture();
+      if (!replacing) cleanUpCapture();
     } finally {
       el.share.disabled = false;
     }
@@ -1206,21 +1221,72 @@
    * failing.
    */
   async function settleQuality(asked) {
-    const chosen = window.AstraMedia && window.AstraMedia.qualityFor
-      ? window.AstraMedia.qualityFor(el.quality.value)
-      : null;
+    const chosen = QUALITY[el.quality.value] || null;
     if (!chosen || chosen === asked || !state.videoTrack) return asked || chosen;
+    const changed = await retuneScreen(state.videoTrack, el.quality.value, state.shareNative);
+    return changed ? chosen : asked || chosen;
+  }
 
-    const wanted = { frameRate: { ideal: chosen.frameRate } };
-    // `max` asks for the panel untouched, and naming a height would undo that.
-    if (chosen.height) wanted.height = { ideal: chosen.height };
-    try {
-      await state.videoTrack.applyConstraints(wanted);
-    } catch (err) {
-      console.warn('[astra] could not re-apply the picker quality', err);
-      return asked || chosen;
+  /**
+   * Apply a quality picked while already sharing: the picture (see
+   * retuneScreen), and the caps the encoder works within.
+   */
+  let retuneTurn = 0;
+
+  async function retuneShare() {
+    const key = el.quality.value;
+    const quality = QUALITY[key];
+    if (!state.sharing || !state.videoTrack || !quality) return;
+    // Picks in quick succession: only the last one's answer is acted on.
+    const turn = ++retuneTurn;
+    const resized = await retuneScreen(state.videoTrack, key, state.shareNative);
+    if (!state.sharing || turn !== retuneTurn) return;
+    state.mesh.setMaxVideoBitrate(quality.bitrate, quality.frameRate);
+    const label = el.qualityVal ? el.qualityVal.textContent : el.quality.value;
+    setStatus(resized
+      ? 'Sharing at ' + label + '.'
+      : 'Changed the frame rate and bitrate; the resolution needs the share started again.');
+  }
+
+  /** Whether the room is hearing the share's sound right now. */
+  function screenAudioSending() {
+    const track = state.screenAudioTrack;
+    return !!(track && state.localStream && state.localStream.getTracks().includes(track));
+  }
+
+  /**
+   * Turn the share's sound on or off for the room without stopping the share.
+   *
+   * Off keeps the captured sound running here, just unsent, so on is instant.
+   * On with nothing captured - a browser share started with the box unticked
+   * - needs a capture that has sound, so the picker comes up again and the
+   * new capture replaces the old one in place.
+   */
+  async function setShareAudio(on) {
+    if (!state.sharing) return;
+    // A capture is being started or swapped; the box is put right after.
+    if (el.share.disabled) {
+      el.systemAudio.checked = screenAudioSending();
+      return;
     }
-    return chosen;
+    const track = state.screenAudioTrack;
+    if (on && !(track && track.readyState === 'live')) {
+      if (state.shareNative) {
+        setStatus('No sound: Android would not share this app’s audio.', 'bad');
+        el.systemAudio.checked = false;
+        return;
+      }
+      await startSharing();
+      // Picker cancelled, or it came back silent: the box says what is true.
+      if (!screenAudioSending()) el.systemAudio.checked = false;
+      return;
+    }
+    if (!track || on === screenAudioSending()) return;
+    if (on) state.localStream.addTrack(track);
+    else state.localStream.removeTrack(track);
+    state.mesh.publish();
+    state.signal.setState({ screenAudioTrackId: on ? track.id : null });
+    setStatus(on ? 'Sharing system audio.' : 'System audio off - the room no longer hears it.');
   }
 
   function stopSharing() {
@@ -1232,10 +1298,6 @@
     if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null, screenAudioTrackId: null });
     updateSelfTiles();
     setShareUI(false);
-    el.systemAudio.disabled = false;
-    el.quality.disabled = false;
-    if (el.qualityTrigger) el.qualityTrigger.classList.remove('is-disabled');
-    if (el.systemAudioRow) el.systemAudioRow.classList.remove('is-disabled');
     setStatus('Stopped sharing.');
     renderPeople();
     updateEmptyState();
@@ -1255,6 +1317,7 @@
     stopStream(state.videoStream);
     state.videoStream = null;
     state.videoTrack = null;
+    state.shareNative = false;
   }
 
   function setShareUI(active) {
@@ -1262,6 +1325,16 @@
     el.share.classList.toggle('is-live', active);
     el.share.title = label;
     el.shareLabel.textContent = label;
+    // The sheet on a phone is also where a running share is changed and
+    // stopped, so its heading and button follow the share.
+    if (el.shareMenuTitle) {
+      el.shareMenuTitle.textContent = active ? 'Sharing your screen' : 'Share your screen';
+    }
+    if (el.shareConfirm) {
+      el.shareConfirm.textContent = active ? 'Stop sharing' : 'Share screen';
+      el.shareConfirm.classList.toggle('btn-primary', !active);
+      el.shareConfirm.classList.toggle('btn-danger', active);
+    }
   }
 
   // ---------------------------------------------------------------- camera
@@ -2058,7 +2131,8 @@
     el.shareConfirm.addEventListener('click', (event) => {
       event.stopPropagation();
       toggleShareMenu(false);
-      startSharing();
+      if (state.sharing) stopSharing();
+      else startSharing();
     });
   }
 
@@ -2106,7 +2180,6 @@
 
   function toggleQualityDropdown(force) {
     if (!el.qualityDropdown || !el.qualityTrigger) return;
-    if (el.quality.disabled) return;
     const open = force === undefined ? el.qualityDropdown.hidden : force;
     if (el.qualityDropdown.hidden === !open) return;
     el.qualityDropdown.hidden = !open;
@@ -2200,7 +2273,7 @@
   dropdownItems.forEach((item) => {
     const pick = () => {
       const val = item.getAttribute('data-value');
-      if (!val || el.quality.disabled) return;
+      if (!val) return;
       el.quality.value = val;
       updateQualitySelection(val);
       el.quality.dispatchEvent(new Event('change'));
@@ -2233,9 +2306,11 @@
 
   el.quality.addEventListener('change', () => {
     updateQualitySelection(el.quality.value);
-    const quality = QUALITY[el.quality.value];
-    if (quality && state.mesh) state.mesh.setMaxVideoBitrate(quality.bitrate);
+    // Before a share this is only the choice for the next one.
+    retuneShare();
   });
+
+  el.systemAudio.addEventListener('change', () => setShareAudio(el.systemAudio.checked));
   updateQualitySelection(el.quality.value);
 
   // -------------------------------------------------------------- microphone
