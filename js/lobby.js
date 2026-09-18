@@ -173,7 +173,14 @@
       // glance and costs the row no width.
       avatar.classList.add('is-' + status);
     }
-    AstraProfile.paint(avatar, person.name || '', person.avatar);
+    if (person.avatar) {
+      const img = document.createElement('img');
+      img.src = person.avatar;
+      img.alt = '';
+      avatar.append(img);
+    } else {
+      avatar.textContent = (person.name || '?').trim().charAt(0).toUpperCase();
+    }
 
     const name = document.createElement('span');
     name.className = 'friend-name';

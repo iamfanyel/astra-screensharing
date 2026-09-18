@@ -185,7 +185,7 @@
       el.avatar.textContent = '';
       el.avatar.append(img);
     } else {
-      window.AstraProfile.paint(el.avatar, person.name || '', null);
+      el.avatar.textContent = (person.name || '?').trim().charAt(0).toUpperCase();
     }
 
     if (person.banner && window.AstraProfile.isBanner(person.banner)) {

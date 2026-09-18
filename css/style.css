@@ -2099,19 +2099,6 @@ input.theme-hue::-moz-range-track {
   background-image: none;
 }
 
-/* No picture: Astra's mark, white on the person's own colour (the colour is
-   set inline by AstraProfile.paint). A background layer rather than a child
-   box: background-position centres it on the circle itself, whatever the
-   element's size or display - a child only centred where its parent
-   happened to be a grid, and landed a pixel off where percentages rounded.
-   Doubled class so it outranks the `background-image: none` avatars carry. */
-.avatar-mark.avatar-mark {
-  background-image: url("/astra-mark.png");
-  background-position: 50% 50%;
-  background-size: 56% 56%;
-  background-repeat: no-repeat;
-}
-
 .avatar.is-speaking,
 .person.is-speaking .avatar {
   box-shadow: 0 0 0 2.5px var(--speaking);

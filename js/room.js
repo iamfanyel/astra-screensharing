@@ -3176,8 +3176,10 @@
   function getFallbackColor(name) {
     const key = String(name || '');
     if (fallbackColorCache.has(key)) return fallbackColorCache.get(key);
-    // The same hue as the person's picture-less avatar, so the two agree.
-    const color = hslToRgb(AstraProfile.markHue(key), 58, 48);
+    let hash = 0;
+    for (const char of key) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    const hue = hash % 360;
+    const color = hslToRgb(hue, 58, 48);
     if (fallbackColorCache.size > 100) fallbackColorCache.clear();
     fallbackColorCache.set(key, color);
     return color;
@@ -5290,11 +5292,17 @@
 
       if (img) {
         ink.drawImage(img, cx - half, cy - half, centerSize, centerSize);
-        ink.restore();
-        return;
+      } else {
+        const name = (AstraProfile.getName() || 'Guest').trim();
+        ink.fillStyle = '#1e1e1e';
+        ink.fillRect(cx - half, cy - half, centerSize, centerSize);
+        ink.fillStyle = '#ffffff';
+        ink.font = `bold ${Math.floor(centerSize * 0.52)}px sans-serif`;
+        ink.textAlign = 'center';
+        ink.textBaseline = 'middle';
+        ink.fillText(name.charAt(0).toUpperCase(), cx, cy);
       }
-      const name = (AstraProfile.getName() || 'Guest').trim();
-      AstraProfile.drawMark(ink, name, cx, cy, half).then(() => ink.restore());
+      ink.restore();
     }
 
     const avatarUrl = modalAvatar || AstraProfile.getAvatar();
