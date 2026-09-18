@@ -430,26 +430,27 @@
     return { repaint, open: () => fileInput.click() };
   }
 
+  /** Astra's mark, drawn on the colour below for anyone without a picture. */
+  const MARK_URL = '/astra-mark.png';
+
   /**
-   * A stable shade per name, so people without a picture stay recognisable.
-   * Only the lightness comes from the name - the hue is the app tint, so these
-   * follow the theme like every other grey.
+   * A stable colour per name, so people without a picture stay recognisable
+   * and each looks like their own. The same hue the room tints a picture-less
+   * person's square with - see getFallbackColor in room.js - so the circle
+   * and the square around it agree.
    */
-  const tintCache = new Map();
-  function tint(name) {
-    const key = String(name || '');
-    if (tintCache.has(key)) return tintCache.get(key);
+  function markHue(name) {
     let hash = 0;
-    for (const char of key) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-    const light = 32 + (hash % 20);
-    const color = 'hsl(var(--tint-h) var(--tint-s) ' + light + '%)';
-    if (tintCache.size > 100) tintCache.clear();
-    tintCache.set(key, color);
-    return color;
+    for (const char of String(name || '')) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    return hash % 360;
+  }
+
+  function markColor(name) {
+    return 'hsl(' + markHue(name) + ' 58% 48%)';
   }
 
   /**
-   * Render a picture, or fall back to the initial.
+   * Render a picture, or fall back to the Astra mark on the name's colour.
    *
    * The people list repaints on every roster event, so bail out when nothing
    * changed - re-validating a 30KB data URL and rebuilding an <img> for an
@@ -468,12 +469,46 @@
       img.src = avatar;
       img.alt = '';
       element.style.background = 'none';
+      element.classList.remove('avatar-mark');
       element.appendChild(img);
       return;
     }
-    element.style.background = tint(paintedName);
-    element.textContent = (paintedName.trim()[0] || '?').toUpperCase();
+    // The colour only: the mark is a background image from the stylesheet,
+    // which the `background` shorthand would wipe.
+    element.style.background = '';
+    element.style.backgroundColor = markColor(paintedName);
+    element.classList.add('avatar-mark');
   }
+
+  /**
+   * The same fallback on a canvas - a coloured disc with the mark in it - for
+   * the places that draw pictures rather than show elements. Resolves once
+   * drawn; clip to the circle first if the canvas has other things on it.
+   */
+  let markImage = null;
+  function loadMark() {
+    if (!markImage) {
+      markImage = new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = MARK_URL;
+      });
+    }
+    return markImage;
+  }
+
+  async function drawMark(ink, name, cx, cy, radius) {
+    const mark = await loadMark();
+    ink.fillStyle = markColor(name);
+    ink.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+    if (!mark) return;
+    const size = radius * MARK_SCALE * 2;
+    ink.drawImage(mark, cx - size / 2, cy - size / 2, size, size);
+  }
+
+  /** How much of the circle the mark fills. Matches .avatar-mark in the stylesheet. */
+  const MARK_SCALE = 0.56;
 
   const bannerTintCache = new Map();
   function tintBanner(seed) {
@@ -678,6 +713,9 @@
     encodeBanner,
     paint,
     paintBanner,
+    markColor,
+    markHue,
+    drawMark,
     mountPicker,
     SIZE,
     MAX_LENGTH,
