@@ -2817,10 +2817,14 @@
     '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />' +
     '</svg><span class="sr-only">Fullscreen</span>';
 
+  // A picture popped out of a bigger one: the mini player, and the menu's
+  // picture-in-picture.
+  const POP_OUT_PATHS = '<path d="M21 11V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" />'
+    + '<rect x="13" y="13" width="9" height="7" rx="1.5" />';
+
   const MINI_PLAYER_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M21 11V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" />' +
-    '<rect x="13" y="13" width="9" height="7" rx="1.5" />' +
+    POP_OUT_PATHS +
     '</svg><span class="sr-only">Mini player</span>';
 
   const VIEWERS_EYE_ICON =
@@ -3703,6 +3707,417 @@
     });
   }
 
+  // ----------------------------------------------------------- right click
+
+  /**
+   * Right-click menus, the way Discord has them: on a person - in the people
+   * list or on their tile - and on a screen share. A long press opens them on
+   * a phone. Everything in them is something the room can already do from a
+   * button somewhere; the menu is the shortcut, not a new home for it.
+   */
+  let contextMenu = null;
+  // The one submenu open beside it, if any: { row, menu }.
+  let contextSubmenu = null;
+
+  const CONTEXT_TICK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" '
+    + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8l3 3 6-6" /></svg>';
+  const CONTEXT_CHEVRON = '<svg class="context-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>';
+
+  function closeContextSubmenu() {
+    if (!contextSubmenu) return;
+    contextSubmenu.menu.remove();
+    contextSubmenu.row.classList.remove('is-open');
+    contextSubmenu.row.setAttribute('aria-expanded', 'false');
+    contextSubmenu = null;
+  }
+
+  function closeContextMenu() {
+    closeContextSubmenu();
+    if (!contextMenu) return;
+    contextMenu.remove();
+    contextMenu = null;
+  }
+
+  /**
+   * One menu's element. An item is one of:
+   *   { label, action, danger?, icon? }    - a row; `icon` is SVG markup
+   *   { label, action, checked }           - a tick box that stays open;
+   *                                          `checked()` reads the setting
+   *   { label, action, group, selected }   - one of a group of choices; stays open
+   *   { label, submenu }                   - opens `submenu()`'s items beside it
+   *   { slider: { label, value, onInput } } - a 0-1 volume, shown as a percentage
+   *   { heading }                          - a label over the rows below it
+   *   { separator: true }
+   */
+  function buildContextMenu(items) {
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.setAttribute('role', 'menu');
+    for (const item of items) menu.append(contextRow(item));
+    return menu;
+  }
+
+  function contextRow(item) {
+    if (item.separator) {
+      const line = document.createElement('div');
+      line.className = 'context-menu-sep';
+      line.setAttribute('role', 'separator');
+      return line;
+    }
+
+    if (item.heading) {
+      const heading = document.createElement('div');
+      heading.className = 'context-menu-heading';
+      heading.textContent = item.heading;
+      return heading;
+    }
+
+    if (item.slider) {
+      const { label, value, onInput } = item.slider;
+      const row = document.createElement('label');
+      row.className = 'context-menu-slider';
+      const head = document.createElement('span');
+      head.className = 'context-menu-slider-head';
+      const name = document.createElement('span');
+      name.textContent = label;
+      const shown = document.createElement('span');
+      head.append(name, shown);
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = '0';
+      input.max = '100';
+      input.value = String(Math.round(value * 100));
+      input.setAttribute('aria-label', label);
+      const show = () => {
+        shown.textContent = input.value + '%';
+      };
+      show();
+      input.addEventListener('input', () => {
+        show();
+        onInput(Number(input.value) / 100);
+      });
+      row.append(head, input);
+      return row;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'context-menu-item' + (item.danger ? ' is-danger' : '');
+    const text = document.createElement('span');
+    text.textContent = item.label;
+    button.append(text);
+    if (item.icon) {
+      button.insertAdjacentHTML('beforeend', '<svg class="context-icon" viewBox="0 0 24 24" fill="none" '
+        + 'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" '
+        + 'aria-hidden="true">' + item.icon + '</svg>');
+    }
+
+    // Moving onto a row of this menu puts away a submenu opened from another.
+    button.addEventListener('pointerenter', () => {
+      if (contextSubmenu && contextSubmenu.row !== button && button.parentElement !== contextSubmenu.menu) {
+        closeContextSubmenu();
+      }
+    });
+
+    if (item.submenu) {
+      button.classList.add('has-submenu');
+      button.setAttribute('role', 'menuitem');
+      button.setAttribute('aria-haspopup', 'menu');
+      button.setAttribute('aria-expanded', 'false');
+      button.insertAdjacentHTML('beforeend', CONTEXT_CHEVRON);
+      const open = () => openContextSubmenu(button, item.submenu());
+      button.addEventListener('pointerenter', open);
+      button.addEventListener('click', open);
+      return button;
+    }
+
+    if (item.group) {
+      // A choice: picked in place, so a second choice can follow it.
+      button.setAttribute('role', 'menuitemradio');
+      button.dataset.group = item.group;
+      const mark = (row, on) => {
+        row.classList.toggle('is-selected', on);
+        row.setAttribute('aria-checked', String(on));
+      };
+      mark(button, !!item.selected);
+      const dot = document.createElement('span');
+      dot.className = 'share-radio';
+      dot.setAttribute('aria-hidden', 'true');
+      button.append(dot);
+      button.addEventListener('click', () => {
+        item.action();
+        for (const row of button.parentElement.querySelectorAll('[data-group="' + item.group + '"]')) {
+          mark(row, row === button);
+        }
+      });
+      return button;
+    }
+
+    if (item.checked) {
+      // Toggled in place, and read back rather than assumed: a change can be
+      // refused (sound Android will not give up, say).
+      button.setAttribute('role', 'menuitemcheckbox');
+      const box = document.createElement('span');
+      box.className = 'context-check';
+      box.innerHTML = CONTEXT_TICK;
+      button.append(box);
+      const show = () => {
+        const on = !!item.checked();
+        box.classList.toggle('is-checked', on);
+        button.setAttribute('aria-checked', String(on));
+      };
+      show();
+      button.addEventListener('click', async () => {
+        await item.action();
+        show();
+      });
+      return button;
+    }
+
+    button.setAttribute('role', 'menuitem');
+    button.addEventListener('click', () => {
+      closeContextMenu();
+      item.action();
+    });
+    return button;
+  }
+
+  /** Put a menu at (left, top), kept inside the window. */
+  function placeContextMenu(menu, left, top) {
+    const { width, height } = menu.getBoundingClientRect();
+    const edge = 8;
+    menu.style.left = Math.max(edge, Math.min(left, innerWidth - width - edge)) + 'px';
+    menu.style.top = Math.max(edge, Math.min(top, innerHeight - height - edge)) + 'px';
+  }
+
+  /** Beside its row - to the right, or the left where there is no room. */
+  function openContextSubmenu(row, items) {
+    if (contextSubmenu && contextSubmenu.row === row) return;
+    closeContextSubmenu();
+    const menu = buildContextMenu(items);
+    menu.classList.add('is-submenu');
+    document.body.append(menu);
+    const parent = row.parentElement.getBoundingClientRect();
+    const { width } = menu.getBoundingClientRect();
+    const right = parent.right + 4;
+    const left = right + width <= innerWidth - 8 ? right : parent.left - width - 4;
+    placeContextMenu(menu, left, row.getBoundingClientRect().top - 7);
+    row.classList.add('is-open');
+    row.setAttribute('aria-expanded', 'true');
+    contextSubmenu = { row, menu };
+  }
+
+  /** Open a menu of `items` where the event happened - see buildContextMenu. */
+  function showContextMenu(event, items) {
+    event.preventDefault();
+    closeContextMenu();
+    const menu = buildContextMenu(items);
+    document.body.append(menu);
+
+    // At the pointer, flipped above it near the bottom of the window. A menu
+    // opened from the keyboard has no pointer, so it hangs off its target.
+    let { clientX: left, clientY: top } = event;
+    const fromKeyboard = !left && !top;
+    if (fromKeyboard && event.currentTarget instanceof Element) {
+      const anchor = event.currentTarget.getBoundingClientRect();
+      left = anchor.left + 12;
+      top = anchor.top + 12;
+    }
+    const { height } = menu.getBoundingClientRect();
+    if (top + height > innerHeight - 8) top -= height;
+    placeContextMenu(menu, left, top);
+
+    contextMenu = menu;
+    // From the keyboard, the keyboard carries on inside it.
+    if (fromKeyboard) {
+      const first = menu.querySelector('button, input');
+      if (first) first.focus({ preventScroll: true });
+    }
+  }
+
+  const inContextMenus = (target) => (contextMenu && contextMenu.contains(target))
+    || (contextSubmenu && contextSubmenu.menu.contains(target));
+
+  document.addEventListener('pointerdown', (event) => {
+    if (contextMenu && !inContextMenus(event.target)) closeContextMenu();
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (!contextMenu) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeContextMenu();
+      return;
+    }
+    const active = document.activeElement;
+    // Right opens a submenu and steps into it; left steps back out.
+    if (event.key === 'ArrowRight' && active && active.classList.contains('has-submenu')) {
+      event.preventDefault();
+      active.click();
+      const first = contextSubmenu && contextSubmenu.menu.querySelector('button, input');
+      if (first) first.focus();
+      return;
+    }
+    if (event.key === 'ArrowLeft' && contextSubmenu && contextSubmenu.menu.contains(active)) {
+      event.preventDefault();
+      const row = contextSubmenu.row;
+      closeContextSubmenu();
+      row.focus();
+      return;
+    }
+    // Up and down walk the rows of the menu in hand; on a slider they belong
+    // to the slider.
+    if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || (active && active.type === 'range')) return;
+    event.preventDefault();
+    const menu = (active && active.closest('.context-menu')) || contextMenu;
+    const stops = [...menu.querySelectorAll('button, input')];
+    const at = stops.indexOf(active);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    stops[(at + step + stops.length) % stops.length].focus();
+  });
+  window.addEventListener('blur', closeContextMenu);
+  window.addEventListener('resize', closeContextMenu);
+
+  function toggleTileFullscreen(root) {
+    if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
+    else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+  }
+
+  /** A person: from the people list, or from their tile. */
+  function openPersonMenu(event, peerId, anchor) {
+    const peer = state.signal && state.signal.roster.get(peerId);
+    if (!peer) return;
+    const items = [{ label: 'Profile', action: () => openProfilePopup(peerId, anchor) }];
+
+    if (peerId !== state.signal.selfId) {
+      const volume = getPeerVolume(peerId);
+      items.push(
+        { separator: true },
+        { slider: { label: 'User Volume', value: volume.volume, onInput: (value) => setPeerVolume(peerId, value) } },
+        { label: 'Mute', checked: () => volume.muted, action: () => setPeerVolume(peerId, undefined, !volume.muted) },
+      );
+      if (state.signal.self && state.signal.self.host) {
+        items.push({ separator: true }, {
+          label: 'Kick ' + peer.name,
+          danger: true,
+          action: () => {
+            if (confirm('Kick ' + peer.name + ' from the room?')) state.signal.kick(peerId);
+          },
+        });
+      }
+    }
+    showContextMenu(event, items);
+  }
+
+  /**
+   * The share menu's resolution and frame-rate choices, labelled as it labels
+   * them. Each changes its half and keeps the other, like the share menu.
+   */
+  function shareQualityItems() {
+    const now = qualityHalves(el.quality.value);
+    const choices = (half, title) => [
+      { heading: title },
+      ...[...el.shareQuality.querySelectorAll('[data-' + half + ']')].map((option) => ({
+        label: option.textContent.trim(),
+        group: half,
+        selected: now[half] === option.dataset[half],
+        action: () => {
+          const halves = qualityHalves(el.quality.value);
+          halves[half] = option.dataset[half];
+          pickQuality(qualityKeyFor(halves.res, halves.fps));
+        },
+      })),
+    ];
+    return [...choices('res', 'Resolution'), { separator: true }, ...choices('fps', 'Frame rate')];
+  }
+
+  // The share button's own "stop" picture, for the menu's Stop Sharing.
+  const STOP_SHARE_PATHS = '<rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8M12 17v4M3 3l18 18" />';
+
+  /** The browser's own floating player, on a share - watched first if need be. */
+  async function togglePictureInPicture(key) {
+    const tile = state.tiles.get(key);
+    if (!tile) return;
+    try {
+      if (document.pictureInPictureElement === tile.video) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (state.peerWatching.get(key) !== true) setTileWatching(key, true);
+      // A share only just being watched has no picture to pop out yet.
+      if (tile.video.readyState < HTMLMediaElement.HAVE_METADATA) {
+        await new Promise((resolve) => {
+          tile.video.addEventListener('loadedmetadata', resolve, { once: true });
+          setTimeout(resolve, 3000);
+        });
+      }
+      await tile.video.requestPictureInPicture();
+    } catch (err) {
+      console.error(err);
+      toast('Couldn’t open picture in picture', 'bad');
+    }
+  }
+
+  /** A screen share: watching, where it is shown, and how loud it is. */
+  function openStreamMenu(event, key) {
+    const tile = state.tiles.get(key);
+    if (!tile) return;
+    const isSelf = tile.root.classList.contains('self');
+    const items = [];
+
+    if (isSelf) {
+      items.push({ label: 'Stop Sharing', danger: true, icon: STOP_SHARE_PATHS, action: stopSharing }, { separator: true });
+    } else {
+      const watching = state.peerWatching.get(key) === true;
+      items.push({ label: watching ? 'Stop Watching' : 'Watch Stream', action: () => setTileWatching(key, !watching) });
+    }
+    items.push({
+      label: document.fullscreenElement === tile.root ? 'Exit Fullscreen' : 'Fullscreen',
+      action: () => toggleTileFullscreen(tile.root),
+    });
+
+    if (isSelf) {
+      // Your own share: its settings, as the share menu has them, applied live.
+      items.push(
+        { separator: true },
+        { label: 'Stream Quality', submenu: shareQualityItems },
+        {
+          label: el.systemAudioRow.querySelector('.dock-menu-label').textContent,
+          checked: () => el.systemAudio.checked,
+          action: () => {
+            el.systemAudio.checked = !el.systemAudio.checked;
+            return setShareAudio(el.systemAudio.checked);
+          },
+        },
+      );
+    } else {
+      const volume = getStreamVolume(tile.peerId);
+      items.push(
+        { separator: true },
+        { slider: { label: 'Stream Volume', value: volume.volume, onInput: (value) => setStreamVolume(tile.peerId, value) } },
+        { label: 'Mute Stream', checked: () => volume.muted, action: () => setStreamVolume(tile.peerId, undefined, !volume.muted) },
+      );
+
+      // Last, popping it out: the desktop app's own mini player, or the
+      // browser's picture-in-picture where it has one.
+      if (window.astraWindow) {
+        items.push({ separator: true }, {
+          label: miniPlayer.key === key ? 'Close Mini Player' : 'Mini Player',
+          icon: POP_OUT_PATHS,
+          action: () => toggleMiniPlayer(key),
+        });
+      } else if (document.pictureInPictureEnabled && !tile.video.disablePictureInPicture) {
+        const popped = document.pictureInPictureElement === tile.video;
+        items.push({ separator: true }, {
+          label: popped ? 'Exit Picture in Picture' : 'Picture in Picture',
+          icon: POP_OUT_PATHS,
+          action: () => togglePictureInPicture(key),
+        });
+      }
+    }
+    showContextMenu(event, items);
+  }
+
   function tileFor(tileKey, name, peerId, kind) {
     let tile = state.tiles.get(tileKey);
     if (tile) {
@@ -3998,8 +4413,7 @@
       fullBtn.innerHTML = FULLSCREEN_ICON;
       fullBtn.addEventListener('click', (event) => {
         event.stopPropagation();
-        if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
-        else if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+        toggleTileFullscreen(root);
       });
 
       buttons.appendChild(fullBtn);
@@ -4022,6 +4436,13 @@
       }
 
       if (state.tiles.size > 1) toggleFocus(tileKey);
+    });
+
+    // A share's menu, or its person's. Read at the time: a tile is only ever
+    // one kind, but its person's details can change.
+    root.addEventListener('contextmenu', (event) => {
+      if (actualKind === 'screen') openStreamMenu(event, tileKey);
+      else openPersonMenu(event, actualPeerId, root);
     });
 
     slot.appendChild(root);
@@ -4774,6 +5195,7 @@
         openProfilePopup(peer.id, item);
       }
     });
+    item.addEventListener('contextmenu', (event) => openPersonMenu(event, peer.id, item));
 
     return { item, avatar, name, tags, nameplate, isSelf, tagKey: null, bannerKey: null, hasBanner: false };
   }

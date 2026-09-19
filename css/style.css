@@ -3395,6 +3395,154 @@ button.tag-danger {
 }
 
 
+/* ------------------------------------------------------------- right click */
+
+/* The menu a right-click (or a long press) opens on a person or a share -
+   see showContextMenu in room.js. Built like the dock's own menus. */
+.context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%));
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: context-in 0.1s ease-out;
+}
+
+@keyframes context-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.context-menu-item {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.context-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.context-menu-item.is-danger:hover,
+.context-menu-item.is-danger:focus-visible {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.context-menu-item.is-open {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text);
+}
+
+.context-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.context-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 60%));
+}
+
+.context-menu.is-submenu {
+  min-width: 170px;
+}
+
+.context-menu-heading {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 55%));
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px;
+  background: rgb(var(--ink) / 0.08);
+}
+
+.context-menu-slider {
+  display: grid;
+  gap: 6px;
+  padding: 6px 10px 8px;
+}
+
+.context-menu-slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 60%));
+}
+
+.context-menu-slider input {
+  width: 100%;
+}
+
+/* The tick box on a row that toggles - the app's own, drawn rather than an
+   input so the whole row is the button. */
+.context-check {
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid rgb(var(--ink) / 0.32);
+  border-radius: 3.5px;
+  color: transparent;
+}
+
+.context-check svg {
+  width: 11px;
+  height: 11px;
+}
+
+.context-check.is-checked {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-menu {
+    animation: none;
+  }
+}
+
 /* ------------------------------------------------------------------ toasts */
 
 /* Top centre of the stage, just under the top bar. */
