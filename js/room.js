@@ -130,6 +130,9 @@
     deafenLabel: $('deafen-label'),
     systemAudio: $('system-audio'),
     systemAudioRow: $('system-audio-row'),
+    shareLive: $('share-live'),
+    shareStop: $('share-stop'),
+    shareChange: $('share-change'),
     fluidity: $('fluidity'),
     flipCamera: $('flip-camera'),
     audioOutput: $('audio-output'),
@@ -151,7 +154,8 @@
     dockSheetBackdrop: $('dock-sheet-backdrop'),
     quality: $('quality'),
     roomSounds: $('room-sounds'),
-    shareQuality: $('share-quality'),
+    shareQualityRow: $('share-quality-row'),
+    shareQualityValue: $('share-quality-value'),
     shareModes: $('share-modes'),
     shareSetup: $('share-setup'),
     shareSetupOptions: $('share-setup-options'),
@@ -1290,12 +1294,17 @@
       && !(window.AstraPlatform && window.AstraPlatform.insideAnApp());
   }
 
-  /** "1080p · 30fps", and "no audio" when it will be silent - as the picker says. */
+  /** "1080p · 30fps": the quality in hand, as the hidden select spells it. */
+  function qualityLabel() {
+    const option = el.quality.selectedOptions && el.quality.selectedOptions[0];
+    return option ? option.textContent.trim() : '';
+  }
+
+  /** The same, and "no audio" when the share will be silent - as the picker says. */
   function syncShareSetupSummary() {
     // Drawn when the window opens, so a closed one has nothing to keep up.
     if (!el.shareSetupSummary || el.shareSetup.hidden) return;
-    const option = el.quality.selectedOptions && el.quality.selectedOptions[0];
-    const parts = [option ? option.textContent.trim() : ''];
+    const parts = [qualityLabel()];
     if (!el.systemAudio.checked) parts.push('no audio');
     el.shareSetupSummary.textContent = parts.join(' · ');
   }
@@ -1526,6 +1535,37 @@
     if (!resized) setStatus('New resolution applies next time you share');
   }
 
+  /**
+   * Whether the share can be pointed at something else where it stands.
+   *
+   * The picker comes up again and the capture it hands back takes over from
+   * the running one, which is startSharing's "replacing" path. Not on Android,
+   * which captures the whole screen and turns down a second capture while the
+   * first is up - there is nothing to choose there anyway.
+   */
+  function canChangeShare() {
+    return !!state.sharing && !state.shareNative && !el.share.disabled;
+  }
+
+  /** The menu's share actions: only there while there is a share to act on. */
+  function syncShareLive() {
+    if (!el.shareLive) return;
+    el.shareLive.hidden = !state.sharing;
+    el.shareChange.hidden = !canChangeShare();
+  }
+
+  if (el.shareLive) {
+    el.shareStop.addEventListener('click', () => {
+      toggleShareMenu(false);
+      stopSharing();
+    });
+    // Inside this same click: the picker only opens off something just done.
+    el.shareChange.addEventListener('click', () => {
+      toggleShareMenu(false);
+      startSharing();
+    });
+  }
+
   /** Whether the room is hearing the share's sound right now. */
   function screenAudioSending() {
     const track = state.screenAudioTrack;
@@ -1597,6 +1637,7 @@
   }
 
   function setShareUI(active) {
+    syncShareLive();
     const label = active ? 'Stop sharing screen' : 'Share your screen';
     el.share.classList.toggle('is-live', active);
     el.share.title = label;
@@ -1936,6 +1977,8 @@
     if (el.shareMenu.hidden === !open) return;
     el.shareMenu.hidden = !open;
     el.shareOptions.setAttribute('aria-expanded', String(open));
+    // The quality submenu belongs to this window, wherever it is drawn.
+    if (!open) closeContextSubmenu();
     // As a sheet this has to escape the dock, whose backdrop-filter would
     // otherwise be the containing block for anything fixed inside it - the
     // sheet would be sized and placed against the dock rather than the screen.
@@ -1947,7 +1990,10 @@
     // The sheet needs something behind it to dim the room and to catch the tap
     // that dismisses it.
     if (el.dockSheetBackdrop) el.dockSheetBackdrop.hidden = !open;
-    if (open) toggleCameraMenu(false);
+    if (open) {
+      syncShareLive();
+      toggleCameraMenu(false);
+    }
   }
 
   /**
@@ -2493,9 +2539,10 @@
     });
   }
 
-  // The share menu's rows and the options window's segments, kept as one set.
-  const resOptions = [...document.querySelectorAll('#share-quality [data-res], #share-setup-options [data-res]')];
-  const fpsOptions = [...document.querySelectorAll('#share-quality [data-fps], #share-setup-options [data-fps]')];
+  // The options window's segments, which are also what the Stream Quality
+  // submenu is built from - one set of choices, named once.
+  const resOptions = [...document.querySelectorAll('#share-setup-options [data-res]')];
+  const fpsOptions = [...document.querySelectorAll('#share-setup-options [data-fps]')];
   const modeOptions = el.shareModes ? [...el.shareModes.querySelectorAll('[data-key]')] : [];
   const PHONE_MODES = modeOptions.map((button) => button.dataset.key);
 
@@ -2510,6 +2557,9 @@
     for (const button of resOptions) setChecked(button, button.dataset.res === res);
     for (const button of fpsOptions) setChecked(button, button.dataset.fps === fps);
     for (const button of modeOptions) setChecked(button, button.dataset.key === key);
+    // The options window keeps the two choices behind one row, which is where
+    // the answer they add up to is shown.
+    if (el.shareQualityValue) el.shareQualityValue.textContent = qualityLabel();
   }
 
   /**
@@ -2538,8 +2588,32 @@
     pickQuality(qualityKeyFor(button.dataset.res || now.res, button.dataset.fps || now.fps));
   }
 
-  if (el.shareQuality) el.shareQuality.addEventListener('click', onQualityHalf);
   if (el.shareSetupOptions) el.shareSetupOptions.addEventListener('click', onQualityHalf);
+
+  /**
+   * Resolution and frame rate, out of the window and into the same submenu
+   * the right-click menu opens - built from the same choices, and opened
+   * beside the window rather than inside it.
+   *
+   * The window closes on any click outside itself and the submenu is outside,
+   * so the submenu's clicks are kept from reaching that handler.
+   */
+  if (el.shareQualityRow) {
+    el.shareQualityRow.addEventListener('click', (event) => {
+      if (contextSubmenu && contextSubmenu.row === el.shareQualityRow) {
+        closeContextSubmenu();
+        return;
+      }
+      openContextSubmenu(el.shareQualityRow, shareQualityItems());
+      if (!contextSubmenu) return;
+      contextSubmenu.menu.addEventListener('click', (click) => click.stopPropagation());
+      // Opened from the keyboard, the keyboard carries on inside it.
+      if (!event.detail) {
+        const first = contextSubmenu.menu.querySelector('button, input');
+        if (first) first.focus({ preventScroll: true });
+      }
+    });
+  }
 
   if (el.shareModes) {
     el.shareModes.addEventListener('click', (event) => {
@@ -3894,13 +3968,18 @@
   }
 
   const inContextMenus = (target) => (contextMenu && contextMenu.contains(target))
-    || (contextSubmenu && contextSubmenu.menu.contains(target));
+    || (contextSubmenu && contextSubmenu.menu.contains(target))
+    // The row a submenu was opened from, which on the share window is a row of
+    // that window rather than of a menu: the press that shuts the submenu is
+    // the click that would otherwise reopen it.
+    || (contextSubmenu && contextSubmenu.row.contains(target));
 
   document.addEventListener('pointerdown', (event) => {
-    if (contextMenu && !inContextMenus(event.target)) closeContextMenu();
+    if ((contextMenu || contextSubmenu) && !inContextMenus(event.target)) closeContextMenu();
   }, true);
   document.addEventListener('keydown', (event) => {
-    if (!contextMenu) return;
+    // A submenu can be open on its own, off a row of the share window.
+    if (!contextMenu && !contextSubmenu) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       closeContextMenu();
@@ -3926,7 +4005,8 @@
     // to the slider.
     if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || (active && active.type === 'range')) return;
     event.preventDefault();
-    const menu = (active && active.closest('.context-menu')) || contextMenu;
+    const menu = (active && active.closest('.context-menu')) || contextMenu
+      || contextSubmenu.menu;
     const stops = [...menu.querySelectorAll('button, input')];
     const at = stops.indexOf(active);
     const step = event.key === 'ArrowDown' ? 1 : -1;
@@ -3974,7 +4054,7 @@
     const now = qualityHalves(el.quality.value);
     const choices = (half, title) => [
       { heading: title },
-      ...[...el.shareQuality.querySelectorAll('[data-' + half + ']')].map((option) => ({
+      ...(half === 'res' ? resOptions : fpsOptions).map((option) => ({
         label: option.textContent.trim(),
         group: half,
         selected: now[half] === option.dataset[half],
@@ -3990,6 +4070,10 @@
 
   // The share button's own "stop" picture, for the menu's Stop Sharing.
   const STOP_SHARE_PATHS = '<rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8M12 17v4M3 3l18 18" />';
+
+  // The same screen with the picture being swapped out, for Change Stream.
+  const CHANGE_SHARE_PATHS = '<rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8M12 17v4" />'
+    + '<path d="M8.5 9.5h7l-2.2-2.2M15.5 12.5h-7l2.2 2.2" />';
 
   /** The browser's own floating player, on a share - watched first if need be. */
   async function togglePictureInPicture(key) {
@@ -4023,7 +4107,11 @@
     const items = [];
 
     if (isSelf) {
-      items.push({ label: 'Stop Sharing', danger: true, icon: STOP_SHARE_PATHS, action: stopSharing }, { separator: true });
+      items.push({ label: 'Stop Sharing', danger: true, icon: STOP_SHARE_PATHS, action: stopSharing });
+      if (canChangeShare()) {
+        items.push({ label: 'Change Stream', icon: CHANGE_SHARE_PATHS, action: startSharing });
+      }
+      items.push({ separator: true });
     } else {
       const watching = state.peerWatching.get(key) === true;
       items.push({ label: watching ? 'Stop Watching' : 'Watch Stream', action: () => setTileWatching(key, !watching) });

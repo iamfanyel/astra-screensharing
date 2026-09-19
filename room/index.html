@@ -257,24 +257,46 @@
     <div id="share-menu" class="dock-menu" hidden>
       <h2 class="dock-sheet-title">Share your screen</h2>
 
-      <!-- A desktop picks resolution and frame rate separately; a phone gets
-           two ready-made modes, the way Discord's mobile app does. Both write
-           to the hidden select below, which is what the room - and the desktop
-           app's picker - actually read. See js/room.js. -->
-      <div class="share-quality" id="share-quality">
-        <div class="share-group" role="radiogroup" aria-label="Resolution">
-          <p class="share-group-title">Resolution</p>
-          <button type="button" class="share-option" role="radio" data-res="720" aria-checked="false">720p<span class="share-radio" aria-hidden="true"></span></button>
-          <button type="button" class="share-option" role="radio" data-res="1080" aria-checked="false">1080p<span class="share-radio" aria-hidden="true"></span></button>
-          <button type="button" class="share-option" role="radio" data-res="max" aria-checked="false">Native<span class="share-radio" aria-hidden="true"></span></button>
-        </div>
+      <!-- What you do to a running share, above the settings those actions
+           apply to. Change Stream asks the picker again and the capture it
+           hands back takes over in place; it is not there where the picker
+           cannot be asked twice. See js/room.js. -->
+      <div id="share-live" hidden>
+        <button type="button" id="share-stop" class="dock-menu-item dock-menu-action is-danger">
+          <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4M3 3l18 18" />
+          </svg>
+          <span class="dock-menu-label">Stop Sharing</span>
+        </button>
+        <button type="button" id="share-change" class="dock-menu-item dock-menu-action">
+          <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+            <path d="M8.5 9.5h7l-2.2-2.2M15.5 12.5h-7l2.2 2.2" />
+          </svg>
+          <span class="dock-menu-label">Change Stream</span>
+        </button>
         <div class="dock-menu-divider" role="separator"></div>
-        <div class="share-group" role="radiogroup" aria-label="Frame rate">
-          <p class="share-group-title">Frame rate</p>
-          <button type="button" class="share-option" role="radio" data-fps="30" aria-checked="false">30 FPS<span class="share-radio" aria-hidden="true"></span></button>
-          <button type="button" class="share-option" role="radio" data-fps="60" aria-checked="false">60 FPS<span class="share-radio" aria-hidden="true"></span></button>
-        </div>
       </div>
+
+      <!-- A desktop keeps resolution and frame rate behind one row, as the
+           right-click menu has them - the same submenu, opened beside this
+           window. A phone gets two ready-made modes instead, the way Discord's
+           mobile app does. Both write to the hidden select below, which is
+           what the room - and the desktop app's picker - actually read.
+           See js/room.js. -->
+      <button type="button" id="share-quality-row" class="dock-menu-item dock-menu-action has-submenu" aria-haspopup="menu" aria-expanded="false">
+        <svg class="dock-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3" />
+          <path d="M1.5 14h5M9.5 8h5M17.5 16h5" />
+        </svg>
+        <span class="dock-menu-label">Stream Quality</span>
+        <span class="dock-menu-value" id="share-quality-value"></span>
+        <svg class="dock-menu-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      </button>
 
       <div class="share-modes" id="share-modes" role="radiogroup" aria-label="Stream Quality">
         <p class="share-group-title">Stream Quality</p>

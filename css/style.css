@@ -2885,6 +2885,11 @@ button.tag-danger {
   z-index: 35;
 }
 
+/* Wider than the rest: its quality row carries the answer beside the name. */
+#share-menu {
+  width: 264px;
+}
+
 .dock-menu-header {
   padding: 6px 10px 4px;
 }
@@ -3225,16 +3230,18 @@ button.tag-danger {
 
 /* ------------------------------------------------------ share quality */
 
-/* A desktop picks resolution and frame rate as two lists of radio rows; a
-   phone gets the two stream modes instead (see the compact block below). */
+/* A desktop keeps resolution and frame rate in a submenu off one row; a phone
+   gets the two stream modes instead (see the compact block below). */
 .share-modes {
   display: none;
 }
 
-.share-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* The heading and the line over the audio row belong to the phone sheet, which
+   spells everything out; on a desktop the rows stand on their own, the way the
+   right-click menu has them. */
+.share-audio-title,
+.share-audio-divider {
+  display: none;
 }
 
 .share-group-title {
@@ -3245,38 +3252,8 @@ button.tag-danger {
   color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 55%));
 }
 
-.share-option {
-  appearance: none;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.share-option:hover,
-.share-option:focus-visible {
-  background: rgb(var(--ink) / 0.08);
-  color: var(--text);
-  outline: none;
-}
-
-.share-option.is-selected {
-  color: var(--text);
-}
-
 /* The radio circle, filled when picked - drawn rather than an input, so one
-   look serves both the desktop rows and the phone's mode cards.
+   look serves the phone's mode cards and the right-click menu's choices.
 
    Picked, it is one radial gradient: the dot and the fill are painted in a
    single pass from the exact centre, so the dot cannot sit off it, and there
@@ -3304,6 +3281,40 @@ button.tag-danger {
   gap: 10px;
 }
 
+/* A row that does something rather than holding a control is a button, and a
+   button arrives with a look of its own: take the row's instead. */
+button.dock-menu-item {
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+}
+
+/* A row standing for choices made elsewhere: what they add up to, in the
+   quieter weight, then the chevron into them. */
+#share-quality-row .dock-menu-label {
+  white-space: nowrap;
+}
+
+.dock-menu-value {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 60%));
+}
+
+.dock-menu-item:hover .dock-menu-value,
+.dock-menu-item.is-open .dock-menu-value {
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
+}
+
+/* Held open while its submenu is, so the row and the menu read as one thing. */
+.dock-menu-item.is-open {
+  background: rgb(var(--ink) / 0.08);
+}
+
 .dock-menu-icon {
   width: 18px;
   height: 18px;
@@ -3321,6 +3332,24 @@ button.tag-danger {
   font-size: 13px;
   font-weight: 500;
   color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
+}
+
+/* Ending the share, in the red it is given everywhere else. The name and the
+   picture take the row's colour rather than their own, so the row alone says
+   what colour it is - red, and white on the red. */
+.dock-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.dock-menu-item.is-danger .dock-menu-label,
+.dock-menu-item.is-danger .dock-menu-icon {
+  color: inherit;
+}
+
+.dock-menu-item.is-danger:hover,
+.dock-menu-item.is-danger:focus-visible {
+  background: var(--danger);
+  color: #ffffff;
 }
 
 .dock-menu-check {
@@ -4979,6 +5008,12 @@ button.tag-invite:disabled:hover {
     margin-top: 10px;
   }
 
+  /* The sheet's own button already ends the share, and the phone captures the
+     whole screen, so there is nothing to change either. */
+  #share-live {
+    display: none;
+  }
+
   /* On a phone the quality is one of two modes, in a card - fewer choices,
      each named for what it is for. */
   #share-menu .dock-sheet-title {
@@ -4986,8 +5021,7 @@ button.tag-invite:disabled:hover {
     margin-bottom: 4px;
   }
 
-  .share-quality,
-  .share-audio-divider {
+  #share-quality-row {
     display: none;
   }
 
@@ -4997,6 +5031,7 @@ button.tag-invite:disabled:hover {
   }
 
   #share-menu .share-group-title {
+    display: block;
     padding: 12px 4px 8px;
     font-size: 14px;
     font-weight: 500;
