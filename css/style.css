@@ -1650,6 +1650,18 @@ body.sidebar-hidden .topbar-right {
 
 .tile.screen-tile video {
   object-fit: contain;
+  /* Zoomed from its top-left corner; room.js does the maths. */
+  transform-origin: 0 0;
+}
+
+.tile.screen-tile.is-zoomed {
+  cursor: grab;
+  /* Every touch is the zoom's to handle, not the page's. */
+  touch-action: none;
+}
+
+.tile.screen-tile.is-panning {
+  cursor: grabbing;
 }
 
 /* Range sliders share one dark look: the volume pill and the picture editor.

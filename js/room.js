@@ -3046,6 +3046,7 @@
         if (tile.video.paused) tile.video.play().catch(() => {});
       }
     } else {
+      if (tile.resetZoom) tile.resetZoom();
       if (!tile.video.paused) tile.video.pause();
       if (tile.video.srcObject) tile.video.srcObject = null;
       tile.video.style.visibility = 'hidden';
@@ -3490,6 +3491,218 @@
     });
   }
 
+  // ------------------------------------------------------------ share zoom
+
+  /** How far into a share it can be zoomed. */
+  const ZOOM_MAX = 6;
+
+  /**
+   * Zoom into a screen share, to read what is too small to read: the wheel on
+   * a computer, a pinch on a phone, and a drag to look around once zoomed in.
+   * Back out with the wheel, a pinch, or a double-click / double-tap.
+   *
+   * Only a share given the stage can be zoomed: the focused one, the only one
+   * in the room (which cannot be focused, having the stage already), or one
+   * in fullscreen. A share that loses the stage lets go of its zoom.
+   *
+   * While zoomed, a click is for looking around, so it does not also focus or
+   * unfocus the tile the way it normally would.
+   */
+  function makeZoomable(tile) {
+    const { root, video } = tile;
+    let scale = 1;
+    let x = 0;
+    let y = 0;
+    let size = { w: 0, h: 0 };
+
+    // Anything with its own use for the pointer keeps it.
+    const onControl = (event) => !!event.target.closest('button, input, .tile-volume-control');
+    const onStage = () => state.focused === root.dataset.tileKey
+      || state.tiles.size === 1
+      || document.fullscreenElement === root;
+    const canZoom = () => onStage() && video.videoWidth > 0 && !root.classList.contains('is-paused');
+
+    /** A point on the page, in the video's own (unzoomed) coordinates. */
+    const local = (clientX, clientY) => {
+      const rect = root.getBoundingClientRect();
+      return [
+        clientX - rect.left - root.clientLeft - video.offsetLeft,
+        clientY - rect.top - root.clientTop - video.offsetTop,
+      ];
+    };
+
+    /** Draw it, keeping the picture over the whole tile - no dragging it off. */
+    const apply = () => {
+      const w = video.offsetWidth;
+      const h = video.offsetHeight;
+      size = { w, h };
+      x = Math.min(0, Math.max(w - w * scale, x));
+      y = Math.min(0, Math.max(h - h * scale, y));
+      const zoomed = scale > 1;
+      video.style.transform = zoomed ? `translate(${x}px, ${y}px) scale(${scale})` : '';
+      root.classList.toggle('is-zoomed', zoomed);
+    };
+
+    /** Within range, and close enough to 1 to let go of entirely. */
+    const clampScale = (next) => {
+      const clamped = Math.min(ZOOM_MAX, Math.max(1, next));
+      return clamped < 1.02 ? 1 : clamped;
+    };
+
+    /** Zoom to `next`, keeping whatever is under (px, py) where it is. */
+    const zoomTo = (next, px, py) => {
+      next = clampScale(next);
+      x = px - (px - x) * (next / scale);
+      y = py - (py - y) * (next / scale);
+      scale = next;
+      apply();
+    };
+
+    const reset = () => {
+      if (scale === 1) return;
+      scale = 1;
+      x = 0;
+      y = 0;
+      apply();
+    };
+    tile.resetZoom = reset;
+
+    // The tile changes size - focus, fullscreen, the window - and the zoom
+    // goes with it rather than being thrown away.
+    new ResizeObserver(() => {
+      if (scale === 1 || !size.w || !size.h) return;
+      // Resized because it left the stage - someone joined, fullscreen ended.
+      if (!canZoom()) {
+        reset();
+        return;
+      }
+      x *= video.offsetWidth / size.w;
+      y *= video.offsetHeight / size.h;
+      apply();
+    }).observe(root);
+
+    // ---- mouse
+
+    root.addEventListener('wheel', (event) => {
+      if (onControl(event) || !canZoom()) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+      const delta = event.deltaY * unit;
+      // Nothing to zoom out of: the wheel scrolls the page as usual.
+      if (scale === 1 && delta >= 0) return;
+      event.preventDefault();
+      zoomTo(scale * Math.exp(-delta * 0.0015), ...local(event.clientX, event.clientY));
+    }, { passive: false });
+
+    let drag = null;
+    root.addEventListener('pointerdown', (event) => {
+      if (event.pointerType !== 'mouse' || event.button !== 0 || scale === 1 || onControl(event)) return;
+      drag = { id: event.pointerId, cx: event.clientX, cy: event.clientY, x, y };
+      root.setPointerCapture(event.pointerId);
+      root.classList.add('is-panning');
+    });
+    root.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      x = drag.x + event.clientX - drag.cx;
+      y = drag.y + event.clientY - drag.cy;
+      apply();
+    });
+    const endDrag = (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      drag = null;
+      root.classList.remove('is-panning');
+    };
+    root.addEventListener('pointerup', endDrag);
+    root.addEventListener('pointercancel', endDrag);
+
+    // Zoomed in, a click belongs to the zoom, not to the tile's focus.
+    root.addEventListener('click', (event) => {
+      if (scale > 1 && !onControl(event)) event.stopImmediatePropagation();
+    }, true);
+    root.addEventListener('dblclick', (event) => {
+      if (scale > 1 && !onControl(event)) reset();
+    });
+
+    // ---- touch
+
+    let touch = null;
+    let lastTap = null;
+    const point = (t) => local(t.clientX, t.clientY);
+    const pinchOf = (touches) => {
+      const a = point(touches[0]);
+      const b = point(touches[1]);
+      return {
+        dist: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1,
+        mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
+      };
+    };
+
+    root.addEventListener('touchstart', (event) => {
+      if (onControl(event) || !canZoom()) return;
+      const touches = event.touches;
+      if (touches.length === 2) {
+        // Ours, not the browser's: no page zoom, no scroll.
+        event.preventDefault();
+        touch = { mode: 'pinch', ...pinchOf(touches), from: { scale, x, y } };
+      } else if (touches.length === 1 && scale > 1) {
+        // Unzoomed, one finger is the page's, to scroll with.
+        touch = { mode: 'pan', start: point(touches[0]), x, y, moved: false };
+      }
+    }, { passive: false });
+
+    root.addEventListener('touchmove', (event) => {
+      if (!touch) return;
+      const touches = event.touches;
+      if (touch.mode === 'pinch' && touches.length >= 2) {
+        event.preventDefault();
+        const now = pinchOf(touches);
+        // The point that was under the fingers stays under them as they move.
+        const from = touch.from;
+        const cx = (touch.mid[0] - from.x) / from.scale;
+        const cy = (touch.mid[1] - from.y) / from.scale;
+        scale = clampScale(from.scale * (now.dist / touch.dist));
+        x = now.mid[0] - cx * scale;
+        y = now.mid[1] - cy * scale;
+        apply();
+      } else if (touch.mode === 'pan' && touches.length === 1) {
+        event.preventDefault();
+        const [px, py] = point(touches[0]);
+        const dx = px - touch.start[0];
+        const dy = py - touch.start[1];
+        if (Math.hypot(dx, dy) > 8) touch.moved = true;
+        x = touch.x + dx;
+        y = touch.y + dy;
+        apply();
+      }
+    }, { passive: false });
+
+    root.addEventListener('touchend', (event) => {
+      if (!touch) return;
+      if (event.touches.length) {
+        // One finger lifted from a pinch: carry on as a drag with the other.
+        if (touch.mode === 'pinch' && event.touches.length === 1 && scale > 1) {
+          touch = { mode: 'pan', start: point(event.touches[0]), x, y, moved: true };
+        }
+        return;
+      }
+      // Zoomed in, a double-tap lets go.
+      if (touch.mode === 'pan' && !touch.moved) {
+        const now = Date.now();
+        const [px, py] = touch.start;
+        if (lastTap && now - lastTap.at < 300 && Math.hypot(px - lastTap.p[0], py - lastTap.p[1]) < 30) {
+          event.preventDefault();
+          reset();
+          lastTap = null;
+        } else {
+          lastTap = { at: now, p: [px, py] };
+        }
+      }
+      touch = null;
+    });
+    root.addEventListener('touchcancel', () => {
+      touch = null;
+    });
+  }
+
   function tileFor(tileKey, name, peerId, kind) {
     let tile = state.tiles.get(tileKey);
     if (tile) {
@@ -3870,6 +4083,7 @@
 
     state.tiles.set(tileKey, tile);
     if (actualKind === 'screen') {
+      makeZoomable(tile);
       if (!isSelf) {
         const initialWatching = state.peerWatching.get(tileKey) === true;
         setTileWatching(tileKey, initialWatching);
@@ -4156,6 +4370,7 @@
     for (const [, tile] of state.tiles) {
       tile.slot.classList.remove('focused');
       setFocusBtnState(tile.focusBtn, false);
+      if (tile.resetZoom) tile.resetZoom();
     }
   }
 
@@ -4192,6 +4407,7 @@
       const isFoc = key === tileKey;
       tile.slot.classList.toggle('focused', isFoc);
       setFocusBtnState(tile.focusBtn, isFoc);
+      if (!isFoc && tile.resetZoom) tile.resetZoom();
     }
   }
 
