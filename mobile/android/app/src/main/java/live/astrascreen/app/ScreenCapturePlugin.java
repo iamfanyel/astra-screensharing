@@ -226,6 +226,21 @@ public class ScreenCapturePlugin extends Plugin {
      */
     @PluginMethod
     public void start(PluginCall call) {
+        // Stopping answers the page at once and leaves the teardown running on
+        // `closing`, which can take a couple of seconds. A share started in
+        // that window found the old one still there and was refused as
+        // "already running" - so it waits its turn behind the teardown, then
+        // carries on here on the plugin thread. Not alongside it: the teardown
+        // ends by stopping the capture service the new share would be using.
+        try {
+            closing.execute(() -> getBridge().execute(() -> begin(call)));
+        } catch (Throwable error) {
+            // The executor is gone, which only happens on the way out anyway.
+            begin(call);
+        }
+    }
+
+    private void begin(PluginCall call) {
         if (connection != null) {
             call.reject("A screen share is already running.");
             return;
