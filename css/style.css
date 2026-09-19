@@ -1463,12 +1463,6 @@ body.sidebar-hidden .topbar-right {
   background: rgba(0, 0, 0, 0.7);
 }
 
-/* Stream action buttons hidden on PC, shown only on mobile */
-.tile-stop-share-btn,
-.tile-focus-btn {
-  display: none;
-}
-
 /* Stream volume control with expanding slider */
 .tile-volume-control {
   display: flex;
@@ -3913,70 +3907,23 @@ body.sidebar-hidden .toasts {
     pointer-events: none;
   }
 
-  /* Top action buttons on mobile screen tile */
-  .tile.screen-tile .tile-watch-btn,
-  .tile.screen-tile .tile-stop-share-btn,
-  .tile.screen-tile .tile-focus-btn {
-    position: absolute;
-    top: 8px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    color: #fff;
-    display: grid;
-    place-items: center;
-    pointer-events: auto;
-    z-index: 8;
-    border: none;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.05s ease;
-  }
-
-  .tile.screen-tile .tile-watch-btn svg,
-  .tile.screen-tile .tile-stop-share-btn svg,
-  .tile.screen-tile .tile-focus-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .tile.screen-tile .tile-watch-btn:hover,
-  .tile.screen-tile .tile-stop-share-btn:hover,
-  .tile.screen-tile .tile-focus-btn:hover {
-    background: rgba(0, 0, 0, 0.85);
-  }
-
-  /* Top-left: Stop watching (remote) or Stop sharing (self) button */
-  .tile.screen-tile .tile-watch-btn,
-  .tile.screen-tile .tile-stop-share-btn {
-    left: 8px;
-  }
-
-  /* Top-right: Focus screen button */
-  .tile.screen-tile .tile-focus-btn {
-    right: 8px;
-  }
-
   .tile.screen-tile .tile-full-btn {
     display: none;
   }
 
   /* The volume control, on a screen with no pointer to hover with.
    *
-   * Placed like the other buttons rather than left in the flow: on a phone
-   * .tile-actions is a full-tile overlay, so a static child lands in its
-   * top-left corner underneath the watch button and inherits its
-   * pointer-events: none, which leaves the whole control dead to the touch.
-   * It sits beside the watch button, and the slider stays out - a phone has no
-   * hover to fold it back open with. */
+   * Placed rather than left in the flow: on a phone .tile-actions is a
+   * full-tile overlay with pointer-events: none, which a static child would
+   * inherit, leaving the whole control dead to the touch. It sits in the top
+   * corner, and the slider stays out - a phone has no hover to fold it back
+   * open with. */
   .tile.screen-tile .tile-volume-control {
     position: absolute;
     top: 8px;
-    left: 48px;
+    left: 8px;
     height: 32px;
-    max-width: calc(100% - 96px);
+    max-width: calc(100% - 16px);
     padding-right: 2px;
     border-radius: 16px;
     background: rgba(0, 0, 0, 0.65);

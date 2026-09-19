@@ -2785,47 +2785,15 @@
     '<line x1="17" y1="9" x2="23" y2="15" />' +
     '</svg><span class="sr-only">Stream volume</span>';
 
-  const WATCHING_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />' +
-    '<circle cx="12" cy="12" r="3" />' +
-    '</svg><span class="sr-only">Stop watching screen</span>';
-
-  const NOT_WATCHING_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />' +
-    '<line x1="1" y1="1" x2="23" y2="23" />' +
-    '</svg><span class="sr-only">Start watching screen</span>';
-
-  const FOCUS_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />' +
-    '</svg><span class="sr-only">Focus screen</span>';
-
-  const EXIT_FOCUS_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />' +
-    '</svg><span class="sr-only">Exit focus</span>';
-
-  const STOP_SHARE_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />' +
-    '</svg><span class="sr-only">Stop sharing screen</span>';
-
   const FULLSCREEN_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />' +
     '</svg><span class="sr-only">Fullscreen</span>';
 
-  // A picture popped out of a bigger one: the mini player, and the menu's
-  // picture-in-picture.
+  // A picture popped out of a bigger one: the right-click menu's mini player
+  // and picture-in-picture.
   const POP_OUT_PATHS = '<path d="M21 11V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" />'
     + '<rect x="13" y="13" width="9" height="7" rx="1.5" />';
-
-  const MINI_PLAYER_ICON =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    POP_OUT_PATHS +
-    '</svg><span class="sr-only">Mini player</span>';
 
   const VIEWERS_EYE_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -2854,18 +2822,6 @@
     '<path d="M9 9v3a3 3 0 0 0 5.12 2.12" />' +
     '<line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />' +
     '</svg>';
-
-  function setFocusBtnState(btn, isFocused) {
-    if (!btn) return;
-    const foc = !!isFocused;
-    if (btn.__isFocused === foc) return;
-    btn.__isFocused = foc;
-    btn.classList.toggle('is-focused', foc);
-    const label = foc ? 'Exit focus' : 'Focus screen';
-    btn.title = label;
-    btn.setAttribute('aria-label', label);
-    btn.innerHTML = foc ? EXIT_FOCUS_ICON : FOCUS_ICON;
-  }
 
   function getPeerVolume(id) {
     if (!state.peerVolumes.has(id)) {
@@ -3079,15 +3035,6 @@
         }
         AstraProfile.paint(tile.pausedAvatar, name, peer ? peer.avatar : null);
       }
-    }
-
-    if (tile.watchBtn && tile.watchBtn.__isWatching !== watching) {
-      tile.watchBtn.__isWatching = watching;
-      tile.watchBtn.classList.toggle('is-paused', !watching);
-      const label = watching ? 'Stop watching' : 'Watch stream';
-      tile.watchBtn.title = label;
-      tile.watchBtn.setAttribute('aria-label', label);
-      tile.watchBtn.innerHTML = watching ? WATCHING_ICON : NOT_WATCHING_ICON;
     }
 
     if (tile.volumeControl) {
@@ -4178,9 +4125,6 @@
     let pausedAvatar = null;
     let pausedName = null;
     let pausedStatus = null;
-    let watchBtn = null;
-    let stopShareBtn = null;
-    let focusBtn = null;
     let fullBtn = null;
     let volumeControl = null;
     let volumeBtn = null;
@@ -4355,58 +4299,10 @@
         volumeControl.addEventListener('click', (event) => event.stopPropagation());
 
         buttons.appendChild(volumeControl);
-
-        watchBtn = document.createElement('button');
-        watchBtn.type = 'button';
-        watchBtn.className = 'tile-btn tile-watch-btn is-paused';
-        watchBtn.title = 'Watch stream';
-        watchBtn.setAttribute('aria-label', 'Watch stream');
-        watchBtn.innerHTML = NOT_WATCHING_ICON;
-
-        watchBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          const currentWatching = state.peerWatching.get(tileKey) === true;
-          setTileWatching(tileKey, !currentWatching);
-        });
-
-        buttons.appendChild(watchBtn);
-      } else {
-        stopShareBtn = document.createElement('button');
-        stopShareBtn.type = 'button';
-        stopShareBtn.className = 'tile-btn tile-stop-share-btn';
-        stopShareBtn.title = 'Stop sharing screen';
-        stopShareBtn.setAttribute('aria-label', 'Stop sharing screen');
-        stopShareBtn.innerHTML = STOP_SHARE_ICON;
-        stopShareBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          stopSharing();
-        });
-        buttons.appendChild(stopShareBtn);
       }
 
-      focusBtn = document.createElement('button');
-      focusBtn.type = 'button';
-      focusBtn.className = 'tile-btn tile-focus-btn';
-      setFocusBtnState(focusBtn, tileKey === state.focused);
-      focusBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        toggleFocus(tileKey);
-      });
-      buttons.appendChild(focusBtn);
-
-      if (window.astraWindow && !isSelf) {
-        const miniBtn = document.createElement('button');
-        miniBtn.type = 'button';
-        miniBtn.className = 'tile-btn tile-mini-btn';
-        miniBtn.title = 'Mini player';
-        miniBtn.innerHTML = MINI_PLAYER_ICON;
-        miniBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          toggleMiniPlayer(tileKey);
-        });
-        buttons.appendChild(miniBtn);
-      }
-
+      // Volume and fullscreen are all a share's corner holds; the rest is on
+      // a click of the tile and in its right-click menu.
       fullBtn = document.createElement('button');
       fullBtn.className = 'tile-btn tile-full-btn';
       fullBtn.title = 'Fullscreen';
@@ -4474,9 +4370,6 @@
       pausedAvatar,
       pausedName,
       pausedStatus,
-      watchBtn,
-      stopShareBtn,
-      focusBtn,
       fullBtn,
       volumeControl,
       volumeBtn,
@@ -4790,7 +4683,6 @@
     el.grid.classList.remove('has-focus');
     for (const [, tile] of state.tiles) {
       tile.slot.classList.remove('focused');
-      setFocusBtnState(tile.focusBtn, false);
       if (tile.resetZoom) tile.resetZoom();
     }
   }
@@ -4827,7 +4719,6 @@
     for (const [key, tile] of state.tiles) {
       const isFoc = key === tileKey;
       tile.slot.classList.toggle('focused', isFoc);
-      setFocusBtnState(tile.focusBtn, isFoc);
       if (!isFoc && tile.resetZoom) tile.resetZoom();
     }
   }
