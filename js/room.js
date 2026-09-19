@@ -1100,6 +1100,7 @@
     state.mesh.setLocalStream(state.localStream);
 
     for (const peer of signal.others()) state.mesh.add(peer.id);
+    syncScreenViewers();
 
     signal.addEventListener('peer-joined', (e) => {
       state.mesh.add(e.detail.peer.id);
@@ -1107,6 +1108,7 @@
       toast(e.detail.peer.name + ' joined');
       renderPeople();
       updateStreamViewersUI();
+      syncScreenViewers();
     });
 
     signal.addEventListener('peer-left', (e) => {
@@ -1122,6 +1124,7 @@
       broadcastWatchingState();
       renderPeople();
       updateStreamViewersUI();
+      syncScreenViewers();
       if (reason === 'timeout') {
         toast((name || 'Someone') + ' lost connection', 'bad');
       }
@@ -1137,6 +1140,7 @@
       refreshPeerAudio(e.detail.id);
       refreshPeerTiles(e.detail.id);
       updateStreamViewersUI();
+      syncScreenViewers();
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
@@ -3146,6 +3150,27 @@
     if (lastBroadcastedWatching === hash) return;
     lastBroadcastedWatching = hash;
     state.signal.setState({ watching: watched });
+  }
+
+  /**
+   * The other half of that list: who wants ours.
+   *
+   * Everyone says which shares they are watching, so ours need not be encoded
+   * for the people who are not - see Mesh.setScreenViewers, which is also
+   * what makes watching again come back at full quality rather than wherever
+   * a bad minute left the picture. Somebody who has said nothing counts as
+   * watching: an older build, or one that has not drawn the tile yet, should
+   * not be left with a black square.
+   */
+  function syncScreenViewers() {
+    if (!state.mesh || !state.signal || !state.signal.roster) return;
+    const selfId = state.signal.selfId;
+    const viewers = [];
+    for (const peer of state.signal.roster.values()) {
+      if (peer.id === selfId) continue;
+      if (!Array.isArray(peer.watching) || peer.watching.includes(selfId)) viewers.push(peer.id);
+    }
+    state.mesh.setScreenViewers(viewers);
   }
 
   function attachSelfViewersUI(tile) {

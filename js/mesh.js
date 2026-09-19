@@ -163,6 +163,14 @@
     }
   }
 
+  /** Two sets of peer ids - or two nothings - holding the same people. */
+  function sameIds(a, b) {
+    if (a === b) return true;
+    if (!a || !b || a.size !== b.size) return false;
+    for (const id of a) if (!b.has(id)) return false;
+    return true;
+  }
+
   /** What a slot can be announced as carrying. Anything else is ignored. */
   const ROLES = ['screen', 'camera', 'screen-audio', 'voice'];
 
@@ -180,6 +188,9 @@
       this.maxVideoBitrate = 3500000;
       this.maxVideoFramerate = 30;
       this.degradationPreference = 'maintain-framerate-and-resolution';
+      // Who wants the screen share right now - see setScreenViewers. null
+      // until the room says, which means everybody.
+      this.screenViewers = null;
       // What _reapplyEncoding last wrote, so an unchanged pass costs nothing.
       this._applied = null;
       this.closing = false;
@@ -386,6 +397,38 @@
     }
 
     /**
+     * Who is watching our screen share, by id - null for everybody.
+     *
+     * A mesh encodes and uploads its own copy of the share for every peer, so
+     * somebody who is not watching costs exactly as much as somebody who is.
+     * Their copy is switched off at the encoder instead: no frames, no upload,
+     * and nothing to renegotiate either way.
+     *
+     * It comes back the moment they ask for it, and it comes back new. An
+     * encoder that has spent a bad minute grinding the picture down stays
+     * ground down long after the line recovers, because nothing tells it to
+     * try again; switching the copy off and on builds it afresh, at the
+     * quality that was picked. Stop watching and watch again is that reset,
+     * and it is why one does not have to reload the room to get the picture
+     * back.
+     */
+    setScreenViewers(ids) {
+      const next = ids ? new Set(ids) : null;
+      // Said afresh on every roster change, and usually the same answer.
+      if (sameIds(this.screenViewers, next)) return;
+      this.screenViewers = next;
+      // Every sender is rewritten, not only the ones that changed hands: one
+      // viewer fewer also leaves the rest a larger share of the uplink.
+      this._applied = null;
+      this._reapplyEncoding();
+    }
+
+    /** Whether this peer's copy of the share is worth encoding. */
+    _sendsScreenTo(id) {
+      return !this.screenViewers || this.screenViewers.has(id);
+    }
+
+    /**
      * The per-connection cap: the quality that was picked, unless sending that
      * much to everyone would exceed the room-wide upload ceiling.
      *
@@ -393,11 +436,18 @@
      * quietly multiplies by the room size. One-to-one is untouched; only a room
      * big enough to overrun the line gets clamped, and never below the point
      * where a share stops being worth watching.
+     *
+     * Only the copies actually being encoded count against it: somebody who is
+     * not watching sends nothing (see setScreenViewers), so they should not be
+     * taking a share of the line away from the people who are.
      */
     _videoBitrate() {
-      // Only ever reached with at least one peer: every caller is iterating
-      // this.peers or acting on a peer that is already in it.
-      return Math.min(this.maxVideoBitrate, Math.round(window.ASTRA.maxUploadBitrate / this.peers.size));
+      let watching = 0;
+      for (const id of this.peers.keys()) if (this._sendsScreenTo(id)) watching += 1;
+      // Nobody watching would divide by nothing, and the answer would not be
+      // used by anyone either - there is no copy being encoded to cap.
+      const share = window.ASTRA.maxUploadBitrate / Math.max(1, watching);
+      return Math.min(this.maxVideoBitrate, Math.round(share));
     }
 
     _reapplyEncoding() {
@@ -459,7 +509,7 @@
           if (track.kind === 'video') {
             preferCodecs(peer.pc.getTransceivers().find((t) => t.sender === sender));
           }
-          const slot = { sender, track, kind: track.kind };
+          const slot = { sender, track, kind: track.kind, peerId: peer.id };
           peer.slots.push(slot);
           this._applyEncoding(slot);
         } catch (err) {
@@ -507,9 +557,13 @@
     async _applyEncoding(slot, encoding = this._encoding()) {
       if (slot.kind !== 'video' || !slot.track) return;
       const sender = slot.sender;
+      // Only the share is switched off for people not watching it; a camera
+      // is small and is either on or not sent at all.
+      const active = this.roleOf(slot.track) !== 'screen' || this._sendsScreenTo(slot.peerId);
       const apply = (preference) => {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+        params.encodings[0].active = active;
         params.encodings[0].maxBitrate = encoding.bitrate;
         if (encoding.framerate) {
           params.encodings[0].maxFramerate = encoding.framerate;
