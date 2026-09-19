@@ -46,13 +46,16 @@
   --accent-ink: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.84%));
   --ok: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 83.92%));
   --danger: #ff6b6b; /* readable on dark: error text, warning borders */
+  --toast-bad: hsl(0 48% 24%); /* a problem's pop-up: dark red behind ordinary text */
+  --toast-bad-edge: hsl(0 55% 40% / 0.6);
   --speaking: #23a55a; /* the ring and dot that mean "this person is talking" */
   --wife: #ff3da6; /* the Developer's Wife badge */
   --live: #7abaff; /* sharing a screen or camera right now */
   --danger-strong: #c62828; /* the hang-up disc */
   --danger-strong-hover: #d93636;
   --radius: 14px;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.35); /* windows and pop-ups */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3); /* small things that sit above: pictures, toasts */
   color-scheme: dark;
 }
 
@@ -80,7 +83,10 @@
   --lts: -1;
   --ink: 0 0 0;
   --danger: #c62828; /* the dark-theme red is unreadable on white */
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+  --toast-bad: hsl(0 72% 91%);
+  --toast-bad-edge: hsl(0 60% 70% / 0.7);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   color-scheme: light;
 }
 
@@ -91,7 +97,8 @@
    loses contrast on the way. */
 :root[data-theme="oled"] {
   --l0: -5.49%;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.75);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -1335,12 +1342,10 @@ body.sidebar-hidden .topbar-right {
   left: 10px;
   width: 220px;
   max-width: calc(100% - 20px);
-  background: hsl(var(--tint-h) var(--tint-s) 9% / 0.95);
+  background: hsl(var(--tint-h) var(--tint-s) 9%);
   border: none;
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
   padding: 10px 10px 8px;
   z-index: 10;
   pointer-events: auto;
@@ -2848,12 +2853,11 @@ button.tag-danger {
   left: 0;
   bottom: calc(100% + 12px);
   width: 240px;
-  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%) / 0.98);
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%));
   border: none;
   border-radius: 12px;
   padding: 6px;
   box-shadow: none;
-  backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2966,12 +2970,11 @@ button.tag-danger {
   left: calc(100% + 8px);
   top: 0;
   min-width: 175px;
-  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%) / 0.98);
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%));
   border: none;
   border-radius: 12px;
   padding: 6px;
   box-shadow: none;
-  backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -3367,10 +3370,11 @@ button.tag-danger {
 
 /* ------------------------------------------------------------------ toasts */
 
+/* Top centre of the stage, just under the top bar. */
 .toasts {
   position: fixed;
   left: calc((100% - var(--sidebar-w)) / 2);
-  bottom: 96px;
+  top: calc(var(--titlebar-h, 0px) + var(--sat) + 64px);
   transform: translateX(-50%);
   display: grid;
   gap: 8px;
@@ -3381,25 +3385,42 @@ button.tag-danger {
 }
 
 .toast {
-  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%) / 0.96);
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.06%));
   color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 94.9%));
-  border: none;
+  border: 1px solid rgb(var(--ink) / 0.12);
   border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 14px;
-  backdrop-filter: blur(10px);
+  padding: 6px 14px;
+  font-size: 13px;
+  box-shadow: var(--shadow-sm);
+  animation: toast-in 0.25s ease-out;
   transition: opacity 0.35s, transform 0.35s;
   overflow-wrap: anywhere;
   text-align: center;
 }
 
+/* Something went wrong: the pill turns red, the text stays as readable as
+   any other. */
 .toast-bad {
-  color: var(--danger);
+  background: var(--toast-bad);
+  border-color: var(--toast-bad-edge);
 }
 
 .toast.out {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }
 
 body.sidebar-hidden .dock,
@@ -3496,7 +3517,7 @@ body.sidebar-hidden .toasts {
     padding: 0;
     background: var(--panel);
     border-radius: 18px 18px 0 0;
-    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35);
     animation: sheetIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
@@ -3558,14 +3579,17 @@ body.sidebar-hidden .toasts {
   }
 
   /* The dock would sit over the composer, so it stands down while the sheet
-     is up. Toasts move above the sheet rather than vanish - hiding them would
-     silently swallow the chat notifications the sheet exists to show. */
+     is up. */
   body.room.sheet-open .dock {
     display: none;
   }
 
+  /* The sheet reaches up to the top bar, so toasts sit over the bar instead
+     of under the sheet's edge - hiding them would swallow the chat
+     notifications the sheet exists to show. */
   body.room.sheet-open .toasts {
-    bottom: calc(88svh + 12px);
+    top: calc(var(--sat) + 8px);
+    z-index: 61; /* over the sheet and its backdrop */
   }
 
   /* Discord-style mobile grid: compact squares, 2 columns on phone, centered with tight 8px margins */
@@ -3891,7 +3915,6 @@ body.sidebar-hidden .toasts {
 
   .toasts {
     left: 50%;
-    bottom: calc(86px + var(--sab));
   }
 }
 
@@ -3932,7 +3955,6 @@ body.sidebar-hidden .toasts {
   gap: 2px;
   padding: 20px 12px;
   background: var(--bg-soft);
-  border-right: 1px solid var(--line);
   overflow-y: auto;
 }
 
@@ -4671,7 +4693,6 @@ button.tag-invite:disabled:hover {
   .settings-nav {
     padding: 8px 14px calc(24px + var(--sab));
     background: none;
-    border-right: 0;
     gap: 0;
     overflow-y: auto;
   }
@@ -5171,7 +5192,7 @@ button.tag-invite:disabled:hover {
   width: min(380px, 100%);
   background: var(--panel);
   border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -5269,7 +5290,7 @@ button.tag-invite:disabled:hover {
   height: 88px;
   border-radius: 50%;
   border: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-sm);
   font-size: 32px;
   display: grid;
   place-items: center;
@@ -5358,7 +5379,7 @@ button.tag-invite:disabled:hover {
   width: 290px;
   background: var(--panel);
   border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -5415,7 +5436,7 @@ button.tag-invite:disabled:hover {
   height: 68px;
   border-radius: 50%;
   border: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-sm);
   font-size: 26px;
   display: grid;
   place-items: center;
@@ -5423,7 +5444,7 @@ button.tag-invite:disabled:hover {
 }
 
 .avatar-popup.is-speaking {
-  box-shadow: 0 0 0 3px var(--speaking), 0 4px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 3px var(--speaking), var(--shadow-sm);
 }
 
 .profile-popup-body {
@@ -5759,7 +5780,7 @@ body.invite {
   font-size: 48px;
   font-weight: 600;
   border: 0;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow);
 }
 
 .invite-identity {
@@ -5906,7 +5927,7 @@ body.invite {
   border-radius: 20px;
   overflow: hidden;
   background: var(--panel);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
   display: flex;
   flex-direction: column;
   animation: inviteCardZoomIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -6005,7 +6026,7 @@ body.invite {
   padding: 10px;
   border-radius: 18px;
   background: #ffffff;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-sm);
 }
 
 .profile-invite-code canvas {

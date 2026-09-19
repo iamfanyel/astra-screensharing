@@ -721,7 +721,7 @@
           renderModalPreview();
         }
       } catch (err) {
-        toast(err.message || 'Could not load banner', 'bad');
+        toast(err.message || 'Couldn’t load that banner', 'bad');
       }
     });
 
@@ -743,7 +743,7 @@
           renderModalPreview();
         }
       } catch (err) {
-        toast(err.message || 'Could not load picture', 'bad');
+        toast(err.message || 'Couldn’t load that picture', 'bad');
       }
     });
 
@@ -792,14 +792,13 @@
    * why a socket was refused and this cannot honestly claim to know.
    */
   function friendlyError(err) {
-    if (!err) return 'Something went wrong.';
-    if (err.type === 'browser-incompatible') return 'This browser cannot do WebRTC.';
+    if (!err) return 'Something went wrong';
+    if (err.type === 'browser-incompatible') return 'This browser can’t make calls';
     if (err.type === 'network' || err.type === 'server-error') {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return 'You appear to be offline. Check your connection and try again.';
+        return 'You’re offline. Check your connection';
       }
-      return 'Could not reach the signalling broker. It may be busy or turning '
-        + 'connections away for a while - wait a few minutes and try again.';
+      return 'Can’t reach the server. Try again in a few minutes';
     }
     return err.message || String(err);
   }
@@ -896,7 +895,7 @@
       renderPeople();
       updateStreamViewersUI();
       if (reason === 'timeout') {
-        toast((name || 'A participant') + ' disconnected (connection lost)', 'bad');
+        toast((name || 'Someone') + ' lost connection', 'bad');
       }
     });
 
@@ -919,7 +918,7 @@
     signal.addEventListener('kicked', (e) => showClosed(e.detail.reason || 'You were kicked from the room by the host.'));
     signal.addEventListener('host-changed', (e) => {
       const isSelf = e.detail.hostId === state.signal.selfId;
-      toast(isSelf ? 'You are now the room host' : (e.detail.hostName ? `${e.detail.hostName} is now the room host` : 'Room host changed'));
+      toast(isSelf ? 'You’re now the host' : (e.detail.hostName ? `${e.detail.hostName} is now the host` : 'Host changed'));
       renderPeople();
       if (isSelf && signal.code) {
         startRoomApiHeartbeat(signal.code);
@@ -1003,7 +1002,7 @@
     state.mesh.addEventListener('connectionstate', (e) => {
       if (e.detail.state !== 'failed') return;
       const peer = state.signal.roster.get(e.detail.id);
-      toast('Trouble reaching ' + (peer ? peer.name : 'someone') + ' — retrying…', 'bad');
+      toast('Reconnecting to ' + (peer ? peer.name : 'someone') + '…', 'bad');
     });
 
     const myAvatar = AstraProfile.getAvatar();
@@ -1014,7 +1013,6 @@
     updateEmptyState();
     applyLayout();
     syncPanels();
-    setStatus(wantsCreate ? 'Room ready — copy the link to invite someone.' : 'Joined the room.');
   }
 
   // --------------------------------------------------------------- sharing
@@ -1124,7 +1122,7 @@
   async function startSharing() {
     if (!state.signal || !state.mesh) return;
     if (!window.AstraMedia.canShareScreen) {
-      toast('Screen sharing is not supported on this device/browser', 'bad');
+      toast('Screen sharing isn’t supported here', 'bad');
       return;
     }
     const replacing = state.sharing;
@@ -1174,17 +1172,13 @@
         });
         // The app always captures sound where Android allows; whether the
         // room hears it is the tick box, which can change mid-share.
-        if (!el.systemAudio.checked) {
-          setStatus('Sharing without system audio.');
-        } else if (capture.backgroundAudio === false) {
+        if (el.systemAudio.checked && capture.backgroundAudio === false) {
           // Android only lets an app keep capturing sound while it is in front
           // unless it holds a microphone-typed foreground service, and this
           // one could not get it. The share is fine; the sound will cut out
           // the moment Astra is not the app on screen, which is exactly when
           // nobody is looking at Astra to find out why.
-          setStatus('Sharing with sound — but it pauses while you are in another app.', 'bad');
-        } else {
-          setStatus('Sharing with system audio.');
+          setStatus('Sound pauses while you’re in another app', 'bad');
         }
         if (el.systemAudio.checked) state.localStream.addTrack(screenAudioTrack);
       } else if (capture.native && el.systemAudio.checked) {
@@ -1193,13 +1187,11 @@
         // older than 10, or whatever is playing has opted out of being
         // captured, which many video apps do. Silence with no explanation
         // reads as a bug, so say it plainly.
-        setStatus('Sharing — no sound: Android would not share this app’s audio.', 'bad');
+        setStatus('This app doesn’t allow its sound to be shared', 'bad');
       } else if (el.systemAudio.checked) {
         // The browser remembers the picker's audio tick box per site, so this
         // sticks until it is turned back on - worth flagging, not whispering.
-        setStatus('Sharing without audio — tick “Share audio” in the picker.', 'bad');
-      } else {
-        setStatus('Sharing.');
+        setStatus('No sound. Turn on audio in the share picker', 'bad');
       }
 
       // Read again rather than trusted from before the call: on the desktop
@@ -1225,11 +1217,10 @@
       updateSelfTiles();
       renderPeople();
     } catch (err) {
-      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
-        setStatus(replacing ? 'Kept the share as it was.' : 'Share cancelled.');
-      } else {
+      // Cancelling the picker is the user's own answer; nothing to say.
+      if (!(err && (err.name === 'NotAllowedError' || err.name === 'AbortError'))) {
         console.error(err);
-        setStatus('Could not start sharing: ' + (err.message || err.name), 'bad');
+        setStatus('Couldn’t share your screen', 'bad');
       }
       if (!replacing) cleanUpCapture();
     } finally {
@@ -1306,11 +1297,9 @@
     const resized = await retuneScreen(state.videoTrack, key, state.shareNative);
     if (!state.sharing || turn !== retuneTurn) return;
     state.mesh.setMaxVideoBitrate(quality.bitrate, quality.frameRate);
-    const option = el.quality.selectedOptions && el.quality.selectedOptions[0];
-    const label = option ? option.textContent : el.quality.value;
-    setStatus(resized
-      ? 'Sharing at ' + label + '.'
-      : 'Changed the frame rate and bitrate; the resolution needs the share started again.');
+    // The menu shows the new quality; only say something when part of it
+    // could not be applied to the running share.
+    if (!resized) setStatus('New resolution applies next time you share');
   }
 
   /** Whether the room is hearing the share's sound right now. */
@@ -1337,7 +1326,7 @@
     const track = state.screenAudioTrack;
     if (on && !(track && track.readyState === 'live')) {
       if (state.shareNative) {
-        setStatus('No sound: Android would not share this app’s audio.', 'bad');
+        setStatus('This app doesn’t allow its sound to be shared', 'bad');
         el.systemAudio.checked = false;
         return;
       }
@@ -1351,7 +1340,6 @@
     else state.localStream.removeTrack(track);
     state.mesh.publish();
     state.signal.setState({ screenAudioTrackId: on ? track.id : null });
-    setStatus(on ? 'Sharing system audio.' : 'System audio off - the room no longer hears it.');
   }
 
   function stopSharing() {
@@ -1363,7 +1351,6 @@
     if (state.signal) state.signal.setState({ sharing: false, screenTrackId: null, screenAudioTrackId: null });
     updateSelfTiles();
     setShareUI(false);
-    setStatus('Stopped sharing.');
     renderPeople();
     updateEmptyState();
   }
@@ -1425,7 +1412,7 @@
   async function startCamera() {
     if (!state.signal || !state.mesh) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('Camera is not supported on this device/browser', 'bad');
+      toast('Camera isn’t supported here', 'bad');
       return;
     }
     if (el.camera) el.camera.disabled = true;
@@ -1477,14 +1464,13 @@
       setCameraUI(true);
       updateSelfTiles();
       renderPeople();
-      setStatus('Camera on.');
       populateCameraDevices();
     } catch (err) {
       if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
-        setStatus('Camera permission denied or cancelled.');
+        setStatus('Camera access denied', 'bad');
       } else {
         console.error(err);
-        setStatus('Could not start camera: ' + (err.message || err.name), 'bad');
+        setStatus('Couldn’t turn on your camera', 'bad');
       }
       cleanUpCamera();
       // The old camera was released before this attempt, so a failure here
@@ -1514,7 +1500,6 @@
     if (state.signal) state.signal.setState({ camera: false, cameraTrackId: null });
     updateSelfTiles();
     setCameraUI(false);
-    setStatus('Camera off.');
     renderPeople();
     updateEmptyState();
   }
@@ -1950,7 +1935,7 @@
         const ok = await window.AstraNativeAudio.select(output.id);
         toggleOutputMenu(false);
         if (!ok) {
-          setStatus('That output could not be selected.', 'bad');
+          setStatus('Couldn’t switch speaker', 'bad');
           return;
         }
         // Read back rather than assumed: Android decides what it actually
@@ -2158,7 +2143,7 @@
       if (!answer || answer.error) {
         invitedFriends.delete(friend.id);
         mark(false);
-        toast('Could not invite ' + friend.name, 'bad');
+        toast('Couldn’t invite ' + friend.name, 'bad');
         return;
       }
       toast('Invited ' + friend.name);
@@ -2259,9 +2244,6 @@
   if (el.fluidity) {
     el.fluidity.addEventListener('change', () => {
       applyFluidity();
-      setStatus(
-        el.fluidity.checked ? 'Prioritizing smooth fluidity.' : 'Prioritizing crisp resolution.'
-      );
     });
   }
 
@@ -2370,7 +2352,6 @@
         if (state.signal) {
           state.signal.setState({ mic: false });
         }
-        setStatus('Microphone off.');
         renderPeople();
       } else {
         // If the user is deafened, trying to enable the mic removes deafen
@@ -2394,12 +2375,13 @@
         if (state.signal) {
           state.signal.setState({ mic: true });
         }
-        setStatus('Microphone on.');
         renderPeople();
       }
     } catch (err) {
       console.error(err);
-      setStatus('No microphone: ' + (err.message || err.name), 'bad');
+      setStatus(err && err.name === 'NotAllowedError'
+        ? 'Microphone access denied'
+        : 'Couldn’t turn on your microphone', 'bad');
     } finally {
       el.mic.disabled = false;
     }
@@ -2565,7 +2547,6 @@
       state.signal.setState(patch);
     }
     renderPeople();
-    setStatus(on ? 'Deafen.' : 'Undeafen.');
   }
 
   // -------------------------------------------------------------------- tiles
@@ -4872,7 +4853,7 @@
       vad.attach('self', stream);
     } catch (err) {
       console.error(err);
-      setStatus('Could not switch microphone: ' + (err.message || err.name), 'bad');
+      setStatus('Couldn’t switch microphone', 'bad');
     }
   }
 
@@ -5063,7 +5044,7 @@
     const link = location.origin + location.pathname + '?room=' + state.signal.code;
     try {
       await navigator.clipboard.writeText(link);
-      toast('Invite link copied');
+      toast('Link copied');
     } catch (_) {
       prompt('Copy this link:', link);
     }
@@ -5395,7 +5376,7 @@
       try {
         await navigator.clipboard.writeText(invitePanelLink);
       } catch (_) {
-        toast('Could not copy the link', 'bad');
+        toast('Couldn’t copy the link', 'bad');
         return;
       }
       el.profileInviteCopy.classList.add('is-copied');
@@ -5861,7 +5842,7 @@
 
   window.addEventListener('offline', () => {
     if (tornDown || leaving) return;
-    toast('Network connection lost. Reconnecting…', 'bad');
+    toast('You’re offline. Reconnecting…', 'bad');
     if (localOfflineTimer) clearTimeout(localOfflineTimer);
     localOfflineTimer = setTimeout(() => {
       if (!navigator.onLine && !tornDown && !leaving) {
@@ -5876,7 +5857,7 @@
       localOfflineTimer = null;
     }
     if (!tornDown && !leaving) {
-      toast('Network connection restored.');
+      toast('Back online');
       if (state.signal && state.signal.peer && !state.signal.peer.destroyed && state.signal.peer.disconnected) {
         try { state.signal.peer.reconnect(); } catch (_) {}
       }

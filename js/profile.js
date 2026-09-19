@@ -201,7 +201,7 @@
    * null if the person backed out.
    */
   async function edit(file) {
-    if (!file || !/^image\//.test(file.type)) throw new Error('That file is not an image.');
+    if (!file || !/^image\//.test(file.type)) throw new Error('That file isn’t an image');
     const bitmap = await createImageBitmap(file);
 
     const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
@@ -422,7 +422,7 @@
         if (picture) apply(picture);
       } catch (err) {
         console.error(err);
-        onError(err.message || 'Could not read that picture.');
+        onError(err.message || 'Couldn’t read that picture');
       }
     });
 
@@ -591,7 +591,7 @@
   }
 
   async function editBanner(file) {
-    if (!file || !/^image\//.test(file.type)) throw new Error('That file is not an image.');
+    if (!file || !/^image\//.test(file.type)) throw new Error('That file isn’t an image');
     const bitmap = await createImageBitmap(file);
 
     const view = { zoom: 1, rotation: 0, x: 0, y: 0 };
