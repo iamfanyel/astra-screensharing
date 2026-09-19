@@ -175,6 +175,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Pictures and video are part of the app, not content to take away: no
+   highlighting them, dragging them out, or long-pressing to save them.
+   Firefox ignores -webkit-user-drag; theme.js covers it there. */
+img,
+video,
+canvas {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+
 /* Present to a screen reader, absent to everything else.
  *
  * The sizes are !important because this has to beat whatever the element would
@@ -1097,6 +1109,9 @@ body.sidebar-hidden .topbar-right {
   grid-area: stage;
   position: relative;
   overflow: auto;
+  /* A drag across the shares moves around them, not selects them. */
+  -webkit-user-select: none;
+  user-select: none;
   /* Room for the floating dock to hover over. */
   padding: 16px 16px 120px;
   container-type: size;

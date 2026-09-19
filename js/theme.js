@@ -114,4 +114,12 @@
   // Four accessors is the whole surface: everything else here is only ever
   // called from inside this file.
   window.AstraTheme = { getHue, setHue, getTheme, setTheme };
+
+  // Pictures and video cannot be dragged out of the app. The stylesheet does
+  // this everywhere but Firefox, which only listens to being told here.
+  document.addEventListener('dragstart', (event) => {
+    if (event.target instanceof Element && event.target.closest('img, video, canvas')) {
+      event.preventDefault();
+    }
+  });
 })();
