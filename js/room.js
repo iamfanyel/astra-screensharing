@@ -183,6 +183,16 @@
     profilePopupVolumeSlider: $('profile-popup-volume-slider'),
     profilePopupEditBtn: $('profile-popup-edit-btn'),
     profilePopupKickBtn: $('profile-popup-kick-btn'),
+    profileView: $('profile-view'),
+    profileViewBackdrop: $('profile-view-backdrop'),
+    profileViewClose: $('profile-view-close'),
+    profileViewBanner: $('profile-view-banner'),
+    profileViewAvatar: $('profile-view-avatar'),
+    profileViewUserBadges: $('profile-view-user-badges'),
+    profileViewName: $('profile-view-name'),
+    profileViewBadges: $('profile-view-badges'),
+    profileViewDiscord: $('profile-view-discord'),
+    profileViewDiscordUser: $('profile-view-discord-user'),
     profileModal: $('profile-modal'),
     profileModalBackdrop: $('profile-modal-backdrop'),
     profileModalClose: $('profile-modal-close'),
@@ -3931,10 +3941,10 @@
   }
 
   /** A person: from the people list, or from their tile. */
-  function openPersonMenu(event, peerId, anchor) {
+  function openPersonMenu(event, peerId) {
     const peer = state.signal && state.signal.roster.get(peerId);
     if (!peer) return;
-    const items = [{ label: 'Profile', action: () => openProfilePopup(peerId, anchor) }];
+    const items = [{ label: 'Profile', action: () => openFullProfile(peerId) }];
 
     if (peerId !== state.signal.selfId) {
       const volume = getPeerVolume(peerId);
@@ -4338,7 +4348,7 @@
     // one kind, but its person's details can change.
     root.addEventListener('contextmenu', (event) => {
       if (actualKind === 'screen') openStreamMenu(event, tileKey);
-      else openPersonMenu(event, actualPeerId, root);
+      else openPersonMenu(event, actualPeerId);
     });
 
     slot.appendChild(root);
@@ -5049,6 +5059,7 @@
       if (activePopupPeerId === id && typeof closeProfilePopup === 'function') {
         closeProfilePopup();
       }
+      if (viewedPeerId === id) closeFullProfile();
       row.item.remove();
       state.peopleRows.delete(id);
       state.peopleAvatars.delete(id);
@@ -5086,7 +5097,7 @@
         openProfilePopup(peer.id, item);
       }
     });
-    item.addEventListener('contextmenu', (event) => openPersonMenu(event, peer.id, item));
+    item.addEventListener('contextmenu', (event) => openPersonMenu(event, peer.id));
 
     return { item, avatar, name, tags, nameplate, isSelf, tagKey: null, bannerKey: null, hasBanner: false };
   }
@@ -5143,6 +5154,7 @@
     if (activePopupPeerId === peer.id && el.profilePopup && !el.profilePopup.hidden && typeof renderPopupContent === 'function') {
       renderPopupContent(peer.id);
     }
+    if (viewedPeerId === peer.id) renderFullProfile(peer.id);
 
     // Badges are cheap to compare and comparatively costly to build.
     const peerBadge = badgeOf(peer, row.isSelf);
@@ -5854,49 +5866,64 @@
     }
   }
 
-  function renderPopupContent(peerId) {
-    const isSelf = peerId === state.signal?.selfId;
-    let name = 'Guest';
-    let avatarData = null;
-    let bannerData = null;
-    let isHost = false;
-    let badgeId = '';
-    let isSharing = false;
-    let isCamera = false;
-    let isMic = false;
-    let isDeafened = false;
-    // Yours comes from storage so it is right the instant you connect;
-    // everyone else's rides along in the roster.
-    let discordLabel = '';
-
-    if (isSelf) {
-      name = AstraProfile.getName() || 'Guest';
-      avatarData = AstraProfile.getAvatar();
-      bannerData = AstraProfile.getBanner();
-      isHost = !!state.signal?.self?.host;
-      badgeId = badgeOf(null, true);
-      isSharing = !!state.sharing;
-      isCamera = !!state.cameraOn;
-      isMic = !!state.micOn;
-      isDeafened = !!state.deafened;
-      discordLabel = window.AstraDiscord ? window.AstraDiscord.accountLabel() : '';
-    } else {
-      const peer = state.signal?.roster?.get(peerId);
-      if (!peer) {
-        closeProfilePopup();
-        return;
-      }
-      name = peer.name || 'Guest';
-      avatarData = peer.avatar;
-      bannerData = peer.banner;
-      isHost = !!peer.host;
-      badgeId = badgeOf(peer, false);
-      isSharing = !!peer.sharing;
-      isCamera = !!peer.camera;
-      isMic = !!peer.mic;
-      isDeafened = !!peer.deafened;
-      discordLabel = peer.discord || '';
+  /**
+   * What a profile shows about someone, or null if they are not in the room.
+   * Yours comes from storage so it is right the instant you connect;
+   * everyone else's rides along in the roster.
+   */
+  function profileDetails(peerId) {
+    if (peerId === state.signal?.selfId) {
+      return {
+        isSelf: true,
+        name: AstraProfile.getName() || 'Guest',
+        avatar: AstraProfile.getAvatar(),
+        banner: AstraProfile.getBanner(),
+        isHost: !!state.signal?.self?.host,
+        badgeId: badgeOf(null, true),
+        isSharing: !!state.sharing,
+        isCamera: !!state.cameraOn,
+        isMic: !!state.micOn,
+        isDeafened: !!state.deafened,
+        discord: window.AstraDiscord ? window.AstraDiscord.accountLabel() : '',
+      };
     }
+    const peer = state.signal?.roster?.get(peerId);
+    if (!peer) return null;
+    return {
+      isSelf: false,
+      name: peer.name || 'Guest',
+      avatar: peer.avatar,
+      banner: peer.banner,
+      isHost: !!peer.host,
+      badgeId: badgeOf(peer, false),
+      isSharing: !!peer.sharing,
+      isCamera: !!peer.camera,
+      isMic: !!peer.mic,
+      isDeafened: !!peer.deafened,
+      discord: peer.discord || '',
+    };
+  }
+
+  /** The status chips a profile shows: host, sharing, camera, muted or deafened. */
+  function fillStatusBadges(holder, who) {
+    holder.textContent = '';
+    if (who.isHost) holder.appendChild(tag('HOST', 'tag-host'));
+    if (who.isSharing) holder.appendChild(iconTag(PEOPLE_ICONS.sharing));
+    if (who.isCamera) holder.appendChild(iconTag(PEOPLE_ICONS.camera));
+    if (who.isDeafened) holder.appendChild(iconTag(PEOPLE_ICONS.deafened));
+    else if (!who.isMic) holder.appendChild(iconTag(PEOPLE_ICONS.micMuted));
+  }
+
+  function renderPopupContent(peerId) {
+    const who = profileDetails(peerId);
+    if (!who) {
+      closeProfilePopup();
+      return;
+    }
+    const {
+      isSelf, name, avatar: avatarData, banner: bannerData, isHost, badgeId,
+      isSharing, isCamera, isMic, isDeafened, discord: discordLabel,
+    } = who;
 
     AstraProfile.paintBanner(el.profilePopupBanner, bannerData, name);
     AstraProfile.paint(el.profilePopupAvatar, name, avatarData);
@@ -5911,12 +5938,7 @@
     const tagKey = [isHost, isSharing, isCamera, isDeafened, isMic].join('|');
     if (lastPopupTagKey !== tagKey) {
       lastPopupTagKey = tagKey;
-      el.profilePopupBadges.textContent = '';
-      if (isHost) el.profilePopupBadges.appendChild(tag('HOST', 'tag-host'));
-      if (isSharing) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.sharing));
-      if (isCamera) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.camera));
-      if (isDeafened) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.deafened));
-      else if (!isMic) el.profilePopupBadges.appendChild(iconTag(PEOPLE_ICONS.micMuted));
+      fillStatusBadges(el.profilePopupBadges, who);
     }
 
     // Account badge, right next to the profile picture.
@@ -5952,6 +5974,64 @@
       el.profilePopupKickBtn.hidden = !canKick;
     }
   }
+
+  /**
+   * Somebody's full profile: the editor's card, read-only - opened from
+   * "Profile" on a right-click, for a proper look rather than the pop-up's
+   * glance. Kept up to date while open, like the pop-up.
+   */
+  let viewedPeerId = null;
+  // What the card last drew, so the people list's frequent refreshes - every
+  // time someone starts or stops talking - do not redraw it for nothing.
+  let viewedKey = '';
+
+  function renderFullProfile(peerId) {
+    const who = profileDetails(peerId);
+    if (!who) {
+      closeFullProfile();
+      return;
+    }
+    el.profileViewAvatar.classList.toggle('is-speaking', state.speakingPeers.has(peerId));
+    const key = [peerId, who.name, who.avatar, who.banner, who.badgeId, who.isHost,
+      who.isSharing, who.isCamera, who.isMic, who.isDeafened, who.discord].join('|');
+    if (key === viewedKey) return;
+    viewedKey = key;
+    AstraProfile.paintBanner(el.profileViewBanner, who.banner, who.name);
+    AstraProfile.paint(el.profileViewAvatar, who.name, who.avatar);
+    paintBadge(el.profileViewUserBadges, who.badgeId);
+    el.profileViewName.textContent = who.name + (who.isSelf ? ' (you)' : '');
+    fillStatusBadges(el.profileViewBadges, who);
+    el.profileViewDiscordUser.textContent = who.discord;
+    el.profileViewDiscord.hidden = !who.discord;
+  }
+
+  function openFullProfile(peerId) {
+    closeProfilePopup();
+    viewedPeerId = peerId;
+    renderFullProfile(peerId);
+    if (viewedPeerId) el.profileView.hidden = false;
+  }
+
+  function closeFullProfile() {
+    viewedPeerId = null;
+    viewedKey = '';
+    el.profileView.hidden = true;
+  }
+
+  // From the small pop-up: its picture, banner or name opens the full card.
+  for (const part of [el.profilePopupBanner, el.profilePopupAvatar, el.profilePopupName]) {
+    part.classList.add('opens-full-profile');
+    part.title = 'View full profile';
+    part.addEventListener('click', () => {
+      if (activePopupPeerId) openFullProfile(activePopupPeerId);
+    });
+  }
+
+  el.profileViewClose.addEventListener('click', closeFullProfile);
+  el.profileViewBackdrop.addEventListener('click', closeFullProfile);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && viewedPeerId) closeFullProfile();
+  });
 
   /**
    * Your own invite, in the window beside your own card.

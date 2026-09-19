@@ -5437,6 +5437,38 @@ button.tag-invite:disabled:hover {
   opacity: 1;
 }
 
+/* The small pop-up's picture, banner and name open the full card. */
+.opens-full-profile {
+  cursor: pointer;
+}
+
+.profile-popup-name.opens-full-profile:hover {
+  text-decoration: underline;
+}
+
+.avatar.opens-full-profile {
+  transition: filter 0.15s ease;
+}
+
+.avatar.opens-full-profile:hover {
+  filter: brightness(0.75);
+}
+
+/* Somebody's full profile (read-only): the name where the editor has its
+   field, with their status chips under it. */
+.profile-view-identity {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-view-name {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+  word-break: break-word;
+}
+
 /* Card body */
 .profile-card-body {
   padding: 16px 20px 20px;
