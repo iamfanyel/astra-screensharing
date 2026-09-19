@@ -132,6 +132,9 @@ function createWindow() {
 
   // Shown once there is something to look at rather than as an empty frame.
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(prepareSparePicker, SPARE_PICKER_DELAY_MS);
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -342,42 +345,103 @@ function isAppOrigin(value) {
 }
 
 /**
+ * The picker's window, loaded and hidden, ready for the next share.
+ *
+ * A new window is a new renderer process, and starting one takes about half
+ * a second - as long again as listing the sources, which the picker already
+ * does after it is on screen. So one is kept ready: made a moment after the
+ * app loads, taken when a share starts, and replaced once that one is gone.
+ */
+let sparePicker = null;
+
+/** How long after the app loads, or the last picker closes, to ready the next. */
+const SPARE_PICKER_DELAY_MS = 1500;
+
+function createPicker() {
+  const win = new BrowserWindow({
+    width: 820,
+    height: 620,
+    parent: mainWindow,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    frame: false,
+    // The shadow stays: taking it away makes Windows draw a hard border
+    // around a frameless window instead, which is the one edge this panel
+    // should not have. Nothing to drag it by either - it reads as something
+    // the app put up, the way the settings window does.
+    backgroundColor: '#141414',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'picker', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Kept warm while it waits hidden, so it paints the moment it is shown.
+      backgroundThrottling: false,
+    },
+  });
+  // Loaded, not first painted: a hidden window is not painted until it is
+  // about to be shown, so waiting for that would wait for the very thing a
+  // spare is here to skip. Nothing shows through meanwhile - the window's
+  // own colour is the page's.
+  const ready = new Promise((done) => win.webContents.once('did-finish-load', done));
+  win.loadFile(path.join(__dirname, 'picker', 'index.html'));
+  return { win, ready };
+}
+
+function prepareSparePicker() {
+  if (sparePicker || !mainWindow || mainWindow.isDestroyed()) return;
+  const spare = createPicker();
+  sparePicker = spare;
+  spare.win.once('closed', () => {
+    if (sparePicker === spare) sparePicker = null;
+  });
+}
+
+function takePicker() {
+  const spare = sparePicker;
+  sparePicker = null;
+  if (spare && !spare.win.isDestroyed()) {
+    // Made for this app window, not one since closed and reopened (macOS).
+    const parent = spare.win.getParentWindow();
+    if (parent && mainWindow && parent.id === mainWindow.id) return spare;
+    spare.win.destroy();
+  }
+  return createPicker();
+}
+
+/**
  * Astra's own source picker, in place of the one the browser draws.
  *
  * Resolves to a desktopCapturer source, or to null if the window was dismissed
  * - which getDisplayMedia reports as a denial, the same thing a cancelled
  * browser picker produces, and which room.js already reads as "cancelled".
+ *
+ * Dismissed the way a popup is: a click anywhere on the app behind it, or
+ * Escape. That is why it is a child rather than a modal - a modal switches its
+ * parent off, and a switched-off window never hears the click. While it is up
+ * the room is dimmed under a cover that takes that click, so closing the
+ * picker cannot also press whatever was under the pointer.
+ *
+ * Shown first, on a spinner, and filled in once the sources are listed.
  */
-function pickSource(sources) {
+function pickSource() {
   return new Promise((resolve) => {
-    const picker = new BrowserWindow({
-      width: 820,
-      height: 620,
-      parent: mainWindow,
-      modal: true,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      frame: false,
-      // The shadow stays: taking it away makes Windows draw a hard border
-      // around a frameless window instead, which is the one edge this panel
-      // should not have. Nothing to drag it by either - it reads as something
-      // the app put up, the way the settings window does.
-      backgroundColor: '#141414',
-      show: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'picker', 'preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+    const { win: picker, ready: loaded } = takePicker();
+
+    const owner = mainWindow;
+    const dismiss = () => finish(null);
+    let sources = [];
 
     let settled = false;
     const finish = (value) => {
       if (settled) return;
       settled = true;
       ipcMain.removeListener('picker:choose', onChoose);
+      if (owner && !owner.isDestroyed()) owner.removeListener('focus', dismiss);
+      coverRoom(owner, false);
       if (!picker.isDestroyed()) picker.destroy();
+      setTimeout(prepareSparePicker, SPARE_PICKER_DELAY_MS);
       resolve(value);
     };
 
@@ -395,17 +459,78 @@ function pickSource(sources) {
     // page inside fails to load.
     picker.on('closed', () => finish(null));
 
-    picker.once('ready-to-show', async () => {
-      picker.webContents.send('picker:sources', {
-        sources: sources.map(toPickerItem),
-        settings: await readShareSettings(),
-        missingMonitors,
-      });
-      picker.show();
-    });
+    const settingsRead = readShareSettings();
 
-    picker.loadFile(path.join(__dirname, 'picker', 'index.html'));
+    loaded
+      .then(() => {
+        if (settled) return false;
+        coverRoom(owner, true);
+        centreOver(picker, owner);
+        picker.show();
+        // Anything that brings the app back to the front - a click on it, its
+        // title bar, its taskbar button - means the user has moved on.
+        // Switching to another program does not: that is how you go and find
+        // the window you want to share.
+        if (owner) owner.on('focus', dismiss);
+        return untilPainted(picker);
+      })
+      .then(async (shown) => {
+        if (!shown || settled) return;
+        // The settings are quick to read, so they go first...
+        picker.webContents.send('picker:sources', { settings: await settingsRead });
+        // ...and the listing, which holds up this whole process while it runs,
+        // waits until the window is on screen rather than holding that up too.
+        const list = await listSources();
+        if (settled) return;
+        sources = list;
+        picker.webContents.send('picker:sources', {
+          sources: sources.map(toPickerItem),
+          missingMonitors,
+        });
+      });
   });
+}
+
+/**
+ * Resolves once a just-shown window has put a frame on screen - two animation
+ * frames, the second only starting after the first was presented. True, or
+ * false if it went away first.
+ */
+function untilPainted(win) {
+  return win.webContents
+    .executeJavaScript('new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))')
+    .catch(() => false);
+}
+
+/**
+ * Over the middle of the app, wherever it has been moved to since the window
+ * was made - a spare picker is made well before it is shown.
+ */
+function centreOver(win, owner) {
+  if (!owner || owner.isDestroyed()) return;
+  const area = owner.getBounds();
+  const [width, height] = win.getSize();
+  win.setPosition(
+    Math.round(area.x + (area.width - width) / 2),
+    Math.round(area.y + (area.height - height) / 2),
+  );
+}
+
+/**
+ * Dim the room while the picker is up, under a cover that swallows the click
+ * which dismisses it. See pickSource.
+ */
+const COVER_ID = 'astra-picker-cover';
+const COVER_STYLE = 'position:fixed;inset:0;z-index:2147483647;'
+  + 'background:rgba(0,0,0,0.45);-webkit-app-region:no-drag;';
+
+function coverRoom(win, on) {
+  if (!win || win.isDestroyed()) return;
+  const code = on
+    ? `document.getElementById('${COVER_ID}') || document.documentElement.append(`
+      + `Object.assign(document.createElement('div'), { id: '${COVER_ID}', style: '${COVER_STYLE}' }))`
+    : `document.getElementById('${COVER_ID}')?.remove()`;
+  win.webContents.executeJavaScript(code + '; 0', true).catch(() => {});
 }
 
 /**
@@ -611,9 +736,7 @@ function reportVersions() {
 function handleDisplayMedia(ses) {
   ses.setDisplayMediaRequestHandler(
     async (request, callback) => {
-      const sources = await listSources();
-
-      const chosen = sources.length ? await pickSource(sources) : null;
+      const chosen = await pickSource();
       if (!chosen) {
         // No source and no audio: the request is refused.
         callback();

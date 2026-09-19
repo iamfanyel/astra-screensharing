@@ -3,9 +3,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('picker', {
-  /** The main process sends the list once, as the window becomes visible. */
+  /** The main process sends the room's settings, then the list of sources. */
   onSources: (handler) => {
-    ipcRenderer.on('picker:sources', (_event, sources) => handler(sources));
+    ipcRenderer.on('picker:sources', (_event, payload) => handler(payload));
   },
   /**
    * The whole decision in one message: which source, and what to share it
