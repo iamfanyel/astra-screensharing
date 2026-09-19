@@ -269,6 +269,220 @@
     focused: null,
   };
 
+  // ------------------------------------------------------------ mini player
+
+  /**
+   * The desktop app's mini player: a small window, always on top, playing one
+   * screen share - opened from the button beside a share's fullscreen button.
+   *
+   * The window is opened from here rather than by the app, so it lives in this
+   * page's process and plays the very track the tile does: nothing is received
+   * or decoded twice. The app only decides how it looks and where it goes (see
+   * the mini player in desktop/main.js).
+   *
+   * It exists only in the desktop app; in a browser `astraWindow` is missing
+   * and there is no button.
+   */
+  const MINI_PLAYER_NAME = 'astra-mini';
+
+  const miniPlayer = {
+    win: null,
+    video: null,
+    title: null,
+    key: null,
+    // Kept on top of other windows - the pin. Outlives the window, for the
+    // session, as the app's own copy of it does (see desktop/main.js).
+    onTop: true,
+  };
+
+  /** Whether a tile's share can be played in it: someone else's, being watched, live. */
+  function miniPlayable(tile) {
+    return !!tile && tile.kind === 'screen'
+      && !tile.root.classList.contains('self')
+      && state.peerWatching.get(tile.root.dataset.tileKey) === true
+      && !!tile.screenTrack && tile.screenTrack.readyState === 'live';
+  }
+
+  /** The tile button: open the player on this share, or close it if it already is. */
+  function toggleMiniPlayer(key) {
+    if (miniPlayer.key === key && miniPlayer.win && !miniPlayer.win.closed) {
+      closeMiniPlayer();
+      return;
+    }
+    // A share that is not being watched has nothing to play yet.
+    if (state.peerWatching.get(key) !== true) setTileWatching(key, true);
+    miniPlayer.key = key;
+    syncMiniPlayer();
+  }
+
+  /**
+   * Keep the player on its share: follow a new track, or close when the share
+   * ends or stops being watched. Cheap when nothing changed.
+   */
+  function syncMiniPlayer() {
+    if (!miniPlayer.key) return;
+    const tile = state.tiles.get(miniPlayer.key);
+    if (!miniPlayable(tile)) {
+      closeMiniPlayer();
+      return;
+    }
+    if (!openMiniPlayer()) return;
+    const track = tile.screenTrack;
+    const current = miniPlayer.video.srcObject;
+    if (!current || current.getVideoTracks()[0] !== track) {
+      miniPlayer.video.srcObject = new MediaStream([track]);
+      miniPlayer.video.play().catch(() => {});
+    }
+    const title = (tile.nameText || tile.label || {}).textContent || 'Screen share';
+    if (miniPlayer.title.textContent !== title) {
+      miniPlayer.title.textContent = title;
+      miniPlayer.win.document.title = title;
+    }
+  }
+
+  /** Make sure the window exists and is built. False if it could not be opened. */
+  function openMiniPlayer() {
+    if (miniPlayer.win && !miniPlayer.win.closed) return true;
+    const win = window.open('about:blank', MINI_PLAYER_NAME);
+    if (!win) return false;
+    const doc = win.document;
+
+    const style = doc.createElement('style');
+    style.textContent = `
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      body {
+        display: flex; flex-direction: column;
+        font: 500 12px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #eeeeee; user-select: none;
+      }
+      /* The handle: the window has no frame, so this is what it is dragged by. */
+      .bar {
+        flex: none; height: 32px; display: flex; align-items: center;
+        padding-left: 10px; background: #141414; -webkit-app-region: drag;
+      }
+      .title {
+        flex: 1; min-width: 0; padding: 2px 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d6d6d6;
+      }
+      button {
+        -webkit-app-region: no-drag; appearance: none; border: 0; padding: 0;
+        display: grid; place-items: center; background: none; color: #9e9e9e; cursor: pointer;
+      }
+      button svg { width: 14px; height: 14px; }
+      /* The system's own window buttons, the way Windows draws them. */
+      .win-btn { width: 40px; height: 32px; }
+      .win-btn:hover { background: rgb(255 255 255 / 0.1); color: #ffffff; }
+      .win-btn.close:hover { background: #c42b1c; }
+      .stage { position: relative; flex: 1; min-height: 0; }
+      video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+      /* Over the picture, bottom right, while the pointer is on it. */
+      .corner {
+        position: absolute; right: 8px; bottom: 8px; display: flex; gap: 4px;
+        opacity: 0; transition: opacity 0.15s ease;
+      }
+      .stage:hover .corner, .corner:focus-within { opacity: 1; }
+      .corner button {
+        width: 30px; height: 30px; border-radius: 8px;
+        background: rgb(20 20 20 / 0.85); color: #d6d6d6;
+      }
+      .corner button:hover { background: #2e2e2e; color: #ffffff; }
+      .corner button svg { width: 16px; height: 16px; }
+      .pin.is-on { color: #ffffff; background: #3a3a3a; }
+    `;
+    doc.head.append(style);
+
+    const svg = (inner) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+    const button = (className, label, inner) => {
+      const node = doc.createElement('button');
+      node.type = 'button';
+      node.className = className;
+      node.title = label;
+      node.innerHTML = svg(inner);
+      return node;
+    };
+    const bar = doc.createElement('div');
+    bar.className = 'bar';
+    const title = doc.createElement('span');
+    title.className = 'title';
+    const close = button('win-btn close', 'Close', '<path d="M18 6 6 18M6 6l12 12" />');
+    bar.append(title, close);
+
+    const stage = doc.createElement('div');
+    stage.className = 'stage';
+    const video = doc.createElement('video');
+    video.autoplay = true;
+    video.muted = true; // the sound keeps playing in the room, as before
+    video.playsInline = true;
+    const corner = doc.createElement('div');
+    corner.className = 'corner';
+    const back = button('back', 'Back to Astra', '<rect x="3" y="3" width="18" height="18" rx="3" /><path d="M15 9l-6 6M9 10v5h5" />');
+    corner.append(back);
+    stage.append(video, corner);
+    doc.body.append(bar, stage);
+
+    const backToAstra = () => {
+      window.astraWindow.restore();
+      closeMiniPlayer();
+    };
+    back.addEventListener('click', backToAstra);
+    video.addEventListener('dblclick', backToAstra);
+    close.addEventListener('click', closeMiniPlayer);
+    // Closed some other way (Alt+F4).
+    win.addEventListener('pagehide', () => {
+      if (miniPlayer.win === win) forgetMiniPlayer();
+    });
+
+    // Minimise, maximise and the pin need the app to act on the window, which
+    // desktop builds from before them cannot: there, only close and "back".
+    if (typeof window.astraWindow.miniPlayer === 'function') {
+      const act = window.astraWindow.miniPlayer;
+      const MAXIMIZE = '<rect x="5" y="5" width="14" height="14" rx="1.5" />';
+      const RESTORE = '<rect x="5" y="8" width="11" height="11" rx="1.5" />'
+        + '<path d="M8 8V6.5A1.5 1.5 0 0 1 9.5 5h8A1.5 1.5 0 0 1 19 6.5v8a1.5 1.5 0 0 1-1.5 1.5H16" />';
+      const minimize = button('win-btn', 'Minimize', '<path d="M5 12h14" />');
+      const maximize = button('win-btn', 'Maximize', MAXIMIZE);
+      close.before(minimize, maximize);
+      const pin = button('pin', '', '<path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />');
+      back.before(pin);
+
+      const showPin = () => {
+        pin.classList.toggle('is-on', miniPlayer.onTop);
+        pin.title = miniPlayer.onTop ? 'Stop keeping on top' : 'Keep on top';
+      };
+      showPin();
+      // Maximised or not is the window's own business - a double-click on the
+      // bar does it too - so the button reads it back rather than tracking it.
+      win.addEventListener('resize', () => {
+        const maximized = win.outerWidth >= win.screen.availWidth && win.outerHeight >= win.screen.availHeight;
+        maximize.title = maximized ? 'Restore' : 'Maximize';
+        maximize.innerHTML = svg(maximized ? RESTORE : MAXIMIZE);
+      });
+
+      minimize.addEventListener('click', () => act('minimize'));
+      maximize.addEventListener('click', () => act('maximize'));
+      pin.addEventListener('click', () => {
+        miniPlayer.onTop = !miniPlayer.onTop;
+        act('pin', miniPlayer.onTop);
+        showPin();
+      });
+    }
+
+    Object.assign(miniPlayer, { win, video, title });
+    return true;
+  }
+
+  function forgetMiniPlayer() {
+    if (miniPlayer.video) miniPlayer.video.srcObject = null;
+    Object.assign(miniPlayer, { win: null, video: null, title: null, key: null });
+  }
+
+  function closeMiniPlayer() {
+    const win = miniPlayer.win;
+    forgetMiniPlayer();
+    if (win && !win.closed) win.close();
+  }
+
   /** A 1x1 transparent GIF, for video posters that should show nothing. */
   const TRANSPARENT_POSTER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -2603,6 +2817,12 @@
     '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />' +
     '</svg><span class="sr-only">Fullscreen</span>';
 
+  const MINI_PLAYER_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M21 11V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" />' +
+    '<rect x="13" y="13" width="9" height="7" rx="1.5" />' +
+    '</svg><span class="sr-only">Mini player</span>';
+
   const VIEWERS_EYE_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />' +
@@ -2841,6 +3061,7 @@
     syncTileStreamAudio(tile, watching);
 
     syncTileLoading(tile);
+    if (miniPlayer.key === tileKey) syncMiniPlayer();
 
     if (tile.pausedOverlay) {
       tile.pausedOverlay.hidden = watching;
@@ -3545,6 +3766,19 @@
       });
       buttons.appendChild(focusBtn);
 
+      if (window.astraWindow && !isSelf) {
+        const miniBtn = document.createElement('button');
+        miniBtn.type = 'button';
+        miniBtn.className = 'tile-btn tile-mini-btn';
+        miniBtn.title = 'Mini player';
+        miniBtn.innerHTML = MINI_PLAYER_ICON;
+        miniBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          toggleMiniPlayer(tileKey);
+        });
+        buttons.appendChild(miniBtn);
+      }
+
       fullBtn = document.createElement('button');
       fullBtn.className = 'tile-btn tile-full-btn';
       fullBtn.title = 'Fullscreen';
@@ -3938,6 +4172,7 @@
     tile.slot.remove();
     state.tiles.delete(tileKey);
     if (state.focused === tileKey) clearFocus();
+    if (miniPlayer.key === tileKey) syncMiniPlayer();
     updateEmptyState();
   }
 
@@ -5751,6 +5986,7 @@
     if (tornDown) return;
     tornDown = true;
     setNativeInCall(false);
+    closeMiniPlayer();
     closeProfilePopup();
     toggleShareMenu(false);
     toggleCameraMenu(false);
@@ -5836,6 +6072,7 @@
   el.leave.addEventListener('click', leaveForLobby);
 
   window.addEventListener('pagehide', () => {
+    closeMiniPlayer();
     sendRoomExitBeacon();
     if (state.signal) state.signal.leave();
   });

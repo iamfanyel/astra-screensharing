@@ -46,6 +46,19 @@ contextBridge.exposeInMainWorld('astraBuild', {
 });
 
 /**
+ * The windows, for the mini player (see room.js). Its presence is also how the
+ * page knows it can offer a mini player at all.
+ *
+ * `restore` brings this window up again, for the player's "back to Astra".
+ * `miniPlayer` works the player's own window buttons - minimise, maximise and
+ * the pin that keeps it on top - and reaches that window and nothing else.
+ */
+contextBridge.exposeInMainWorld('astraWindow', {
+  restore: () => ipcRenderer.send('astra:window-restore'),
+  miniPlayer: (action, on) => ipcRenderer.send('astra:mini-player', String(action), !!on),
+});
+
+/**
  * Keep the system's window buttons in the app's colours.
  *
  * Windows paints minimise/maximise/close itself, over the strip the page

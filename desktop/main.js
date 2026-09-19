@@ -140,7 +140,119 @@ function createWindow() {
   });
 
   guardNavigation(mainWindow.webContents);
+  watchMiniPlayer(mainWindow);
   mainWindow.loadURL(APP_URL);
+}
+
+/**
+ * The mini player: a small window on top of everything, playing a screen
+ * share, opened from the button on the share's tile.
+ *
+ * The page does the playing - it opens the window itself, as a popup, so the
+ * stream it already has goes straight into it (see the mini player in
+ * room.js). All the app does is decide what the popup looks like and where it
+ * goes - the corner of the screen Astra is on, or wherever it was last
+ * dragged to - and close it if the page goes away first.
+ */
+const MINI_PLAYER_NAME = 'astra-mini';
+// A 16:9 picture 384 wide, under the 30px bar it is dragged by.
+const MINI_PLAYER_SIZE = { width: 384, height: 246 };
+const MINI_PLAYER_MARGIN = 20;
+
+let miniPlayer = null;
+/** Where the user last left it, for the rest of this session. */
+let miniPlayerBounds = null;
+/** The pin: whether it stays on top of other windows. Also for the session. */
+let miniPlayerOnTop = true;
+
+function watchMiniPlayer(win) {
+  // A popup outlives the page that opened it, so the app makes sure it goes
+  // with the page: when the window closes, and when it leaves the room.
+  win.on('closed', closeMiniPlayer);
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) closeMiniPlayer();
+  });
+  win.webContents.on('did-create-window', (child, { frameName }) => {
+    if (frameName !== MINI_PLAYER_NAME) return;
+    miniPlayer = child;
+    guardNavigation(child.webContents);
+    // Kept as it moves rather than read on the way out: the page closes it
+    // from script, which skips the window's own 'close'. Maximised is not a
+    // place to reopen at, nor is wherever Windows parks a minimised window.
+    const remember = () => {
+      if (child.isDestroyed() || child.isMaximized() || child.isMinimized()) return;
+      miniPlayerBounds = child.getBounds();
+    };
+    child.on('move', remember).on('resize', remember).on('closed', () => {
+      if (miniPlayer === child) miniPlayer = null;
+    });
+  });
+}
+
+function closeMiniPlayer() {
+  if (miniPlayer && !miniPlayer.isDestroyed()) miniPlayer.close();
+  miniPlayer = null;
+}
+
+function miniPlayerOptions() {
+  return {
+    ...miniPlayerPlace(),
+    minWidth: 240,
+    minHeight: 165,
+    frame: false,
+    alwaysOnTop: miniPlayerOnTop,
+    // In the taskbar, since it can be minimised and has to be found again.
+    skipTaskbar: false,
+    resizable: true,
+    fullscreenable: false,
+    backgroundColor: '#000000',
+    title: 'Astra',
+  };
+}
+
+/** The last place it was left, if that is still on a screen; else the corner. */
+function miniPlayerPlace() {
+  const onScreen = (bounds) => screen.getAllDisplays().some(({ workArea: a }) =>
+    bounds.x >= a.x && bounds.y >= a.y
+    && bounds.x + bounds.width <= a.x + a.width
+    && bounds.y + bounds.height <= a.y + a.height);
+  if (miniPlayerBounds && onScreen(miniPlayerBounds)) return miniPlayerBounds;
+
+  const near = mainWindow ? mainWindow.getNormalBounds() : screen.getPrimaryDisplay().bounds;
+  const area = screen.getDisplayMatching(near).workArea;
+  return {
+    ...MINI_PLAYER_SIZE,
+    x: area.x + area.width - MINI_PLAYER_SIZE.width - MINI_PLAYER_MARGIN,
+    y: area.y + area.height - MINI_PLAYER_SIZE.height - MINI_PLAYER_MARGIN,
+  };
+}
+
+/**
+ * The mini player's buttons: "back to Astra", and its own minimise, maximise
+ * and pin. Only the room's page may ask, and only of these two windows.
+ */
+function handleMiniPlayerButtons() {
+  const fromRoom = (event) => mainWindow && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents;
+
+  ipcMain.on('astra:window-restore', (event) => {
+    if (!fromRoom(event)) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+
+  ipcMain.on('astra:mini-player', (event, action, on) => {
+    if (!fromRoom(event) || !miniPlayer || miniPlayer.isDestroyed()) return;
+    if (action === 'minimize') {
+      miniPlayer.minimize();
+    } else if (action === 'maximize') {
+      if (miniPlayer.isMaximized()) miniPlayer.unmaximize();
+      else miniPlayer.maximize();
+    } else if (action === 'pin') {
+      miniPlayerOnTop = on === true;
+      miniPlayer.setAlwaysOnTop(miniPlayerOnTop);
+    }
+  });
 }
 
 /**
@@ -150,7 +262,11 @@ function createWindow() {
  * their own browser, as does the Discord sign-in.
  */
 function guardNavigation(contents) {
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url, frameName }) => {
+    // The one window the page may open for itself - see the mini player above.
+    if (url === 'about:blank' && frameName === MINI_PLAYER_NAME && contents === mainWindow?.webContents) {
+      return { action: 'allow', overrideBrowserWindowOptions: miniPlayerOptions() };
+    }
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -805,6 +921,7 @@ if (!app.requestSingleInstanceLock()) {
     handleDisplayMedia(ses);
     followTitlebarColors();
     reportVersions();
+    handleMiniPlayerButtons();
     // Quiet, and only in a packaged build - see updater.js. The window is
     // passed as a getter rather than a value: an update can land long after
     // this runs, by which time the window may have been closed and reopened.
