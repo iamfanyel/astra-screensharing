@@ -104,6 +104,12 @@
     togglePeople: $('toggle-people'),
     toggleChat: $('toggle-chat'),
     toggleSettings: $('toggle-settings'),
+    mobileSidebar: $('mobile-sidebar'),
+    mobileSidebarToggle: $('mobile-sidebar-toggle'),
+    mobileSidebarClose: $('mobile-sidebar-close'),
+    mobileSidebarBackdrop: $('mobile-sidebar-backdrop'),
+    mobilePeopleSlot: $('mobile-people-slot'),
+    mobileSettingsBtn: $('mobile-settings-btn'),
     settingsModal: $('settings-modal'),
     settingsBackdrop: $('settings-backdrop'),
     settingsClose: $('settings-close'),
@@ -1261,7 +1267,7 @@
     renderPeople();
     updateEmptyState();
     applyLayout();
-    syncPanels();
+    syncSidebarLayout();
     restoreVoice();
   }
 
@@ -6662,6 +6668,9 @@
 
   el.togglePeople.addEventListener('click', () => togglePanel(el.peoplePanel, el.togglePeople));
   el.toggleChat.addEventListener('click', () => {
+    if (compact.matches && el.mobileSidebar && el.mobileSidebar.classList.contains('is-open')) {
+      closeMobileSidebar();
+    }
     togglePanel(el.chatPanel, el.toggleChat);
     el.toggleChat.classList.remove('chip-accent');
     if (!el.chatPanel.hidden && !touch.matches) el.chatInput.focus();
@@ -6673,7 +6682,11 @@
   }
 
   function closePanels() {
-    for (const entry of PANELS) setPanel(entry.panel, entry.button, false);
+    if (compact.matches) {
+      setPanel(el.chatPanel, el.toggleChat, false);
+    } else {
+      for (const entry of PANELS) setPanel(entry.panel, entry.button, false);
+    }
   }
 
   function togglePanel(panel, button) {
@@ -6691,20 +6704,172 @@
 
   el.sheetBackdrop.addEventListener('click', closeSheet);
 
-  function syncPanels() {
-    el.sidebar.hidden = el.peoplePanel.hidden && el.chatPanel.hidden;
-    // Give the column back to the stage when nothing is in it.
-    document.body.classList.toggle('sidebar-hidden', el.sidebar.hidden);
-    // The split handle - and the split itself - only mean something with both
-    // panels open.
-    const split = !el.peoplePanel.hidden && !el.chatPanel.hidden;
-    el.resizeY.hidden = !split;
-    el.sidebar.classList.toggle('split', split);
-    // The backdrop and the stood-down dock follow this class in the stylesheet.
-    document.body.classList.toggle('sheet-open', compact.matches && !el.sidebar.hidden);
+  let mobileSidebarTimer = null;
+
+  function openMobileSidebar() {
+    if (!el.mobileSidebar) return;
+    if (mobileSidebarTimer) {
+      clearTimeout(mobileSidebarTimer);
+      mobileSidebarTimer = null;
+    }
+    if (compact.matches && !el.chatPanel.hidden) {
+      setPanel(el.chatPanel, el.toggleChat, false);
+      syncPanels();
+    }
+    el.peoplePanel.hidden = false;
+    el.mobileSidebar.hidden = false;
+    if (el.mobileSidebarBackdrop) el.mobileSidebarBackdrop.hidden = false;
+    // Force a reflow so the slide-in transition executes cleanly from unhidden state
+    void el.mobileSidebar.offsetWidth;
+    el.mobileSidebar.classList.add('is-open');
+    document.body.classList.add('mobile-sidebar-open');
+    if (el.mobileSidebarToggle) el.mobileSidebarToggle.setAttribute('aria-expanded', 'true');
   }
 
-  // Escape closes the sheet and open overlays, the way it closes every other overlay here.
+  function closeMobileSidebar() {
+    if (!el.mobileSidebar) return;
+    if (mobileSidebarTimer) {
+      clearTimeout(mobileSidebarTimer);
+      mobileSidebarTimer = null;
+    }
+    el.mobileSidebar.classList.remove('is-open');
+    document.body.classList.remove('mobile-sidebar-open');
+    if (el.mobileSidebarToggle) el.mobileSidebarToggle.setAttribute('aria-expanded', 'false');
+    mobileSidebarTimer = setTimeout(() => {
+      mobileSidebarTimer = null;
+      if (!el.mobileSidebar.classList.contains('is-open')) {
+        el.mobileSidebar.hidden = true;
+        if (el.mobileSidebarBackdrop) el.mobileSidebarBackdrop.hidden = true;
+      }
+    }, 260);
+  }
+
+  function toggleMobileSidebar() {
+    if (el.mobileSidebar && el.mobileSidebar.classList.contains('is-open')) {
+      closeMobileSidebar();
+    } else {
+      openMobileSidebar();
+    }
+  }
+
+  function syncSidebarLayout() {
+    if (!el.peoplePanel || !el.mobilePeopleSlot || !el.sidebar) return;
+    if (compact.matches) {
+      if (el.peoplePanel.parentElement !== el.mobilePeopleSlot) {
+        el.mobilePeopleSlot.appendChild(el.peoplePanel);
+      }
+      el.peoplePanel.hidden = false;
+      if (el.toggleChat && el.toggleChat.getAttribute('aria-pressed') !== 'true') {
+        el.chatPanel.hidden = true;
+      }
+    } else {
+      if (el.peoplePanel.parentElement !== el.sidebar) {
+        el.sidebar.insertBefore(el.peoplePanel, el.resizeY || el.chatPanel);
+      }
+      const wasOpen = el.togglePeople ? el.togglePeople.getAttribute('aria-pressed') === 'true' : true;
+      el.peoplePanel.hidden = !wasOpen;
+      const wasChatOpen = el.toggleChat ? el.toggleChat.getAttribute('aria-pressed') === 'true' : true;
+      el.chatPanel.hidden = !wasChatOpen;
+      closeMobileSidebar();
+    }
+    syncPanels();
+  }
+
+  function syncPanels() {
+    // If the stage is hidden (e.g. on the gate / room join confirmation UI), never show sidebar or sheet
+    if (el.stage && el.stage.hidden) {
+      el.sidebar.hidden = true;
+      document.body.classList.remove('sheet-open');
+      return;
+    }
+    if (compact.matches) {
+      el.sidebar.hidden = el.chatPanel.hidden;
+      document.body.classList.toggle('sidebar-hidden', true);
+      el.resizeY.hidden = true;
+      el.sidebar.classList.remove('split');
+      document.body.classList.toggle('sheet-open', !el.chatPanel.hidden);
+    } else {
+      el.sidebar.hidden = el.peoplePanel.hidden && el.chatPanel.hidden;
+      // Give the column back to the stage when nothing is in it.
+      document.body.classList.toggle('sidebar-hidden', el.sidebar.hidden);
+      // The split handle - and the split itself - only mean something with both
+      // panels open.
+      const split = !el.peoplePanel.hidden && !el.chatPanel.hidden;
+      el.resizeY.hidden = !split;
+      el.sidebar.classList.toggle('split', split);
+      document.body.classList.remove('sheet-open');
+    }
+  }
+
+  if (el.mobileSidebarToggle) {
+    el.mobileSidebarToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMobileSidebar();
+    });
+  }
+  if (el.mobileSidebarClose) {
+    el.mobileSidebarClose.addEventListener('click', closeMobileSidebar);
+  }
+  if (el.mobileSidebarBackdrop) {
+    el.mobileSidebarBackdrop.addEventListener('click', closeMobileSidebar);
+  }
+  if (el.mobileSettingsBtn) {
+    el.mobileSettingsBtn.addEventListener('click', () => {
+      closeMobileSidebar();
+      openSettings();
+    });
+  }
+
+  // Swipe gestures: swipe left from right edge to open, swipe right to close
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartTime = 0;
+
+  window.addEventListener('touchstart', (e) => {
+    if (!compact.matches || e.touches.length !== 1) return;
+    const target = e.target;
+    // Don't intercept touches inside inputs, controls, or while an overlay modal is open
+    if (target.closest('input, textarea, select, range') ||
+        (el.profilePopup && !el.profilePopup.hidden) ||
+        (el.settingsModal && !el.settingsModal.hidden) ||
+        (el.profileModal && !el.profileModal.hidden)) {
+      touchStartTime = 0;
+      return;
+    }
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+  }, { passive: true });
+
+  window.addEventListener('touchcancel', () => {
+    touchStartTime = 0;
+  }, { passive: true });
+
+  window.addEventListener('touchend', (e) => {
+    if (!compact.matches || !touchStartTime) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    const diffX = touchEndX - touchStartX;
+    const diffY = touchEndY - touchStartY;
+    const elapsed = Date.now() - touchStartTime;
+    touchStartTime = 0;
+
+    // Decisive horizontal swipe: fast enough, far enough, mostly horizontal
+    if (elapsed > 600 || Math.abs(diffX) < 40 || Math.abs(diffY) > Math.abs(diffX) * 0.8) return;
+
+    const isOpen = el.mobileSidebar && el.mobileSidebar.classList.contains('is-open');
+    if (!isOpen) {
+      if (touchStartX >= window.innerWidth - 50 && diffX < -40) {
+        openMobileSidebar();
+      }
+    } else {
+      if (diffX > 40) {
+        closeMobileSidebar();
+      }
+    }
+  }, { passive: true });
+
+  // Escape closes the sheet, mobile sidebar, and open overlays, the way it closes every other overlay here.
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       for (const tile of state.tiles.values()) {
@@ -6713,6 +6878,10 @@
           if (tile.viewersBadge) tile.viewersBadge.classList.remove('is-active');
           if (tile.caption) tile.caption.classList.remove('has-open-popover');
         }
+      }
+      if (document.body.classList.contains('mobile-sidebar-open')) {
+        closeMobileSidebar();
+        return;
       }
       if (document.body.classList.contains('sheet-open')) closeSheet();
     }
@@ -6730,9 +6899,15 @@
     }
   });
 
-  // A sheet that covers the room should not survive a rotation into phone
-  // width, and a side column should be re-derived on the way back out.
-  compact.addEventListener('change', (e) => (e.matches ? closeSheet() : syncPanels()));
+  // On mobile boot, chat sheet starts closed
+  if (compact.matches) {
+    if (el.chatPanel) el.chatPanel.hidden = true;
+    if (el.toggleChat) el.toggleChat.setAttribute('aria-pressed', 'false');
+  }
+
+  // Re-derive layout when breakpoint is crossed or on boot
+  compact.addEventListener('change', () => syncSidebarLayout());
+  syncSidebarLayout();
 
   // ------------------------------------------------------------- resizing
 
@@ -6866,6 +7041,7 @@
     setNativeInCall(false);
     closeMiniPlayer();
     closeProfilePopup();
+    closeMobileSidebar();
     toggleShareMenu(false);
     toggleCameraMenu(false);
     if (cameraDeviceChangeTimer) {

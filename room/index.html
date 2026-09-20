@@ -26,7 +26,7 @@
   <meta name="twitter:description" content="Share your screen and audio in a private room. No install, no account, peer to peer." />
   <meta name="twitter:image" content="https://astrascreen.live/astrabanner.png" />
   <meta name="twitter:image:alt" content="Astra Screensharing" />
-  <link rel="stylesheet" href="../css/style.css?v=29" />
+  <link rel="stylesheet" href="../css/style.css?v=34" />
   <script src="../js/theme.js"></script>
   <!-- The room needs PeerJS from a CDN and a socket to the signalling broker.
        Warming both here means the lobby pays the DNS and TLS cost while someone
@@ -190,6 +190,13 @@
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
+      <button id="mobile-sidebar-toggle" class="chip chip-icon-btn mobile-only" aria-expanded="false" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="4" y1="6" x2="20" y2="6" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="18" x2="20" y2="18" />
+        </svg>
+      </button>
       <!-- Desktop app only, and only once an update has finished downloading.
            Everywhere else there is nothing to update this way and it stays
            hidden - see js/desktop-update.js. -->
@@ -250,6 +257,35 @@
         <button class="btn btn-small" type="submit">Send</button>
       </form>
     </section>
+  </aside>
+
+  <!-- Mobile right sidebar: contains the people list and settings button on phone screens -->
+  <div id="mobile-sidebar-backdrop" class="mobile-sidebar-backdrop" hidden></div>
+  <aside id="mobile-sidebar" class="mobile-sidebar" aria-label="People and settings" hidden>
+    <div class="mobile-sidebar-header">
+      <div class="mobile-sidebar-title-wrap">
+        <h2 class="mobile-sidebar-title">People</h2>
+      </div>
+      <button type="button" id="mobile-sidebar-close" class="profile-close-btn mobile-sidebar-close" title="Close" aria-label="Close people panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+    <div id="mobile-people-slot" class="mobile-sidebar-content"></div>
+    <div class="mobile-sidebar-footer">
+      <button type="button" id="mobile-settings-btn" class="mobile-settings-btn" title="Settings" aria-label="Settings">
+        <svg class="mobile-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        <span class="mobile-settings-label">Settings</span>
+        <svg class="mobile-settings-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </button>
+    </div>
   </aside>
 
   <!-- Floating dock: no bar, no chrome, just the controls. -->
