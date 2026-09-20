@@ -4946,11 +4946,21 @@
    */
   function describePhoneGrid() {
     let shares = 0;
+    let last = null;
     for (const tile of state.tiles.values()) {
       if (tile.kind === 'screen') shares += 1;
     }
     const columns = shares === 0 ? 1 : 2;
     const inRows = shares >= 3 ? state.tiles.size : state.tiles.size - shares;
+    for (const tile of state.tiles.values()) {
+      if (shares >= 3 || tile.kind !== 'screen') last = tile;
+    }
+    // A row that ends one tile short leaves a hole beside it. The odd one out
+    // takes the whole row and stands in the middle of it instead.
+    const odd = columns > 1 && inRows % columns === 1;
+    for (const tile of state.tiles.values()) {
+      tile.slot.classList.toggle('takes-the-row', odd && tile === last);
+    }
     el.grid.dataset.shares = String(Math.min(shares, 3));
     el.grid.style.setProperty('--tile-cols', String(columns));
     el.grid.style.setProperty('--tile-rows', String(Math.max(1, Math.ceil(inRows / columns))));

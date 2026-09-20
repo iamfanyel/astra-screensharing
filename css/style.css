@@ -3860,6 +3860,17 @@ body.sidebar-hidden .toasts {
     max-width: 140px;
   }
 
+  /* The one tile left over by a row of two: it takes the row to itself and
+     stands in the middle of it, rather than against the left edge with a hole
+     beside it. See describePhoneGrid in js/room.js. */
+  .grid .slot.takes-the-row {
+    grid-column: 1 / -1;
+  }
+
+  .grid .slot.takes-the-row .tile {
+    width: var(--cell);
+  }
+
   /* One share sits above the people, two split that space between them, and
      past two there is nothing left worth splitting - they take their place in
      the grid as tiles like anybody else.
@@ -3871,14 +3882,24 @@ body.sidebar-hidden .toasts {
   .grid[data-shares="1"],
   .grid[data-shares="2"] {
     --squares-height: 70cqh;
+    /* What the people take, and so what is left for the shares to stretch
+       into - up to a square each, never past it. A share is at home wider
+       than it is tall; taller than it is wide only wastes the width. */
+    --people-height: calc(
+      var(--tile-rows) * var(--cell) + (var(--tile-rows) - 1) * var(--gap)
+    );
   }
 
   .grid[data-shares="1"] {
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: min(100cqw, calc(100cqh - var(--people-height) - var(--gap)));
   }
 
   .grid[data-shares="2"] {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    --share-height: min(
+      100cqw,
+      calc((100cqh - var(--people-height) - 2 * var(--gap)) / 2)
+    );
+    grid-template-rows: var(--share-height) var(--share-height);
   }
 
   .grid[data-shares="1"] .slot:has(.screen-tile),
