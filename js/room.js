@@ -3162,6 +3162,10 @@
     if (tile.volumeControl) {
       tile.volumeControl.style.display = watching ? '' : 'none';
     }
+    // Only somebody else's share gets here, so this cross stops the watching.
+    if (tile.stopShareBtn) {
+      tile.stopShareBtn.style.display = watching ? '' : 'none';
+    }
 
     broadcastWatchingState();
   }
@@ -4464,19 +4468,22 @@
         buttons.appendChild(volumeControl);
       }
 
-      if (isSelf) {
-        stopShareBtn = document.createElement('button');
-        stopShareBtn.type = 'button';
-        stopShareBtn.className = 'tile-btn tile-stop-share-btn';
-        stopShareBtn.title = 'Stop sharing screen';
-        stopShareBtn.setAttribute('aria-label', 'Stop sharing screen');
-        stopShareBtn.innerHTML = STOP_SHARE_ICON;
-        stopShareBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          stopSharing();
-        });
-        buttons.appendChild(stopShareBtn);
-      }
+      // The cross ends what the tile can end: your own share, or watching
+      // somebody else's. On theirs it is only there while there is something
+      // to stop - see setTileWatching.
+      const stopLabel = isSelf ? 'Stop sharing screen' : 'Stop watching';
+      stopShareBtn = document.createElement('button');
+      stopShareBtn.type = 'button';
+      stopShareBtn.className = 'tile-btn tile-stop-share-btn';
+      stopShareBtn.title = stopLabel;
+      stopShareBtn.setAttribute('aria-label', stopLabel);
+      stopShareBtn.innerHTML = STOP_SHARE_ICON;
+      stopShareBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (isSelf) stopSharing();
+        else setTileWatching(tileKey, false);
+      });
+      buttons.appendChild(stopShareBtn);
 
       focusBtn = document.createElement('button');
       focusBtn.type = 'button';
@@ -4502,21 +4509,26 @@
       root.appendChild(caption);
     }
 
-    // One click anywhere on the tile focuses it, and another gives the grid back (only when 2+ tiles are present).
-    // If the stream is not currently being watched, clicking anywhere on it starts watching and focuses on it.
+    /**
+     * A click anywhere on a tile focuses it, and another gives the grid back;
+     * on a share nobody is watching, it starts the watching first.
+     *
+     * Not on a phone, where the focus button in the corner is what focuses.
+     * A finger lands on a tile to scroll, to reach a control, or by accident,
+     * and every one of those was rearranging the room.
+     */
     root.addEventListener('click', () => {
       const isScreen = actualKind === 'screen' && !isSelf;
       const isWatching = state.peerWatching.get(tileKey) === true;
+      const focuses = !compact.matches && state.tiles.size > 1;
 
       if (isScreen && !isWatching) {
         setTileWatching(tileKey, true);
-        if (state.tiles.size > 1 && state.focused !== tileKey) {
-          toggleFocus(tileKey);
-        }
+        if (focuses && state.focused !== tileKey) toggleFocus(tileKey);
         return;
       }
 
-      if (state.tiles.size > 1) toggleFocus(tileKey);
+      if (focuses) toggleFocus(tileKey);
     });
 
     // A share's menu, or its person's. Read at the time: a tile is only ever
@@ -4917,9 +4929,31 @@
     // Drives the share-out rules in the stylesheet: 1 fills, 2 stack, 3 is a
     // pair over a centred tile, 4 is a 2x2, and so on.
     el.grid.dataset.count = String(Math.min(state.tiles.size, 16));
+    describePhoneGrid();
     if (state.tiles.size <= 1 && state.focused) {
       clearFocus();
     }
+  }
+
+  /**
+   * What a phone's rules need that the count alone cannot tell them.
+   *
+   * How many shares are running, because one takes the top of the stage, two
+   * split it, and past that they are tiles like anybody else - and the shape
+   * of the block of tiles that are, which is what a tile's size is worked out
+   * from. People stand one to a row on their own and two abreast beside a
+   * share; once the shares are tiles themselves, they line up with them.
+   */
+  function describePhoneGrid() {
+    let shares = 0;
+    for (const tile of state.tiles.values()) {
+      if (tile.kind === 'screen') shares += 1;
+    }
+    const columns = shares === 0 ? 1 : 2;
+    const inRows = shares >= 3 ? state.tiles.size : state.tiles.size - shares;
+    el.grid.dataset.shares = String(Math.min(shares, 3));
+    el.grid.style.setProperty('--tile-cols', String(columns));
+    el.grid.style.setProperty('--tile-rows', String(Math.max(1, Math.ceil(inRows / columns))));
   }
 
   // ------------------------------------------------ voice activity detection

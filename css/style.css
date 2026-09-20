@@ -3802,65 +3802,111 @@ body.sidebar-hidden .toasts {
     z-index: 61; /* over the sheet and its backdrop */
   }
 
-  /* Discord-style mobile grid: compact squares, 2 columns on phone, centered with tight 8px margins */
+  /* A phone is tall and narrow, so the room runs down it rather than across:
+     one person under another, each the width of the stage, filling it to the
+     edges. Beside a share the people stand two abreast instead, and the share
+     takes the width of the stage above them.
+
+     Rows are exactly as tall as the tile they hold, so there is never slack
+     between them; and since a row can be no taller than it is wide, no tile
+     is ever taller than it is wide either - most of them come out square. A
+     share is the one that stretches, taking whatever height the people leave
+     it. Its picture fills it rather than sitting letterboxed inside; focus is
+     what gives a share the shape it was captured in, further down. */
   .grid {
-    height: auto;
-    min-height: auto;
-    max-width: min(500px, 100%);
-    width: 100%;
-    margin: auto;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    display: grid;
+    /* The stage is what a tile is measured against, so it is the container
+       the sums below read. */
+    container-type: size;
+    --gap: 8px;
+    --tile-cols: 1;
+    --tile-rows: 1;
+    /* How tall the square half of the layout may be: all of the stage, or
+       what a stretched share leaves of it. */
+    --squares-height: 100cqh;
+    /* One square, as big as both the columns and the rows can afford. The
+       rows are then exactly that tall, so there is no slack between them for
+       gaps to open up in. */
+    --cell: min(
+      (100cqw - (var(--tile-cols) - 1) * var(--gap)) / var(--tile-cols),
+      (var(--squares-height) - (var(--tile-rows) - 1) * var(--gap)) / var(--tile-rows)
+    );
+    grid-template-columns: repeat(var(--tile-cols), minmax(0, 1fr));
+    grid-auto-rows: var(--cell);
     justify-content: center;
     align-content: center;
-    container-type: normal;
-  }
-
-  /* Solo square: compact, adapted size centered on screen */
-  .grid[data-count="1"] .slot {
-    width: min(280px, calc(100vw - 20px));
-    max-width: 280px;
-    height: auto;
-    margin-inline: auto;
-  }
-
-  .grid[data-count="1"] .tile {
+    gap: var(--gap);
+    height: 100%;
+    min-height: 0;
     width: 100%;
-    max-width: 280px;
-    aspect-ratio: 1 / 1;
-    border-radius: 20px;
+    max-width: none;
+    margin: 0;
+  }
+
+  .grid .slot {
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .grid .tile {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border-radius: 18px;
   }
 
   .grid[data-count="1"] .tile-user-name {
     max-width: 140px;
   }
 
-  /* Multi-squares (2, 3, 4+ users): 2-column grid filling width with 8px margins */
-  .grid[data-count]:not([data-count="1"]) {
-    --cols: 2;
+  /* One share sits above the people, two split that space between them, and
+     past two there is nothing left worth splitting - they take their place in
+     the grid as tiles like anybody else.
+
+     The height here is a ceiling on the people rather than a share-out: where
+     their columns are narrow enough the rows still come out square, and the
+     share keeps the rest. It is what stops a crowd squeezing a share out
+     altogether. */
+  .grid[data-shares="1"],
+  .grid[data-shares="2"] {
+    --squares-height: 70cqh;
   }
 
-  .grid[data-count]:not([data-count="1"]) .slot {
-    width: calc((100% - 8px) / 2);
-    max-width: none;
-    height: auto;
+  .grid[data-shares="1"] {
+    grid-template-rows: minmax(0, 1fr);
   }
 
-  .grid[data-count]:not([data-count="1"]) .tile {
+  .grid[data-shares="2"] {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .grid[data-shares="1"] .slot:has(.screen-tile),
+  .grid[data-shares="2"] .slot:has(.screen-tile) {
+    order: -1;
+    grid-column: 1 / -1;
+  }
+
+  .grid[data-shares="1"] .slot:has(.screen-tile) .tile,
+  .grid[data-shares="2"] .slot:has(.screen-tile) .tile {
     width: 100%;
-    aspect-ratio: 1 / 1;
-    border-radius: 18px;
+    height: 100%;
   }
 
-  /* Avatar proportional inside mobile square */
+  .grid:not(.has-focus) .tile.screen-tile video {
+    object-fit: cover;
+  }
+
+  /* Drawn from the shorter side of the tile, and from the same length twice.
+     A share of the width for one and a share of the height for the other
+     leaves an oval the moment a tile is wider than it is tall. */
   .tile .tile-avatar,
   .tile-avatar.avatar,
   .tile .tile-avatar.is-speaking,
   .tile-avatar.avatar.is-speaking {
-    width: clamp(56px, 46%, 88px);
-    height: clamp(56px, 46%, 88px);
-    font-size: clamp(24px, 12vw, 36px);
+    width: clamp(48px, min(46cqw, 46cqh), 88px);
+    height: clamp(48px, min(46cqw, 46cqh), 88px);
+    font-size: clamp(20px, min(20cqw, 20cqh), 36px);
   }
 
   /* Centered pill badge at bottom of user square */
@@ -3995,12 +4041,15 @@ body.sidebar-hidden .toasts {
     background: rgba(0, 0, 0, 0.85);
   }
 
-  /* Your own share's cross takes the corner a stream's volume takes on
-     someone else's; no tile carries both, so neither makes room for the
-     other. Focus has the far corner either way. */
-  .tile.screen-tile .tile-stop-share-btn,
-  .tile.screen-tile .tile-volume-control {
+  /* The cross on the left, focus on the right, and the volume - which only
+     somebody else's share carries - starting where the cross ends. */
+  .tile.screen-tile .tile-stop-share-btn {
     left: 8px;
+  }
+
+  .tile.screen-tile .tile-volume-control {
+    left: 48px;
+    max-width: calc(100% - 96px);
   }
 
   .tile.screen-tile .tile-focus-btn {
