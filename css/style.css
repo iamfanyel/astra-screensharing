@@ -1463,6 +1463,13 @@ body.sidebar-hidden .topbar-right {
   background: rgba(0, 0, 0, 0.7);
 }
 
+/* A phone's own two: the cross that ends your share and the arrows that focus
+   one. A desktop has the right-click menu instead - see the compact block. */
+.tile-stop-share-btn,
+.tile-focus-btn {
+  display: none;
+}
+
 /* Stream volume control with expanding slider */
 .tile-volume-control {
   display: flex;
@@ -3940,27 +3947,65 @@ body.sidebar-hidden .toasts {
     display: none;
   }
 
-  /* The volume control, on a screen with no pointer to hover with.
-   *
-   * Placed rather than left in the flow: on a phone .tile-actions is a
-   * full-tile overlay with pointer-events: none, which a static child would
-   * inherit, leaving the whole control dead to the touch. It sits in the top
-   * corner, and the slider stays out - a phone has no hover to fold it back
-   * open with. */
+  /* What a share's corners hold on a phone: the cross that ends your own and
+     the arrows that focus anyone's - a desktop has the right-click menu for
+     both - and the stream's volume. One dark blurred look for the three.
+
+     All three are placed rather than left in the flow: .tile-actions is a
+     full-tile overlay with pointer-events: none, which a static child would
+     inherit, leaving it in the top-left corner and dead to the touch. */
+  .tile.screen-tile .tile-stop-share-btn,
+  .tile.screen-tile .tile-focus-btn,
   .tile.screen-tile .tile-volume-control {
     position: absolute;
     top: 8px;
-    left: 8px;
     height: 32px;
-    max-width: calc(100% - 16px);
-    padding-right: 2px;
-    border-radius: 16px;
     background: rgba(0, 0, 0, 0.65);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     color: #fff;
     pointer-events: auto;
     z-index: 8;
+  }
+
+  .tile.screen-tile .tile-stop-share-btn,
+  .tile.screen-tile .tile-focus-btn {
+    width: 32px;
+    border: none;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .tile.screen-tile .tile-stop-share-btn svg,
+  .tile.screen-tile .tile-focus-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .tile.screen-tile .tile-stop-share-btn:active,
+  .tile.screen-tile .tile-focus-btn:active {
+    background: rgba(0, 0, 0, 0.85);
+  }
+
+  /* Your own share's cross takes the corner a stream's volume takes on
+     someone else's; no tile carries both, so neither makes room for the
+     other. Focus has the far corner either way. */
+  .tile.screen-tile .tile-stop-share-btn,
+  .tile.screen-tile .tile-volume-control {
+    left: 8px;
+  }
+
+  .tile.screen-tile .tile-focus-btn {
+    right: 8px;
+  }
+
+  /* A pill rather than a circle, kept clear of the focus button opposite. */
+  .tile.screen-tile .tile-volume-control {
+    max-width: calc(100% - 56px);
+    border-radius: 16px;
   }
 
   .tile.screen-tile .tile-volume-btn {
@@ -3976,12 +4021,24 @@ body.sidebar-hidden .toasts {
     height: 16px;
   }
 
+  /* The slider stays out - a phone has no hover to fold it back open with -
+     so two things the collapsing wrap needs are only in the way here. Its
+     fixed 74px width, which the pill closes around exactly on a desktop, is
+     wider than this wrap: the wrap clips to collapse, so the end of the track
+     and the handle were cut off inside the pill rather than hanging out of
+     it. And the room kept to the slider's right, swallowed as the wrap
+     closes, is just a gap before the mute button when it never closes. */
   .tile.screen-tile .tile-volume-slider-wrap {
-    max-width: 72px;
+    max-width: 96px;
     opacity: 1;
     pointer-events: auto;
     transition: none;
     padding-left: 12px;
+  }
+
+  .tile.screen-tile .tile-volume-slider {
+    width: 100%;
+    margin-right: 0;
   }
 
   /* Paused screen card on mobile */
