@@ -165,6 +165,11 @@ body {
      when there is nothing to scroll to, which reads as the page being loose.
      This leaves real scrolling alone and takes only the bounce. */
   overscroll-behavior: none;
+  /* And its tap flash paints a pale blue box over whatever a finger lands on,
+     square over round buttons and lingering long enough to read as something
+     being selected. Every control here already says it was pressed in its own
+     way. The property inherits, so this is the whole app. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
