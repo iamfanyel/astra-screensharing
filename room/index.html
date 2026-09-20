@@ -586,6 +586,37 @@
               </div>
             </div>
           </div>
+
+          <!-- Volume slider for remote peers in full profile -->
+          <div id="profile-view-volume-section" class="profile-popup-volume" hidden>
+            <div class="profile-popup-volume-header">
+              <span class="profile-popup-volume-title">User Volume</span>
+              <span id="profile-view-volume-val" class="profile-popup-volume-val">100%</span>
+            </div>
+            <div class="profile-popup-volume-row">
+              <button type="button" id="profile-view-volume-mute" class="tile-btn tile-volume-btn" title="Mute user">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              </button>
+              <input id="profile-view-volume-slider" type="range" min="0" max="100" value="100" class="tile-volume-slider" />
+            </div>
+          </div>
+
+          <!-- Actions: Kick (host) -->
+          <div id="profile-view-actions" class="profile-popup-actions profile-modal-actions" hidden>
+            <button type="button" id="profile-view-kick-btn" class="btn btn-danger btn-block profile-popup-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="8.5" cy="7" r="4"/>
+                <line x1="18" y1="8" x2="23" y2="13"/>
+                <line x1="23" y1="8" x2="18" y2="13"/>
+              </svg>
+              <span>Kick</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -992,6 +1023,7 @@
        Above the room and below the leaving overlay: a room being torn down on
        purpose should not sit behind a screen promising it is coming back. -->
   <div id="reconnecting" class="gate gate-reconnecting" hidden role="status" aria-live="polite">
+    <div class="bg-glow-sphere" aria-hidden="true"></div>
     <div class="reconnect-card">
       <img class="reconnect-mark" src="../astralogo.png" alt="" width="1920" height="1920" />
       <p class="reconnect-text">Reconnecting…</p>
@@ -1000,12 +1032,14 @@
   </div>
 
   <div id="leaving" class="gate gate-leaving" hidden aria-label="Leaving the room">
+    <div class="bg-glow-sphere" aria-hidden="true"></div>
     <div class="gate-loader">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
     </div>
   </div>
 
   <div id="closed" class="gate" hidden>
+    <div class="bg-glow-sphere" aria-hidden="true"></div>
     <div class="card">
       <h1>Room closed</h1>
       <p class="tagline" id="closed-reason">The host left.</p>
@@ -1027,6 +1061,7 @@
   <script src="../js/native-app.js"></script>
   <script src="../js/discord.js"></script>
   <script src="../js/friends.js"></script>
+  <script src="../js/invite-card.js"></script>
   <script src="../js/signal.js"></script>
   <script src="../js/native-screen.js"></script>
   <script src="../js/native-audio.js"></script>

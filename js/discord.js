@@ -54,6 +54,15 @@ window.AstraDiscord = (function () {
     } catch (_) {}
   }
 
+  function handleExpiredToken() {
+    try {
+      if (getToken()) {
+        localStorage.removeItem(DISCORD_TOKEN_KEY);
+        if (typeof refreshBoundUI === 'function') refreshBoundUI();
+      }
+    } catch (_) {}
+  }
+
   const DEV_BADGE_SVG =
     '<svg class="badge-dev-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true">' +
     '<path d="M12 2L3 6.5V12C3 17.5 6.8 22.1 12 23.5C17.2 22.1 21 17.5 21 12V6.5L12 2Z" fill="#23A55A"/>' +
@@ -174,6 +183,10 @@ window.AstraDiscord = (function () {
           Authorization: 'Bearer ' + token,
         },
       });
+      if (res.status === 401) {
+        handleExpiredToken();
+        return null;
+      }
       if (!res.ok) return null;
       const data = await res.json();
       return data && data.profile ? data.profile : null;
@@ -657,7 +670,7 @@ window.AstraDiscord = (function () {
 
     function render() {
       const user = getUser();
-      const connected = !!(user && user.username);
+      const connected = !!(user && user.username && getToken());
       if (connectBtn) connectBtn.hidden = connected;
       if (badge) badge.hidden = !connected;
       if (connected && usernameEl) usernameEl.textContent = '@' + user.username;
@@ -752,6 +765,7 @@ window.AstraDiscord = (function () {
     getUser: getUser,
     getToken: getToken,
     disconnect: disconnect,
+    handleExpiredToken: handleExpiredToken,
     login: login,
     handleCallback: handleCallback,
     bindUI: bindUI,

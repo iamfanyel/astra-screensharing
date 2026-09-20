@@ -93,7 +93,10 @@ async function verifyDiscordToken(request) {
 
   try {
     const res = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: 'Bearer ' + token },
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
+      },
     });
     if (!res.ok) {
       verifiedTokens.delete(token);
@@ -111,7 +114,7 @@ async function verifyDiscordToken(request) {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
 };
 

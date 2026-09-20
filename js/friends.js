@@ -41,6 +41,12 @@ window.AstraFriends = (function () {
         options.body = JSON.stringify(body);
       }
       const res = await fetch(path, options);
+      if (res.status === 401) {
+        if (window.AstraDiscord && typeof window.AstraDiscord.handleExpiredToken === 'function') {
+          window.AstraDiscord.handleExpiredToken();
+        }
+        return null;
+      }
       // A refusal still says why ("That is your own link."), so read it; only
       // a body that is not JSON - a proxy's error page - counts as no answer.
       const answer = await res.json().catch(() => null);

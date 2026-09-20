@@ -175,7 +175,7 @@ function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   });
   res.end(JSON.stringify(data));
@@ -185,7 +185,7 @@ function handleApiRoom(req, res, url) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
@@ -305,7 +305,7 @@ function handleApiRoom(req, res, url) {
 
 async function handleApiProfile(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -323,7 +323,10 @@ async function handleApiProfile(req, res) {
   let user = null;
   try {
     const discordRes = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: 'Bearer ' + token },
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
+      },
     });
     if (discordRes.ok) user = await discordRes.json();
   } catch (_) {}
@@ -453,7 +456,10 @@ async function discordUser(req) {
   if (!auth.startsWith('Bearer ')) return null;
   try {
     const answer = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: auth },
+      headers: {
+        Authorization: auth,
+        'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
+      },
     });
     if (!answer.ok) return null;
     const user = await answer.json();
@@ -480,7 +486,7 @@ function readJsonBody(req) {
 function devCors(res) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
   });
   res.end();

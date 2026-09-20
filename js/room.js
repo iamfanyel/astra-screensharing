@@ -220,6 +220,12 @@
     profileViewBadges: $('profile-view-badges'),
     profileViewDiscord: $('profile-view-discord'),
     profileViewDiscordUser: $('profile-view-discord-user'),
+    profileViewVolumeSection: $('profile-view-volume-section'),
+    profileViewVolumeVal: $('profile-view-volume-val'),
+    profileViewVolumeMute: $('profile-view-volume-mute'),
+    profileViewVolumeSlider: $('profile-view-volume-slider'),
+    profileViewActions: $('profile-view-actions'),
+    profileViewKickBtn: $('profile-view-kick-btn'),
     profileModal: $('profile-modal'),
     profileModalBackdrop: $('profile-modal-backdrop'),
     profileModalClose: $('profile-modal-close'),
@@ -885,7 +891,7 @@
 
     function showInviteCard() {
       if (el.profileCard) el.profileCard.hidden = true;
-      openInvitePanel();
+      inviteCard.open();
       if (el.profileInviteClose) el.profileInviteClose.focus();
     }
 
@@ -897,7 +903,7 @@
       renderModalPreview();
       showProfileCard();
       if (el.profileViewCard) {
-        el.profileViewCard.hidden = !canShowInvitePanel();
+        el.profileViewCard.hidden = !inviteCard.canShow();
       }
       el.profileModal.hidden = false;
       document.addEventListener('keydown', handleModalKey);
@@ -913,7 +919,7 @@
     function closeModal() {
       el.profileModal.hidden = true;
       showProfileCard();
-      closeInvitePanel();
+      inviteCard.close();
       document.removeEventListener('keydown', handleModalKey);
     }
 
@@ -6260,6 +6266,24 @@
   // time someone starts or stops talking - do not redraw it for nothing.
   let viewedKey = '';
 
+  function updateFullProfileVolumeUI(peerId) {
+    if (!el.profileViewVolumeSlider || !el.profileViewVolumeVal || !el.profileViewVolumeMute) return;
+    const vol = getPeerVolume(peerId);
+    const displayVol = vol.muted ? 0 : Math.round(vol.volume * 100);
+    el.profileViewVolumeSlider.value = String(displayVol);
+    el.profileViewVolumeVal.textContent = displayVol + '%';
+    if (vol.muted) {
+      el.profileViewVolumeMute.innerHTML = VOLUME_MUTED_ICON;
+      el.profileViewVolumeMute.title = 'Unmute user';
+    } else if (displayVol < 50) {
+      el.profileViewVolumeMute.innerHTML = VOLUME_LOW_ICON;
+      el.profileViewVolumeMute.title = 'Mute user';
+    } else {
+      el.profileViewVolumeMute.innerHTML = VOLUME_HIGH_ICON;
+      el.profileViewVolumeMute.title = 'Mute user';
+    }
+  }
+
   function renderFullProfile(peerId) {
     const who = profileDetails(peerId);
     if (!who) {
@@ -6278,9 +6302,27 @@
     fillStatusBadges(el.profileViewBadges, who);
     el.profileViewDiscordUser.textContent = who.discord;
     el.profileViewDiscord.hidden = !who.discord;
+
+    if (!who.isSelf && el.profileViewVolumeSection) {
+      el.profileViewVolumeSection.hidden = false;
+      updateFullProfileVolumeUI(peerId);
+    } else if (el.profileViewVolumeSection) {
+      el.profileViewVolumeSection.hidden = true;
+    }
+
+    const canKick = !who.isSelf && !!state.signal?.self?.host;
+    if (el.profileViewActions) el.profileViewActions.hidden = !canKick;
+    if (el.profileViewKickBtn) el.profileViewKickBtn.hidden = !canKick;
   }
 
   function openFullProfile(peerId) {
+    const isMobile = window.matchMedia('(max-width: 860px)').matches;
+    const who = profileDetails(peerId);
+    if (isMobile && who && who.isSelf) {
+      closeProfilePopup();
+      openProfileModal();
+      return;
+    }
     closeProfilePopup();
     viewedPeerId = peerId;
     renderFullProfile(peerId);
@@ -6302,6 +6344,36 @@
     });
   }
 
+  if (el.profileViewVolumeSlider) {
+    el.profileViewVolumeSlider.addEventListener('input', (e) => {
+      e.stopPropagation();
+      if (!viewedPeerId) return;
+      const val = parseFloat(el.profileViewVolumeSlider.value) / 100;
+      setPeerVolume(viewedPeerId, val, val === 0);
+      updateFullProfileVolumeUI(viewedPeerId);
+    });
+  }
+  if (el.profileViewVolumeMute) {
+    el.profileViewVolumeMute.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!viewedPeerId) return;
+      const vol = getPeerVolume(viewedPeerId);
+      setPeerVolume(viewedPeerId, undefined, !vol.muted);
+      updateFullProfileVolumeUI(viewedPeerId);
+    });
+  }
+  if (el.profileViewKickBtn) {
+    el.profileViewKickBtn.addEventListener('click', () => {
+      if (!viewedPeerId) return;
+      const peer = state.signal?.roster?.get(viewedPeerId);
+      const name = peer ? peer.name : 'this user';
+      if (confirm('Kick ' + name + ' from the room?')) {
+        state.signal.kick(viewedPeerId);
+        closeFullProfile();
+      }
+    });
+  }
+
   el.profileViewClose.addEventListener('click', closeFullProfile);
   el.profileViewBackdrop.addEventListener('click', closeFullProfile);
   document.addEventListener('keydown', (event) => {
@@ -6315,200 +6387,17 @@
    * is about somebody who is not here yet. And only when signed in, because
    * the link names a Discord id and a guest has none to name.
    *
-   * The link is the same every time - one code per person - so it is asked
-   * for once and kept.
+   * The lobby raises the same card from its own editor, so the drawing of it
+   * lives in js/invite-card.js rather than in both.
    */
-  let invitePanelLink = null;
-  let invitePanelAvatar = null;
-  let invitePanelPending = false;
-
-  function canShowInvitePanel() {
-    if (!el.profileInvite || !window.AstraFriends) return false;
-    return window.AstraFriends.available();
-  }
-
-  /**
-   * Draw the code.
-   *
-   * High error correction ('H') allows embedding the user's avatar in the center
-   * without affecting readability for cameras.
-   */
-  function drawInviteCode(link) {
-    const box = el.profileInviteCode;
-    if (!box) return;
-    box.textContent = '';
-    box.classList.remove('is-empty');
-
-    if (typeof qrcode !== 'function') {
-      box.classList.add('is-empty');
-      box.textContent = 'Code unavailable - copy the link instead.';
-      return;
-    }
-
-    let grid;
-    try {
-      grid = qrcode(0, 'H');
-      grid.addData(link);
-      grid.make();
-    } catch (_) {
-      box.classList.add('is-empty');
-      box.textContent = 'Code unavailable - copy the link instead.';
-      return;
-    }
-
-    const modules = grid.getModuleCount();
-    const scale = Math.max(3, Math.floor((220 * (window.devicePixelRatio || 1)) / modules));
-    const canvas = document.createElement('canvas');
-    canvas.width = modules * scale;
-    canvas.height = modules * scale;
-    const ink = canvas.getContext('2d');
-    ink.fillStyle = '#ffffff';
-    ink.fillRect(0, 0, canvas.width, canvas.height);
-    ink.fillStyle = '#000000';
-    for (let row = 0; row < modules; row++) {
-      for (let col = 0; col < modules; col++) {
-        if (grid.isDark(row, col)) ink.fillRect(col * scale, row * scale, scale, scale);
-      }
-    }
-
-    // Embed profile avatar in center (sized prominently)
-    const centerSize = Math.floor(canvas.width * 0.42);
-    const cx = Math.floor(canvas.width / 2);
-    const cy = Math.floor(canvas.height / 2);
-    const half = Math.floor(centerSize / 2);
-
-    function drawCenterAvatar(img) {
-      const pad = Math.max(3, Math.floor(scale * 0.65));
-      ink.save();
-      // White protective border circle
-      ink.beginPath();
-      ink.arc(cx, cy, half + pad, 0, Math.PI * 2);
-      ink.fillStyle = '#ffffff';
-      ink.fill();
-
-      // Clip circle for avatar
-      ink.beginPath();
-      ink.arc(cx, cy, half, 0, Math.PI * 2);
-      ink.clip();
-
-      if (img) {
-        ink.drawImage(img, cx - half, cy - half, centerSize, centerSize);
-        ink.restore();
-        return;
-      }
-      const name = (AstraProfile.getName() || 'Guest').trim();
-      AstraProfile.drawMark(ink, name, cx, cy, half).then(() => ink.restore());
-    }
-
-    const avatarUrl = modalAvatar || AstraProfile.getAvatar();
-    if (avatarUrl && AstraProfile.isAvatar(avatarUrl)) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => drawCenterAvatar(img);
-      img.onerror = () => drawCenterAvatar(null);
-      img.src = avatarUrl;
-    } else {
-      drawCenterAvatar(null);
-    }
-
-    box.append(canvas);
-  }
-
-  async function openInvitePanel() {
-    const panel = el.profileInvite;
-    if (!panel) return;
-
-    if (!canShowInvitePanel()) {
-      panel.hidden = true;
-      return;
-    }
-
-    panel.hidden = false;
-    if (el.profileInviteBanner) {
-      let banner = modalBanner || AstraProfile.getBanner();
-      if (window.AstraDiscord && typeof window.AstraDiscord.getUser === 'function') {
-        const dUser = window.AstraDiscord.getUser();
-        if (dUser && dUser.bannerCdnUrl && (!modalBanner || modalBanner === AstraProfile.getBanner())) {
-          banner = dUser.bannerCdnUrl.replace('size=600', 'size=1024');
-        }
-      }
-      if (banner && (AstraProfile.isBanner(banner) || banner.startsWith('http'))) {
-        el.profileInviteBanner.style.backgroundImage = 'url("' + banner.replace(/"/g, '%22') + '")';
-      } else {
-        el.profileInviteBanner.style.backgroundImage = 'url("../astrabanner.png")';
-      }
-    }
-
-    // If we already loaded the link and code before, keep it without re-showing loader
-    if (invitePanelLink && el.profileInviteCode && el.profileInviteCode.querySelector('canvas')) {
-      const currentAvatar = modalAvatar || AstraProfile.getAvatar();
-      if (invitePanelAvatar !== currentAvatar) {
-        invitePanelAvatar = currentAvatar;
-        drawInviteCode(invitePanelLink);
-      }
-      return;
-    }
-
-    // First time loading: show small loading spinner only in the QR code area
-    if (el.profileInviteCode && !el.profileInviteCode.querySelector('canvas')) {
-      el.profileInviteCode.classList.remove('is-empty');
-      el.profileInviteCode.innerHTML = '<div class="profile-invite-spinner" aria-label="Loading"></div>';
-    }
-
-    if (invitePanelPending) return;
-    invitePanelPending = true;
-    const link = await window.AstraFriends.inviteLink();
-    invitePanelPending = false;
-
-    // Closed again while we were waiting: nothing to draw into.
-    if (panel.hidden) return;
-
-    if (!link) {
-      invitePanelLink = null;
-      if (el.profileInviteCode) {
-        el.profileInviteCode.classList.add('is-empty');
-        el.profileInviteCode.textContent = 'Could not create link. Try again.';
-      }
-      return;
-    }
-
-    invitePanelLink = link;
-    invitePanelAvatar = modalAvatar || AstraProfile.getAvatar();
-    drawInviteCode(link);
-  }
-
-  /** Put it away with the editor. The link stays the same for next time. */
-  function closeInvitePanel() {
-    if (el.profileInvite) el.profileInvite.hidden = true;
-  }
-
-  if (el.profileInviteCopy) {
-    // The button's own icon, put back after the tick has had its moment.
-    const copyIcon = el.profileInviteCopy.innerHTML;
-    const copiedIcon =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" ' +
-      'stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>';
-    let copiedTimer = null;
-
-    el.profileInviteCopy.addEventListener('click', async () => {
-      if (!invitePanelLink) return;
-      try {
-        await navigator.clipboard.writeText(invitePanelLink);
-      } catch (_) {
-        toast('Couldn’t copy the link', 'bad');
-        return;
-      }
-      el.profileInviteCopy.classList.add('is-copied');
-      el.profileInviteCopy.setAttribute('title', 'Copied!');
-      el.profileInviteCopy.innerHTML = copiedIcon;
-      clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => {
-        el.profileInviteCopy.classList.remove('is-copied');
-        el.profileInviteCopy.setAttribute('title', 'Copy link');
-        el.profileInviteCopy.innerHTML = copyIcon;
-      }, 1500);
-    });
-  }
+  const inviteCard = window.AstraInviteCard.mount({
+    panel: el.profileInvite,
+    banner: el.profileInviteBanner,
+    code: el.profileInviteCode,
+    copy: el.profileInviteCopy,
+    art: '../astrabanner.png',
+    subject: () => ({ avatar: modalAvatar, banner: modalBanner }),
+  });
 
   function positionProfilePopup(anchorEl) {
     if (!el.profilePopupCard || !anchorEl) return;
@@ -6537,7 +6426,19 @@
   }
 
   function openProfilePopup(peerId, anchorEl) {
-    if (!el.profilePopup || !anchorEl) return;
+    if (!anchorEl) return;
+    const isMobile = window.matchMedia('(max-width: 860px)').matches;
+    if (isMobile) {
+      if (typeof closeProfilePopup === 'function') closeProfilePopup();
+      const who = profileDetails(peerId);
+      if (who && who.isSelf) {
+        openProfileModal();
+      } else {
+        openFullProfile(peerId);
+      }
+      return;
+    }
+    if (!el.profilePopup) return;
     if (activePopupPeerId === peerId && !el.profilePopup.hidden) {
       closeProfilePopup();
       return;

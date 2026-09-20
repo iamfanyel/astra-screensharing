@@ -384,11 +384,18 @@ select:focus {
 
 body.lobby {
   display: grid;
-  grid-template-rows: 1fr auto;
-  place-items: center;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* How much of the right-hand edge the friends bar is taking: its full width
+     while it is open, the width of the button that opens it while it is not,
+     and none of it for a guest, who has no list to show. */
+  /* And how much of the bottom the phone's own bar is taking, which is none
+     of it anywhere else. */
+  --tabbar-h: 78px;
   /* The app draws under the status bar and the gesture bar, so the padding has
      to clear them; in a browser both insets are zero and this is just 24px. */
-  padding: calc(24px + var(--sat)) 24px calc(24px + var(--sab));
+  padding: calc(24px + var(--sat)) 24px calc(24px + var(--sab)) 24px;
   /* Helvetica World is a licensed face; the stack falls back to the nearest
      grotesques when it is not installed. */
   font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -409,7 +416,12 @@ body.lobby {
   }
 }
 
-/* Background glowing light sphere - minimalist & clean */
+/* Background glowing light sphere - minimalist & clean.
+
+   Sized off whichever of the two the screen has more of: on a desktop that is
+   the width, as it always was, and on a phone it is the height, which is what
+   keeps the glow running off the bottom of the screen instead of ending in an
+   edge part way down it. */
 .bg-glow-sphere {
   position: fixed;
   top: calc(-1 * min(1280px, 120vw) + 52vh);
@@ -437,20 +449,673 @@ body.lobby {
 
 body.lobby .code-input::placeholder {
   letter-spacing: 0.12em;
+  text-align: center;
 }
 
-/* The hero: logo and wordmark side by side, centred, tagline underneath. */
+/* The hero: logo and wordmark side by side, centred, headline underneath. */
 body.lobby .brand {
+  display: flex;
   flex-direction: row;
   justify-content: center;
+  align-items: center;
   gap: 12px;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
 body.lobby .brand h1 {
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 600;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  transform: translateY(-6px);
+}
+
+/* ------------------------------------------------------------- the lobby
+
+   Bands down the page - a bar, the room, the ground it stands on - with the
+   hero held in the middle of the page and your profile off to one side,
+   where it is at hand without standing between anybody and the two things
+   they came here to do. */
+
+.lobby-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 4px 0;
+}
+
+.lobby-bar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.lobby-bar-brand span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  transform: translateY(-3px);
+}
+
+.lobby-bar-brand .brand-mark {
+  width: 26px;
+  height: 26px;
+  display: block;
+  object-fit: contain;
+}
+
+.lobby-bar-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Light or dark as a pair rather than a cycle: two buttons, and the one you
+   are already in is the one lit. The rest of the themes are in settings. */
+
+.icon-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+}
+
+.icon-btn.is-on {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+body.lobby .get-desktop {
+  margin-top: 14px;
+  height: 44px;
+  padding: 0 16px;
+  gap: 10px;
+  border-radius: var(--radius, 14px);
+  background: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.08);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+body.lobby .get-desktop:hover {
+  background: rgb(var(--ink) / 0.07);
+  border-color: rgb(var(--ink) / 0.14);
+}
+
+body.lobby .get-desktop:active {
+  transform: translateY(1px);
+}
+
+body.lobby .get-desktop svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--muted);
+}
+
+.bar-profile {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 0;
+  transition: box-shadow 0.15s ease;
+}
+
+.bar-profile .avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+
+.bar-profile:hover {
+  box-shadow: 0 0 0 3px rgb(var(--ink) / 0.14);
+}
+
+/* The hero takes the middle of whatever the bar has left of the page. */
+.lobby-main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px 0;
+}
+
+.lobby-stage {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  position: relative;
+  max-width: 100%;
+  background: var(--panel);
+  border-radius: 18px;
+  box-shadow: none;
+  border: 0;
+  overflow: hidden;
+}
+
+.lobby-hero {
+  position: relative;
+  z-index: 1;
+  width: min(480px, calc(100vw - 48px));
+  text-align: center;
+  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 38px 32px 30px !important;
+  box-sizing: border-box;
+}
+
+
+body.lobby .tagline {
+  text-align: center;
+  margin: 0 0 26px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.btn-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 54px;
+  border-radius: 14px;
+  font-size: 15.5px;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.btn-hero svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The code and the way in as one pill: the button belongs to the field
+   rather than standing beside it. */
+.join-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 7.84%));
+  border: 1px solid rgb(var(--ink) / 0.05);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.join-row:focus-within {
+  border-color: rgb(var(--ink) / 0.18);
+  box-shadow: 0 0 0 2px rgb(var(--ink) / 0.08);
+}
+
+.join-row .code-input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  border: 0;
+  background: none;
+  text-align: center;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.join-row .code-input::placeholder {
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+
+.join-row .code-input:focus {
+  outline: none;
+}
+
+.join-go {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  text-transform: none;
+  font-size: 14px;
+}
+
+.join-go svg {
+  width: 16px;
+  height: 16px;
+}
+
+body.lobby .error {
+  margin-top: 14px;
+  text-align: center;
+}
+
+/* The friends sidebar: attached directly to the right of the center card. */
+.friends-rail {
+  position: relative;
+  z-index: 2;
+  width: 270px;
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 9.5%));
+  border-left: 1px solid rgb(var(--ink) / 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Before any of this is known, the head script has already said whether
+   there is a friends list at all - so a guest never sees the bar appear and
+   leave again. See index.html. */
+:root:not(.has-friends) .friends-rail {
+  display: none;
+}
+
+.friends-rail:has(#friends[hidden]),
+.friends-rail[hidden] {
+  display: none !important;
+}
+
+.friends-rail .friends {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 20px 14px 16px;
+  border: 0;
+  background: transparent;
+  box-sizing: border-box;
+  height: 100%;
+  transition: padding 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.friends-rail .friends-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 10px;
+  padding: 0 2px;
+}
+
+.friends-rail .friends-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.friends-rail .friend-avatar.is-online::after,
+.friends-rail .friend-avatar.is-in-room::after {
+  border-color: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 9.5%));
+}
+
+/* How many of them are around, on the title's own line. Empty when there is
+   nobody on the list, and then it takes no room and draws no separator. */
+.friends-count {
+  font-weight: 500;
+  color: rgb(var(--ink) / 0.45);
+}
+
+.friends-count:not(:empty)::before {
+  content: "·";
+  margin: 0 6px;
+}
+
+/* However long the list, the bar itself stays where it is. */
+.friends-rail .friends-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.friends-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex: none;
+}
+
+.friends-toggle svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* Folded, the bar is a column of faces 64px wide. Only here: narrower than
+   this and the list is a tab of its own, with nothing to fold. */
+@media (min-width: 981px) {
+  :root[data-friends="closed"] .friends-rail {
+    width: 64px;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends {
+    padding: 16px 0;
+    align-items: center;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends-head {
+    justify-content: center;
+    margin: 0 0 10px;
+    padding: 0;
+    width: 100%;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends-title {
+    display: none;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends-toggle {
+    margin: 0 auto;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends-list {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Folded, the row is only the face in it, so it is shaped like one: a circle
+     just wide enough to ring the avatar, rather than a band across the rail. */
+  :root[data-friends="closed"] .friends-rail .friend {
+    width: 44px;
+    padding: 2px;
+    justify-content: center;
+    border-radius: 50%;
+    gap: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friend:hover {
+    background: rgb(var(--ink) / 0.08);
+  }
+
+  :root[data-friends="closed"] .friends-rail .friend > :not(.friend-avatar) {
+    display: none;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friend-avatar {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto;
+    flex: none;
+    border-radius: 50%;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friend-avatar img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  /* On a bigger face the dot sits on the edge rather than off it. */
+  :root[data-friends="closed"] .friends-rail .friend-avatar.is-online::after,
+  :root[data-friends="closed"] .friends-rail .friend-avatar.is-in-room::after {
+    right: 0;
+    bottom: 0;
+  }
+
+  :root[data-friends="closed"] .friends-rail .friends-empty {
+    display: none;
+  }
+}
+
+/* On mobile views, use tabs at the bottom to switch between Home and Friends */
+@media (max-width: 980px) {
+  body.lobby {
+    padding-bottom: calc(18px + var(--sab) + var(--tabbar-h));
+  }
+
+  body.lobby .mobile-tabs {
+    display: flex;
+  }
+
+  .bg-glow-sphere,
+  .empty .bg-glow-sphere {
+    --glow-size: min(960px, 110vh);
+    top: calc(-1 * var(--glow-size) + 46vh);
+    width: var(--glow-size);
+    height: var(--glow-size);
+    border-radius: 50%;
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.06) 36%,
+      rgba(255, 255, 255, 0.018) 65%,
+      transparent 88%
+    );
+    box-shadow: 0 0 80px 20px rgba(255, 255, 255, 0.025);
+  }
+
+  .lobby-stage {
+    flex-direction: column;
+    width: 100%;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .lobby-hero {
+    width: min(480px, calc(100vw - 32px));
+    margin: 0 auto;
+    border-radius: 18px;
+    box-shadow: none;
+    border: 0;
+  }
+
+  body.lobby[data-tab="friends"] .lobby-main {
+    place-items: start center;
+    padding-top: 16px;
+  }
+
+  /* Not a bar down the side but the whole of its own tab: the page's width,
+     on the page's own background, with nothing to fold it into. */
+  .friends-rail {
+    position: static;
+    width: min(480px, calc(100vw - 32px));
+    margin: 0 auto;
+    background: transparent;
+    border: 0;
+    overflow: visible;
+    display: none;
+  }
+
+  .friends-rail .friends {
+    width: 100%;
+    padding: 0;
+  }
+
+  .friends-rail .friends-head {
+    padding: 0;
+  }
+
+  /* Rows keep the size they have in the bar - a tab is the place with the
+     most room for a face, not the least - so only the ring that cuts the
+     status dot out of what is behind it changes: the page here, rather than
+     the bar's own surface. */
+  .friends-rail .friend-avatar.is-online::after,
+  .friends-rail .friend-avatar.is-in-room::after {
+    border-color: var(--bg);
+  }
+
+  /* An empty tab is a page with nothing on it, not a line in a list. */
+  .friends-rail .friends-empty {
+    text-align: center;
+    padding: 32px 16px;
+  }
+
+  .friends-toggle {
+    display: none;
+  }
+
+  /* The tab at the bottom of the screen already says Friends, so the line
+     above the list says the thing the tab cannot. */
+  .friends-word {
+    display: none;
+  }
+
+  .friends-count:not(:empty)::before {
+    content: none;
+  }
+
+  body.lobby[data-tab="friends"] .lobby-hero {
+    display: none;
+  }
+
+  body.lobby[data-tab="friends"] .friends-rail {
+    display: flex;
+  }
+}
+
+/* The two views, in the floating control the room carries at its own bottom
+   edge: a blurred capsule standing clear of the screen's edge rather than a
+   strip ruled off against it, so the lobby and the room are plainly the same
+   app. See .dock, which these numbers follow. */
+.mobile-tabs {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + var(--sab));
+  transform: translateX(-50%);
+  z-index: 4;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 14px;
+  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 11.76%) / 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Same two guards as the bar: what the head script already knew, and what
+   the page learns once js/friends.js has answered. */
+:root:not(.has-friends) .mobile-tabs,
+body.lobby:has(#friends[hidden]) .mobile-tabs {
+  display: none;
+}
+
+/* The name beside the picture rather than under it: two words on one line
+   read at a glance and keep the capsule shallow. */
+.mobile-tab {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  /* The same box whichever word is in it, so the lit one is not a different
+     size from the one beside it. */
+  min-width: 106px;
+  padding: 0 16px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mobile-tab svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  /* Drawn a touch heavier than the page's own icons: at this size the thin
+     stroke went to nothing against the capsule. */
+  stroke-width: 2.1;
+}
+
+.mobile-tab.is-on {
+  color: var(--text);
+  background: rgb(var(--ink) / 0.1);
+}
+
+/* A phone: the bar keeps the mark, the theme and your picture, and the
+   installer - which is for a desktop anyway - keeps only its icon. */
+@media (max-width: 620px) {
+  body.lobby {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+
+
+  body.lobby .brand h1 {
+    font-size: 32px;
+  }
+
+  .logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .lobby-headline {
+    font-size: 25px;
+  }
+
+}
+
+/* The profile, as a window over the page rather than a panel inside it. */
+.editor-card {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  width: min(420px, 100%);
+  padding: 22px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
 .logo {
@@ -460,12 +1125,7 @@ body.lobby .brand h1 {
   object-fit: contain;
 }
 
-body.lobby .tagline {
-  text-align: center;
-  margin-bottom: 22px;
-}
-
-.card {
+.card:not(.lobby-hero) {
   position: relative;
   z-index: 1;
   width: min(440px, 100%);
@@ -835,9 +1495,9 @@ body.sidebar-hidden .topbar-right {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -897,15 +1557,15 @@ body.sidebar-hidden .topbar-right {
 
 .friend-avatar {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   flex: none;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--bg-soft);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -923,8 +1583,8 @@ body.sidebar-hidden .topbar-right {
   position: absolute;
   right: -1px;
   bottom: -1px;
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid var(--panel);
   background: var(--speaking);
@@ -947,7 +1607,7 @@ body.sidebar-hidden .topbar-right {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -955,7 +1615,7 @@ body.sidebar-hidden .topbar-right {
 }
 
 .friend-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1915,7 +2575,7 @@ input.theme-hue::-moz-range-track {
 
 .empty .bg-glow-sphere {
   position: absolute;
-  top: calc(-1 * min(1280px, 120vw) + 50%);
+  top: calc(-1 * var(--glow-size) + 50%);
   left: 50%;
   transform: translateX(-50%);
 }
@@ -5669,7 +6329,8 @@ button.tag-invite:disabled:hover {
   width: min(380px, 100%);
   background: var(--panel);
   border-radius: 16px;
-  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: none;
+  border: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -5880,7 +6541,8 @@ button.tag-invite:disabled:hover {
   width: 290px;
   background: var(--panel);
   border-radius: 16px;
-  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: none;
+  border: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -5889,18 +6551,136 @@ button.tag-invite:disabled:hover {
 }
 
 @media (max-width: 860px) {
-  .profile-popup {
-    z-index: 75;
-  }
-
+  .profile-popup,
   .profile-popup-backdrop {
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    display: none !important;
   }
 
   .profile-modal {
+    position: fixed;
+    inset: 0;
     z-index: 80;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: stretch;
+    overflow: hidden;
+  }
+
+  .profile-modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  /* The main profile editor/view fills the mobile screen completely */
+  .profile-card:not(.profile-invite) {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    flex: 1;
+    animation: profileModalMobileIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .profile-banner-container {
+    height: calc(140px + var(--sat, 0px));
+    padding-top: var(--sat, 0px);
+    flex-shrink: 0;
+    box-sizing: border-box;
+  }
+
+  .profile-close-btn {
+    top: calc(12px + var(--sat, 0px));
+    right: calc(12px + var(--sar, 0px));
+    width: 32px;
+    height: 32px;
+  }
+
+  .profile-close-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .profile-header-content {
+    flex-shrink: 0;
+  }
+
+  .profile-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 20px calc(24px + var(--sab, 0px));
+    box-sizing: border-box;
+  }
+
+  /* The apply button is pushed down to the bottom */
+  .profile-modal-actions {
+    margin-top: auto;
+    padding-top: 20px;
+    width: 100%;
+  }
+
+  .profile-modal-actions .btn {
+    height: 50px;
+    font-size: 15.5px;
+    font-weight: 600;
+    border-radius: var(--radius, 14px);
+  }
+
+  /* Only the "View card" QR card should NOT fill: it stays a floating card */
+  .profile-invite {
+    width: min(340px, calc(100vw - 32px)) !important;
+    max-width: 340px !important;
+    height: auto !important;
+    min-height: 395px !important;
+    max-height: calc(100dvh - 32px) !important;
+    border-radius: 20px !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    margin: auto !important;
+    flex: none !important;
+    animation: inviteCardZoomIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .profile-invite-header {
+    padding-top: 14px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .profile-invite-body {
+    padding-bottom: 24px;
+    justify-content: center;
+  }
+}
+
+@keyframes profileModalMobileIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -6444,7 +7224,8 @@ body.invite {
   border-radius: 20px;
   overflow: hidden;
   background: var(--panel);
-  box-shadow: var(--shadow), 0 0 0 1px rgb(var(--ink) / 0.08);
+  box-shadow: none;
+  border: 0;
   display: flex;
   flex-direction: column;
   animation: inviteCardZoomIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
