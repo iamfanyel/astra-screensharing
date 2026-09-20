@@ -46,6 +46,23 @@
     }
   }
 
+  /**
+   * How you left the microphone and your ears last time, remembered across
+   * visits: somebody who leaves a room talking expects to come back able to
+   * talk, and somebody who leaves muted expects to stay that way rather than
+   * open a live microphone by walking through a door.
+   */
+  const VOICE_KEY = 'astra:voice';
+
+  function rememberedVoice() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(VOICE_KEY) || 'null');
+      return { mic: !!(saved && saved.mic), deafened: !!(saved && saved.deafened) };
+    } catch (_) {
+      return { mic: false, deafened: false };
+    }
+  }
+
   let leaving = false;
   let tornDown = false;
   const { AudioMixer, captureScreen, retuneScreen, captureCamera, captureMicrophone, stopStream, QUALITY } =
@@ -1245,6 +1262,21 @@
     updateEmptyState();
     applyLayout();
     syncPanels();
+    restoreVoice();
+  }
+
+  /**
+   * The microphone and the ears, as they were left last time.
+   *
+   * Deafened wins on its own: it closes the microphone anyway, so there is no
+   * sense opening one first. The microphone is asked for rather than assumed
+   * - the permission may have been withdrawn since - and toggleMic says so
+   * itself if the answer is no.
+   */
+  function restoreVoice() {
+    const was = rememberedVoice();
+    if (was.deafened) setDeafened(true);
+    else if (was.mic) toggleMic();
   }
 
   // --------------------------------------------------------------- sharing
@@ -2686,6 +2718,19 @@
         : 'Couldn’t turn on your microphone', 'bad');
     } finally {
       el.mic.disabled = false;
+      rememberVoice();
+    }
+  }
+
+  /** Keep the store in step with wherever the two of them have ended up. */
+  function rememberVoice() {
+    try {
+      localStorage.setItem(VOICE_KEY, JSON.stringify({
+        mic: !!state.micOn,
+        deafened: !!state.deafened,
+      }));
+    } catch (_) {
+      // Not remembered, but honoured for this visit.
     }
   }
 
@@ -2848,6 +2893,7 @@
     if (state.signal) {
       state.signal.setState(patch);
     }
+    rememberVoice();
     renderPeople();
   }
 
