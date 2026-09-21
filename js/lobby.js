@@ -87,6 +87,7 @@
     const name = nameInput.value.trim() || AstraProfile.getName() || 'Guest';
     AstraProfile.paint(barAvatar, name, AstraProfile.getAvatar());
   }
+  paintProfile();
 
   // ── Profile modal ──────────────────────────────────────────────────────
 
@@ -457,52 +458,19 @@
     return row;
   }
 
+  const FRIENDS_CACHE_KEY = 'astra:friends-cache';
   /** The list as last fetched, so a poll that finds nothing new can skip it. */
   let shownFriends = null;
+  try {
+    const cached = localStorage.getItem(FRIENDS_CACHE_KEY);
+    if (cached) shownFriends = JSON.parse(cached);
+  } catch (_) {}
   /** Who was around at the last answer, kept through a poll that gets none. */
   let shownPeople = {};
 
-  /**
-   * Draw the panel.
-   *
-   * Every call asks who is around, which is small. The list itself - every
-   * friend's picture and banner - is fetched again only when the presence
-   * answer's version says it changed, or `refresh` says we just changed it.
-   */
-  async function renderFriends(refresh) {
-    if (!friendsSection || !window.AstraFriends) return;
-    if (!window.AstraFriends.available()) {
-      friendsSection.hidden = true;
-      friendsCount.textContent = '';
-      shownFriends = null;
-      shownPeople = {};
-      return;
-    }
-    friendsSection.hidden = false;
-    if (refresh) shownFriends = null;
-
-    let presence;
-    let data = shownFriends;
-    if (!data) {
-      // Nothing to fall back on yet: ask for both at once.
-      [data, presence] = await Promise.all([
-        window.AstraFriends.state(),
-        window.AstraFriends.presence(),
-      ]);
-    } else {
-      presence = await window.AstraFriends.presence();
-      if (presence && presence.version !== data.version) {
-        data = (await window.AstraFriends.state()) || data;
-      }
-    }
-
-    // No answer at all: leave whatever is on screen rather than wipe it.
-    if (!data) return;
-    shownFriends = data;
-
-    if (presence) shownPeople = presence.people;
+  function drawFriendsList(data, people) {
+    if (!friendsList || !data) return;
     const { friends, invites } = data;
-    const people = shownPeople;
     friendsList.textContent = '';
 
     /** Join and dismiss, for a room somebody has handed you. */
@@ -543,9 +511,9 @@
 
     // One row per person: an invitation from a friend goes on that friend's
     // own row rather than a second one above it.
-    const friendIds = new Set(friends.map((friend) => friend.id));
+    const friendIds = new Set((friends || []).map((friend) => friend.id));
     const inviteFrom = new Map();
-    for (const invite of invites) {
+    for (const invite of (invites || [])) {
       if (invite && invite.from) inviteFrom.set(invite.from.id, invite);
     }
 
@@ -558,13 +526,13 @@
       friendsList.append(row);
     }
 
-    const ordered = friends
+    const ordered = (friends || [])
       .filter((friend) => inviteFrom.has(friend.id))
-      .concat(friends.filter((friend) => !inviteFrom.has(friend.id)));
+      .concat((friends || []).filter((friend) => !inviteFrom.has(friend.id)));
 
     for (const friend of ordered) {
       const invite = inviteFrom.get(friend.id);
-      const status = people[friend.id] || 'offline';
+      const status = (people && people[friend.id]) || 'offline';
       if (invite) {
         const row = friendRow(friend, inviteActions(invite), status);
         markInvited(row, invite);
@@ -595,17 +563,71 @@
 
     // How many of them are around. Nothing to say with an empty list, and an
     // empty count is what hides it - see .friends-count.
-    const around = friends.filter((friend) => (people[friend.id] || 'offline') !== 'offline');
-    friendsCount.textContent = friends.length
-      ? around.length + ' of ' + friends.length + ' online'
-      : '';
+    const around = (friends || []).filter((friend) => ((people && people[friend.id]) || 'offline') !== 'offline');
+    if (friendsCount) {
+      friendsCount.textContent = (friends && friends.length)
+        ? around.length + ' of ' + friends.length + ' online'
+        : '';
+    }
 
-    if (!friends.length && !invites.length) {
+    if ((!friends || !friends.length) && (!invites || !invites.length)) {
       const empty = document.createElement('li');
       empty.className = 'friends-empty';
       empty.textContent = 'Nobody yet. Send someone your link.';
       friendsList.append(empty);
     }
+  }
+
+  /**
+   * Draw the panel.
+   *
+   * Every call asks who is around, which is small. The list itself - every
+   * friend's picture and banner - is fetched again only when the presence
+   * answer's version says it changed, or `refresh` says we just changed it.
+   */
+  async function renderFriends(refresh) {
+    if (!friendsSection || !window.AstraFriends) return;
+    if (!window.AstraFriends.available()) {
+      friendsSection.hidden = true;
+      if (friendsCount) friendsCount.textContent = '';
+      shownFriends = null;
+      shownPeople = {};
+      try { localStorage.removeItem(FRIENDS_CACHE_KEY); } catch (_) {}
+      return;
+    }
+    friendsSection.hidden = false;
+
+    // Instantly paint from cache if available so there is zero delay on load
+    if (shownFriends && !friendsList.hasChildNodes()) {
+      drawFriendsList(shownFriends, shownPeople);
+    }
+
+    if (refresh) shownFriends = null;
+
+    let presence;
+    let data = shownFriends;
+    if (!data) {
+      // Nothing to fall back on yet: ask for both at once.
+      [data, presence] = await Promise.all([
+        window.AstraFriends.state(),
+        window.AstraFriends.presence(),
+      ]);
+    } else {
+      presence = await window.AstraFriends.presence();
+      if (presence && presence.version !== data.version) {
+        data = (await window.AstraFriends.state()) || data;
+      }
+    }
+
+    // No answer at all: leave whatever is on screen rather than wipe it.
+    if (!data) return;
+    shownFriends = data;
+    try {
+      localStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify(data));
+    } catch (_) {}
+
+    if (presence) shownPeople = presence.people;
+    drawFriendsList(data, shownPeople);
   }
 
   /**

@@ -252,6 +252,13 @@
     <section id="chat-panel" class="panel">
       <h2>Chat</h2>
       <ol id="messages" class="messages"></ol>
+      <div id="chat-empty" class="chat-empty" aria-hidden="true">
+        <svg class="chat-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        <p class="chat-empty-title">No messages yet</p>
+        <p class="chat-empty-sub">Start the conversation with your friends.</p>
+      </div>
       <form id="chat-form" class="chat-form" autocomplete="off" onsubmit="return false">
         <input id="chat-input" type="text" maxlength="500" placeholder="Message the room" />
         <button class="btn btn-small" type="submit">Send</button>

@@ -1701,7 +1701,8 @@ body.sidebar-hidden .topbar-right {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.get-desktop[hidden] { display: none; }
+.is-desktop-app .get-desktop,
+.get-desktop[hidden] { display: none !important; }
 
 .get-desktop:hover {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 13%));
@@ -3275,6 +3276,55 @@ button.tag-danger {
 .tag-camera {
   color: var(--live);
   background: none;
+}
+
+/* Placeholder shown when chat is empty */
+.chat-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 16px;
+  user-select: none;
+  pointer-events: none;
+}
+
+.chat-empty-icon {
+  width: 38px;
+  height: 38px;
+  color: var(--muted);
+  opacity: 0.65;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.chat-empty-title {
+  margin: 0 0 5px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.chat-empty-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 190px;
+}
+
+.messages:empty {
+  display: none;
+}
+
+.messages:not(:empty) + .chat-empty,
+.chat-empty[hidden] {
+  display: none !important;
 }
 
 .messages {

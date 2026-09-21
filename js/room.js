@@ -134,6 +134,7 @@
     inputVolume: $('input-volume'),
     inputVolumeValue: $('input-volume-value'),
     messages: $('messages'),
+    chatEmpty: $('chat-empty'),
     chatForm: $('chat-form'),
     chatInput: $('chat-input'),
     shareGroup: $('share-group'),
@@ -6545,6 +6546,7 @@
 
     content.append(who, body);
     item.append(avatar, content);
+    if (el.chatEmpty) el.chatEmpty.hidden = true;
     el.messages.appendChild(item);
     el.messages.scrollTop = el.messages.scrollHeight;
 
