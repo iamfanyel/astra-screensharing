@@ -183,8 +183,11 @@ window.AstraDiscord = (function () {
           Authorization: 'Bearer ' + token,
         },
       });
+      // Only our own API's refusal, in JSON, gets to sign the account out -
+      // see the same guard in js/friends.js.
       if (res.status === 401) {
-        handleExpiredToken();
+        const said = await res.json().catch(() => null);
+        if (said && said.error) handleExpiredToken();
         return null;
       }
       if (!res.ok) return null;

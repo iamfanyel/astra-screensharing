@@ -42,7 +42,13 @@ window.AstraFriends = (function () {
       }
       const res = await fetch(path, options);
       if (res.status === 401) {
-        if (window.AstraDiscord && typeof window.AstraDiscord.handleExpiredToken === 'function') {
+        // Signing somebody out is not a thing to do on a guess. Our own API
+        // answers this in JSON and only when Discord itself rejected the
+        // token; anything else wearing a 401 - a proxy's page, a challenge -
+        // is a bad minute, not an expired account. See verifyDiscordToken.
+        const said = await res.json().catch(() => null);
+        if (said && said.error && window.AstraDiscord
+            && typeof window.AstraDiscord.handleExpiredToken === 'function') {
           window.AstraDiscord.handleExpiredToken();
         }
         return null;

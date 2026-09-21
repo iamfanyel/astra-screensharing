@@ -77,8 +77,20 @@ const MAX_VERIFIED_TOKENS = 500;
 const verifiedTokens = new Map();
 
 /**
+ * "We could not ask Discord", which is a different answer from "Discord says
+ * no" and must never be one: the page signs the account out when it is told
+ * the token is bad, so a rate limit or a bad minute at Discord would log
+ * somebody out of Astra for good. Only Discord rejecting the token does that.
+ */
+const TOKEN_UNAVAILABLE = Symbol('discord-unavailable');
+
+/**
  * Validates the Discord OAuth2 Bearer token directly with Discord API.
- * Returns the Discord user object if valid, or null.
+ *
+ * Returns the Discord user object, null when the token is genuinely no good,
+ * or TOKEN_UNAVAILABLE when Discord could not be asked. A token that has been
+ * verified before rides out the last kind on its cached answer, however old:
+ * Discord having a bad minute is not a reason to break a signed-in page.
  */
 async function verifyDiscordToken(request) {
   const auth = request.headers.get('Authorization') || '';
@@ -91,25 +103,43 @@ async function verifyDiscordToken(request) {
   const known = verifiedTokens.get(token);
   if (known && now - known.at < VERIFIED_TOKEN_TTL_MS) return known.user;
 
+  /** Known good a minute ago beats nothing at all. */
+  function fallBackTo(answer) {
+    return known ? known.user : answer;
+  }
+
+  let res;
   try {
-    const res = await fetch('https://discord.com/api/users/@me', {
+    res = await fetch('https://discord.com/api/users/@me', {
       headers: {
         Authorization: 'Bearer ' + token,
         'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
       },
     });
-    if (!res.ok) {
-      verifiedTokens.delete(token);
-      return null;
-    }
-    const user = await res.json();
-    if (!user || !user.id) return null;
-    if (verifiedTokens.size >= MAX_VERIFIED_TOKENS) verifiedTokens.clear();
-    verifiedTokens.set(token, { user, at: now });
-    return user;
   } catch (_) {
+    return fallBackTo(TOKEN_UNAVAILABLE);
+  }
+
+  // The only two answers that mean the token itself is no good. Everything
+  // else - 429 from the rate limiter, 5xx from a bad deploy of theirs - says
+  // nothing about the token, and the cached answer stands.
+  if (res.status === 401 || res.status === 403) {
+    verifiedTokens.delete(token);
     return null;
   }
+  if (!res.ok) return fallBackTo(TOKEN_UNAVAILABLE);
+
+  const user = await res.json().catch(() => null);
+  if (!user || !user.id) return fallBackTo(TOKEN_UNAVAILABLE);
+
+  if (verifiedTokens.size >= MAX_VERIFIED_TOKENS) verifiedTokens.clear();
+  verifiedTokens.set(token, { user, at: now });
+  return user;
+}
+
+/** The answer for a token we could not check, at any of the three doors. */
+function unavailableResponse() {
+  return jsonResponse({ error: 'Could not reach Discord. Try again shortly.' }, 503);
 }
 
 const CORS_HEADERS = {
@@ -125,6 +155,7 @@ async function handleProfile(request, env) {
 
 
   const user = await verifyDiscordToken(request);
+  if (user === TOKEN_UNAVAILABLE) return unavailableResponse();
   if (!user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
@@ -899,6 +930,7 @@ async function handlePresence(request, env) {
   }
 
   const user = await verifyDiscordToken(request);
+  if (user === TOKEN_UNAVAILABLE) return unavailableResponse();
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   if (request.method === 'POST') {
@@ -951,6 +983,7 @@ async function handleFriends(request, env) {
   }
 
   const user = await verifyDiscordToken(request);
+  if (user === TOKEN_UNAVAILABLE) return unavailableResponse();
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const kv = getKvNamespace(env);

@@ -313,25 +313,10 @@ async function handleApiProfile(req, res) {
     return res.end();
   }
 
-  const auth = req.headers['authorization'] || '';
-  if (!auth.startsWith('Bearer ')) {
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'Unauthorized' }));
-  }
-
-  const token = auth.slice(7).trim();
-  let user = null;
-  try {
-    const discordRes = await fetch('https://discord.com/api/users/@me', {
-      headers: {
-        Authorization: 'Bearer ' + token,
-        'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
-      },
-    });
-    if (discordRes.ok) user = await discordRes.json();
-  } catch (_) {}
-
-  if (!user || !user.id) {
+  // The same gate the other two doors use, rather than a second copy of it.
+  const user = await discordUser(req);
+  if (user === TOKEN_UNAVAILABLE) return sendUnavailable(res);
+  if (!user) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ error: 'Invalid Discord token' }));
   }
@@ -450,23 +435,39 @@ function saveDevFriends(data) {
   } catch (_) {}
 }
 
-/** The signed-in Discord user, or null. Asked of Discord, exactly as live. */
+/** "We could not ask Discord" - see verifyDiscordToken in worker.js. */
+const TOKEN_UNAVAILABLE = Symbol('discord-unavailable');
+
+/**
+ * The signed-in Discord user, asked of Discord exactly as live.
+ *
+ * Null when the token is genuinely no good, TOKEN_UNAVAILABLE when Discord
+ * could not be asked: the page signs the account out when it is told the
+ * token is bad, so the two must never arrive as the same answer.
+ */
 async function discordUser(req) {
   const auth = req.headers['authorization'] || '';
   if (!auth.startsWith('Bearer ')) return null;
+  let answer;
   try {
-    const answer = await fetch('https://discord.com/api/users/@me', {
+    answer = await fetch('https://discord.com/api/users/@me', {
       headers: {
         Authorization: auth,
         'User-Agent': 'AstraScreensharing/1.0 (+https://astrascreen.live)',
       },
     });
-    if (!answer.ok) return null;
-    const user = await answer.json();
-    return user && user.id ? user : null;
   } catch (_) {
-    return null;
+    return TOKEN_UNAVAILABLE;
   }
+  if (answer.status === 401 || answer.status === 403) return null;
+  if (!answer.ok) return TOKEN_UNAVAILABLE;
+  const user = await answer.json().catch(() => null);
+  return user && user.id ? user : TOKEN_UNAVAILABLE;
+}
+
+/** The answer for a token we could not check. */
+function sendUnavailable(res) {
+  return sendJson(res, 503, { error: 'Could not reach Discord. Try again shortly.' });
 }
 
 function readJsonBody(req) {
@@ -597,6 +598,7 @@ async function handleApiFriends(req, res) {
   if (req.method === 'OPTIONS') return devCors(res);
 
   const user = await discordUser(req);
+  if (user === TOKEN_UNAVAILABLE) return sendUnavailable(res);
   if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
 
   const store = loadDevFriends();
@@ -721,6 +723,7 @@ async function handleApiPresence(req, res) {
   if (req.method === 'OPTIONS') return devCors(res);
 
   const user = await discordUser(req);
+  if (user === TOKEN_UNAVAILABLE) return sendUnavailable(res);
   if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
 
   const store = loadDevFriends();
