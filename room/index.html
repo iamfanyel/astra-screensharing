@@ -260,8 +260,12 @@
         <p class="chat-empty-sub">Start the conversation with your friends.</p>
       </div>
       <form id="chat-form" class="chat-form" autocomplete="off" onsubmit="return false">
-        <input id="chat-input" type="text" maxlength="500" placeholder="Message the room" />
-        <button class="btn btn-small" type="submit">Send</button>
+        <input id="chat-input" class="chat-input" type="text" maxlength="500" placeholder="message the room..." aria-label="message the room..." />
+        <button id="chat-send" class="btn chat-send-btn" type="submit" title="Send message" aria-label="Send message">
+          <svg class="chat-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 3l20 9-20 9 3-7 9-2-9-2-3-7z" />
+          </svg>
+        </button>
       </form>
     </section>
   </aside>

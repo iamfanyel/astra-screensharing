@@ -6519,6 +6519,74 @@
     el.chatInput.value = '';
   });
 
+  const chatTimeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
+  const chatTimeFullFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const URL_REGEX = /\b((?:https?:\/\/|www\.)[^\s<]+)/gi;
+
+  function appendTextWithLinks(parent, text) {
+    const str = String(text || '');
+    if (!str) return;
+
+    // Fast path: plain text messages skip regex and fragment overhead
+    if (!str.includes('://') && !str.includes('www.')) {
+      parent.textContent = str;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match;
+    URL_REGEX.lastIndex = 0;
+
+    while ((match = URL_REGEX.exec(str)) !== null) {
+      if (match.index > lastIndex) {
+        fragment.appendChild(document.createTextNode(str.slice(lastIndex, match.index)));
+      }
+
+      let url = match[1];
+      let trailing = '';
+
+      // Strip trailing punctuation belonging to surrounding prose
+      while (url.length > 0 && /[.,;:!?'"）)\]>]$/.test(url)) {
+        if (url.endsWith(')')) {
+          let open = 0;
+          let close = 0;
+          for (let i = 0; i < url.length; i++) {
+            const ch = url.charCodeAt(i);
+            if (ch === 40) open++;
+            else if (ch === 41) close++;
+          }
+          if (close <= open) break;
+        }
+        trailing = url.slice(-1) + trailing;
+        url = url.slice(0, -1);
+      }
+
+      if (url) {
+        const href = (url.startsWith('http://') || url.startsWith('https://')) ? url : 'https://' + url;
+        const link = document.createElement('a');
+        link.className = 'message-link';
+        link.href = href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = url;
+        fragment.appendChild(link);
+      }
+
+      if (trailing) {
+        fragment.appendChild(document.createTextNode(trailing));
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < str.length) {
+      fragment.appendChild(document.createTextNode(str.slice(lastIndex)));
+    }
+
+    parent.appendChild(fragment);
+  }
+
   function addMessage(message) {
     const isMine = message.id === state.signal.selfId;
     // Your own is a quieter confirmation; somebody else's is the one worth
@@ -6536,15 +6604,29 @@
     const content = document.createElement('div');
     content.className = 'message-content';
 
+    const header = document.createElement('div');
+    header.className = 'message-header';
+
     const who = document.createElement('span');
     who.className = 'message-who';
     who.textContent = message.name;
+    who.title = message.name;
+
+    const timeEl = document.createElement('time');
+    timeEl.className = 'message-time';
+    const date = new Date(message.at || message.time || Date.now());
+    const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
+    timeEl.textContent = chatTimeFormat.format(validDate);
+    timeEl.title = chatTimeFullFormat.format(validDate);
+    timeEl.setAttribute('datetime', validDate.toISOString());
+
+    header.append(who, timeEl);
 
     const body = document.createElement('span');
     body.className = 'message-body';
-    body.textContent = message.text;
+    appendTextWithLinks(body, message.text);
 
-    content.append(who, body);
+    content.append(header, body);
     item.append(avatar, content);
     if (el.chatEmpty) el.chatEmpty.hidden = true;
     el.messages.appendChild(item);
