@@ -28,17 +28,44 @@
   <meta name="twitter:image:alt" content="Astra Screensharing" />
   <link rel="stylesheet" href="css/style.css" />
   <script src="js/theme.js"></script>
-  <!-- What the friends bar should look like, settled before the first paint:
-       whether there is a list at all - a guest has none, see js/friends.js -
-       and whether it was left folded. Written here rather than by js/lobby.js
-       so neither state is drawn wrongly and then corrected. The keys are
-       js/discord.js's and js/lobby.js's own. -->
+  <!-- Asked here rather than at the foot of the page because what the page
+       looks like depends on the answer, and the answer costs nothing: the
+       desktop marker is already on <html> and Capacitor's global is already
+       defined by the time this runs. -->
+  <script src="js/platform.js"></script>
+  <!-- Everything about the page that is known before it is drawn, settled
+       here so that nothing is drawn wrongly and then corrected.
+
+       Which Astra this is: inside either app the Windows installer is not on
+       offer, and js/desktop-download.js - the last script on the page - was
+       taking that row away only once it had been drawn, so the lobby card
+       jumped up the screen on every launch.
+
+       What the friends bar should look like: whether there is a list at all -
+       a guest has none, see js/friends.js - and whether it was left folded.
+
+       And where the phone's own bars were last time. The app measures them
+       properly and js/native-app.js stores them, but it cannot answer until
+       the bridge is up, and until it did the page laid itself out edge to
+       edge and then moved. --sat and --sab take the larger of this and
+       env(), so wherever env() already works this changes nothing.
+
+       The keys are js/discord.js's, js/lobby.js's and js/native-app.js's
+       own. -->
   <script>
     (function () {
+      var root = document.documentElement;
+      if (window.AstraPlatform && window.AstraPlatform.insideAnApp()) {
+        root.classList.add('in-app');
+      }
       try {
-        var root = document.documentElement;
         if (localStorage.getItem('astra:discord:token')) root.classList.add('has-friends');
         root.dataset.friends = localStorage.getItem('astra:friends-open') === 'closed' ? 'closed' : 'open';
+        var insets = (localStorage.getItem('astra:insets') || '').split(',');
+        var top = parseFloat(insets[0]);
+        var bottom = parseFloat(insets[1]);
+        if (top >= 0) root.style.setProperty('--safe-area-inset-top', top + 'px');
+        if (bottom >= 0) root.style.setProperty('--safe-area-inset-bottom', bottom + 'px');
       } catch (_) {}
     })();
   </script>
@@ -313,7 +340,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/platform.js"></script>
   <script src="js/config.js"></script>
   <script src="js/profile.js"></script>
   <script src="js/native-app.js"></script>
