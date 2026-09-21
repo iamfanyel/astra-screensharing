@@ -466,11 +466,15 @@ body.lobby .brand h1 {
   font-size: 32px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  /* A line box exactly as tall as the type, so centring the heading against
+     the mark centres the word inside it. The word used to be lifted six
+     pixels on top of that - a nudge measured by eye against one font, and
+     wrong by that whole amount everywhere the stack falls through to the
+     phone's own face instead. */
   line-height: 1;
   margin: 0;
   display: inline-flex;
   align-items: center;
-  transform: translateY(-6px);
 }
 
 /* ------------------------------------------------------------- the lobby
@@ -1703,6 +1707,14 @@ body.sidebar-hidden .topbar-right {
 
 .is-desktop-app .get-desktop,
 .get-desktop[hidden] { display: none !important; }
+
+/* Neither app has any use for a Windows installer, and both are known before
+   the page is drawn - see the head of index.html. js/desktop-download.js says
+   the same thing, but it is the last script on the page, so the row was drawn
+   first and taken away after, and the card above it moved as it went. */
+:root.in-app .get-desktop {
+  display: none;
+}
 
 .get-desktop:hover {
   background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 13%));
