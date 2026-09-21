@@ -25,6 +25,9 @@
   /** Where to put the user once they are signed in, across the round trip. */
   const RETURN_KEY = 'astra:auth-return';
 
+  /** Where the phone's own bars were, for the next launch's first paint. */
+  const INSETS_KEY = 'astra:insets';
+
   /** Whether this is the app at all, which is knowable before any plugin is. */
   function isNative() {
     return !!(window.AstraPlatform && window.AstraPlatform.isNativeApp());
@@ -229,6 +232,20 @@
     }
     if (typeof insets.bottom === 'number') {
       root.setProperty('--safe-area-inset-bottom', insets.bottom + 'px');
+    }
+    // Kept for the next launch. Nothing can be asked of the app until the
+    // bridge is up, which is well after the page has drawn itself, so without
+    // a remembered answer the first paint sits under the status bar and then
+    // moves out from under it. The head of index.html reads this back before
+    // anything is drawn; a stale answer is no worse than none, since the real
+    // one lands moments later either way.
+    if (typeof insets.top === 'number' && typeof insets.bottom === 'number') {
+      try {
+        localStorage.setItem(INSETS_KEY, insets.top + ',' + insets.bottom);
+      } catch (_) {
+        // Then the next launch starts where this one did, which is where
+        // every launch started until now.
+      }
     }
   }
 
