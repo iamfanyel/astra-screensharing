@@ -79,6 +79,22 @@
     gateSubmit: $('gate-submit'),
     gateError: $('gate-error'),
     gateAvatar: $('gate-avatar'),
+    gateCopyCode: $('gate-copy-code'),
+    gateCodeLetters: $('gate-code-letters'),
+    gateRoomCard: $('gate-room-card'),
+    gateHostAvatar: $('gate-host-avatar'),
+    gateHostName: $('gate-host-name'),
+    gateHostCrown: $('gate-host-crown'),
+    gateHostShare: $('gate-host-share'),
+    gateHostMic: $('gate-host-mic'),
+    gateHostDeafened: $('gate-host-deafened'),
+    gateHostCamera: $('gate-host-camera'),
+    gateMembersRow: $('gate-members-row'),
+    gateMembersChevron: $('gate-members-chevron'),
+    gateMembersList: $('gate-members-list'),
+    gateMembersText: $('gate-members-text'),
+    barProfile: $('bar-profile'),
+    barAvatar: $('bar-avatar'),
     discordConnect: $('discord-connect'),
     discordConnected: $('discord-connected'),
     discordUsername: $('discord-username'),
@@ -532,15 +548,171 @@
 
   // ---------------------------------------------------------------- the gate
 
-  el.gateName.value = AstraProfile.getName();
+  if (el.gateName) el.gateName.value = AstraProfile.getName();
+
+  function paintGateProfile() {
+    if (!el.barAvatar) return;
+    const name = AstraProfile.getName() || 'Guest';
+    const avatar = AstraProfile.getAvatar();
+    AstraProfile.paint(el.barAvatar, name, avatar);
+  }
+  paintGateProfile();
+
+  if (el.barProfile) {
+    el.barProfile.addEventListener('click', () => {
+      if (typeof openProfileModal === 'function') openProfileModal();
+    });
+  }
+
   if (wantsCreate) {
-    el.gateTitle.textContent = 'New room';
-    el.gateSub.textContent = 'You will get a code to share once the room is open.';
-    el.gateSubmit.textContent = 'Create room';
+    el.gateTitle.textContent = 'new room';
+    if (el.gateSub) {
+      el.gateSub.textContent = 'you will get a code to share once the room is open.';
+      el.gateSub.hidden = false;
+    }
+    el.gateSubmit.textContent = 'create room';
     document.title = 'new room - astra';
   } else {
-    el.gateSub.textContent = 'Joining room ' + roomCode + '.';
+    el.gateTitle.textContent = 'you\u2019re joining the room';
+    if (el.gateSub) {
+      el.gateSub.textContent = '';
+      el.gateSub.hidden = true;
+    }
+    el.gateSubmit.textContent = 'join room \u2192';
     document.title = roomCode + ' - astra';
+
+    if (el.gateCopyCode && roomCode) {
+      if (el.gateCodeLetters) el.gateCodeLetters.textContent = roomCode.toLowerCase();
+      el.gateCopyCode.hidden = false;
+    }
+    if (el.gateRoomCard) {
+      el.gateRoomCard.hidden = false;
+      if (el.gateHostAvatar) {
+        AstraProfile.paint(el.gateHostAvatar, '', null);
+      }
+    }
+  }
+
+  const GATE_MIC_ON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
+
+  const GATE_MIC_MUTED_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="2" y1="2" x2="22" y2="22" /><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" /><path d="M5 10v2a7 7 0 0 0 10.5 6.07" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>';
+
+  const GATE_DEAFENED_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/><line x1="2" y1="2" x2="22" y2="22" stroke-width="2.2"/></svg>';
+
+  let gateMembersExpanded = false;
+
+  function applyRoomStatusToGate(status) {
+    if (!status || !el.gateRoomCard) return;
+    if (status.host) {
+      const hostName = status.host.name || '';
+      if (el.gateHostName && el.gateHostName.textContent !== hostName) {
+        el.gateHostName.textContent = hostName;
+      }
+      if (el.gateHostAvatar) {
+        const avatarKey = hostName + ':' + (status.host.avatar || '');
+        if (el.gateHostAvatar.dataset.painted !== avatarKey) {
+          el.gateHostAvatar.dataset.painted = avatarKey;
+          AstraProfile.paint(el.gateHostAvatar, hostName || 'Guest', status.host.avatar || null);
+        }
+      }
+      if (el.gateHostShare) {
+        const isSharing = !!status.host.sharing;
+        if (el.gateHostShare.hidden !== !isSharing) {
+          el.gateHostShare.hidden = !isSharing;
+          el.gateHostShare.classList.toggle('is-active', isSharing);
+        }
+      }
+      if (el.gateHostMic) {
+        const isMicOn = !!status.host.mic;
+        const micState = String(isMicOn);
+        if (el.gateHostMic.dataset.state !== micState) {
+          el.gateHostMic.dataset.state = micState;
+          el.gateHostMic.classList.toggle('is-active', isMicOn);
+          el.gateHostMic.classList.toggle('is-muted', !isMicOn);
+          el.gateHostMic.classList.remove('is-dimmed');
+          el.gateHostMic.title = isMicOn ? 'Microphone on' : 'Microphone muted';
+          el.gateHostMic.innerHTML = isMicOn ? GATE_MIC_ON_SVG : GATE_MIC_MUTED_SVG;
+        }
+      }
+      if (el.gateHostDeafened) {
+        const isDeafened = !!status.host.deafened;
+        const deafState = String(isDeafened);
+        if (el.gateHostDeafened.dataset.state !== deafState) {
+          el.gateHostDeafened.dataset.state = deafState;
+          el.gateHostDeafened.hidden = !isDeafened;
+          el.gateHostDeafened.classList.toggle('is-deafened', isDeafened);
+          el.gateHostDeafened.innerHTML = GATE_DEAFENED_SVG;
+        }
+      }
+      if (el.gateHostCamera) {
+        const isCameraOn = !!status.host.camera;
+        if (el.gateHostCamera.hidden !== !isCameraOn) {
+          el.gateHostCamera.hidden = !isCameraOn;
+          el.gateHostCamera.classList.toggle('is-active', isCameraOn);
+        }
+      }
+    }
+    const members = Array.isArray(status.members) ? status.members : [];
+    const otherCount = members.length > 0
+      ? members.length
+      : Math.max(0, (typeof status.peerCount === 'number' ? status.peerCount : 1) - 1);
+
+    if (el.gateMembersText) {
+      const text = otherCount === 0
+        ? 'no other people'
+        : (otherCount === 1 ? '1 other person' : `${otherCount} other people`);
+      if (el.gateMembersText.textContent !== text) {
+        el.gateMembersText.textContent = text;
+      }
+    }
+
+    if (el.gateMembersChevron && el.gateMembersChevron.hidden !== (otherCount === 0)) {
+      el.gateMembersChevron.hidden = otherCount === 0;
+    }
+
+    if (el.gateMembersRow) {
+      el.gateMembersRow.classList.toggle('has-members', otherCount > 0);
+    }
+
+    if (el.gateMembersList) {
+      const rosterKey = members.map((m) => (m.name || '') + ':' + (m.avatar || '')).join('|');
+      if (el.gateMembersList.dataset.rosterKey !== rosterKey) {
+        el.gateMembersList.dataset.rosterKey = rosterKey;
+        el.gateMembersList.innerHTML = '';
+        if (members.length > 0) {
+          for (const member of members) {
+            const item = document.createElement('div');
+            item.className = 'gate-member-item';
+            const avatar = document.createElement('span');
+            avatar.className = 'avatar gate-member-avatar';
+            const memberName = member.name || 'guest';
+            AstraProfile.paint(avatar, memberName, member.avatar || null);
+
+            const name = document.createElement('span');
+            name.className = 'gate-member-name';
+            name.textContent = memberName;
+
+            item.appendChild(avatar);
+            item.appendChild(name);
+            el.gateMembersList.appendChild(item);
+          }
+        }
+      }
+    }
+  }
+
+  if (el.gateMembersRow) {
+    el.gateMembersRow.addEventListener('click', () => {
+      if (!el.gateMembersRow.classList.contains('has-members') || !el.gateMembersList) return;
+      gateMembersExpanded = !gateMembersExpanded;
+      el.gateMembersList.hidden = !gateMembersExpanded;
+      if (el.gateMembersChevron) {
+        el.gateMembersChevron.classList.toggle('is-expanded', gateMembersExpanded);
+      }
+    });
   }
 
   // Tells the inline watchdog in room/index.html that this file arrived, so it
@@ -589,16 +761,84 @@
     }
   }
 
-  function notifyRoomApi(action, code, peerCount) {
+  function getHostAndMembersInfo() {
+    let hostPeer = null;
+    const members = [];
+    if (state.signal && state.signal.roster) {
+      for (const peer of state.signal.roster.values()) {
+        if (peer.host || (peer.id === state.signal.selfId && state.signal.isHub)) {
+          hostPeer = peer;
+        } else {
+          members.push({
+            name: peer.name || 'Guest',
+            avatar: peer.avatar || null,
+          });
+        }
+      }
+    }
+    const isSelfHost = state.signal && state.signal.isHub;
+    const hostName = isSelfHost
+      ? (AstraProfile.getName() || 'Host')
+      : (hostPeer ? hostPeer.name : 'Host');
+    const hostAvatar = isSelfHost
+      ? (AstraProfile.getAvatar() || null)
+      : (hostPeer ? hostPeer.avatar : null);
+    const hostSharing = isSelfHost
+      ? !!state.sharing
+      : (hostPeer ? !!hostPeer.sharing : false);
+    const hostMic = isSelfHost
+      ? !!state.micOn
+      : (hostPeer ? !!hostPeer.mic : false);
+    const hostCamera = isSelfHost
+      ? !!state.cameraTrack
+      : (hostPeer ? !!hostPeer.camera : false);
+    const hostDeafened = isSelfHost
+      ? !!state.deafened
+      : (hostPeer ? !!hostPeer.deafened : false);
+
+    return {
+      host: {
+        name: hostName,
+        avatar: hostAvatar,
+        sharing: hostSharing,
+        mic: hostMic,
+        camera: hostCamera,
+        deafened: hostDeafened,
+      },
+      members,
+    };
+  }
+
+  function notifyRoomApi(action, code, peerCount, host, members) {
     if (!code) return;
     try {
+      const count = typeof peerCount === 'number'
+        ? peerCount
+        : (state.signal && state.signal.roster ? state.signal.roster.size : 1);
+      const payload = { action, code, peerCount: count };
+      if (host !== undefined) {
+        payload.host = host;
+      } else if (state.signal && state.signal.isHub) {
+        const info = getHostAndMembersInfo();
+        payload.host = info.host;
+        if (members === undefined) payload.members = info.members;
+      }
+      if (members !== undefined) {
+        payload.members = members;
+      }
       fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, code, peerCount }),
+        body: JSON.stringify(payload),
         keepalive: true,
       }).catch(() => {});
     } catch (_) {}
+  }
+
+  function syncHostRoomStatus() {
+    if (state.signal && state.signal.isHub && state.signal.code) {
+      notifyRoomApi('heartbeat', state.signal.code);
+    }
   }
 
   let roomApiHeartbeatInterval = null;
@@ -637,7 +877,7 @@
     // Only the host or the last member leaving needs to signal room vacancy.
     if (!state.signal.isHub && rosterSize > 1) return;
     const action = rosterSize <= 1 ? 'empty' : 'leave';
-    const payload = JSON.stringify({ action, code, peerCount: Math.max(0, rosterSize - 1) });
+    const payload = JSON.stringify({ action, code, peerCount: Math.max(0, rosterSize - 1), members: [] });
     if (navigator.sendBeacon) {
       navigator.sendBeacon('/api/room', new Blob([payload], { type: 'application/json' }));
     } else {
@@ -650,20 +890,64 @@
     }
   }
 
+  let gatePollTimer = null;
+  function startGateStatusPolling() {
+    if (gatePollTimer || !roomCode || wantsCreate) return;
+    gatePollTimer = setInterval(async () => {
+      if (state.signal || (el.gate && el.gate.hidden)) {
+        stopGateStatusPolling();
+        return;
+      }
+      const status = await checkRoomStatus(roomCode);
+      if (status && !status.fallback && status.expired) {
+        stopGateStatusPolling();
+        location.replace('../?deleted=1');
+        return;
+      }
+      applyRoomStatusToGate(status);
+    }, 1500);
+  }
+
+  function stopGateStatusPolling() {
+    if (gatePollTimer) {
+      clearInterval(gatePollTimer);
+      gatePollTimer = null;
+    }
+  }
+
   // Pre-check room status on load; only auto-redirect if the room was explicitly marked expired
   const roomStatusPromise = roomCode && !wantsCreate ? checkRoomStatus(roomCode) : null;
   if (roomStatusPromise) {
     roomStatusPromise.then((status) => {
       if (status && !status.fallback && status.expired) {
         location.replace('../?deleted=1');
+        return;
       }
+      applyRoomStatusToGate(status);
+      startGateStatusPolling();
     });
   }
 
   el.gateForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    startSession(AstraProfile.setName(el.gateName.value) || 'Guest');
+    const name = (el.gateName && el.gateName.value ? AstraProfile.setName(el.gateName.value) : AstraProfile.getName()) || 'Guest';
+    startSession(name);
   });
+
+  // Copy room link from the gate code chip (same behavior as room topbar)
+  if (el.gateCopyCode && roomCode) {
+    el.gateCopyCode.addEventListener('click', async () => {
+      const link = location.origin + location.pathname + '?room=' + roomCode;
+      try {
+        await navigator.clipboard.writeText(link);
+        if (typeof toast === 'function') toast('link copied');
+        el.gateCopyCode.style.color = 'var(--accent)';
+        setTimeout(() => { el.gateCopyCode.style.color = ''; }, 1200);
+      } catch (_) {
+        prompt('copy this link:', link);
+      }
+    });
+  }
 
   /**
    * The longest the splash may run before it has to say something.
@@ -805,7 +1089,7 @@
     el.gateError.hidden = false;
   }
 
-  const picker = AstraProfile.mountPicker({
+  const picker = (el.gateAvatar && el.avatarChange) ? AstraProfile.mountPicker({
     nameInput: el.gateName,
     avatarEl: el.gateAvatar,
     changeBtn: el.avatarChange,
@@ -813,22 +1097,25 @@
     clearBtn: el.avatarClear,
     // Already in the room? Everyone else needs to see the new picture too.
     onChange: (dataUrl) => {
+      paintGateProfile();
       if (!state.signal) return;
       state.signal.setState({ avatar: dataUrl });
       renderPeople();
+      syncHostRoomStatus();
     },
     onError: profileError,
-  });
+  }) : { repaint: () => {} };
 
-  if (window.AstraDiscord) {
+  if (window.AstraDiscord && el.discordConnect) {
     window.AstraDiscord.bindUI({
       connectBtn: el.discordConnect,
       badge: el.discordConnected,
       usernameEl: el.discordUsername,
       disconnectBtn: el.discordDisconnect,
       onChange: () => {
-        el.gateName.value = AstraProfile.getName();
-        picker.repaint();
+        if (el.gateName) el.gateName.value = AstraProfile.getName();
+        if (picker && picker.repaint) picker.repaint();
+        paintGateProfile();
         if (state.signal) {
           const banner = AstraProfile.getBanner();
           const avatar = AstraProfile.getAvatar();
@@ -840,6 +1127,7 @@
           const discord = window.AstraDiscord.accountLabel() || null;
           state.signal.setState({ name, avatar, banner, dev, badge, discord });
           renderPeople();
+          syncHostRoomStatus();
         }
       },
       onError: profileError,
@@ -951,8 +1239,10 @@
       }
 
       if (el.gateName) el.gateName.value = newName;
-      picker.repaint();
+      if (picker && picker.repaint) picker.repaint();
+      paintGateProfile();
       renderPeople();
+      syncHostRoomStatus();
       closeModal();
       toast('Profile updated');
     }
@@ -1064,6 +1354,7 @@
   // ------------------------------------------------------------- room set-up
 
   function enterRoom() {
+    stopGateStatusPolling();
     const signal = state.signal;
 
     el.topbar.hidden = false;
@@ -1139,6 +1430,7 @@
       renderPeople();
       updateStreamViewersUI();
       syncScreenViewers();
+      syncHostRoomStatus();
     });
 
     signal.addEventListener('peer-left', (e) => {
@@ -1155,6 +1447,7 @@
       renderPeople();
       updateStreamViewersUI();
       syncScreenViewers();
+      syncHostRoomStatus();
       if (reason === 'timeout') {
         toast((name || 'Someone') + ' lost connection', 'bad');
       }
@@ -1171,6 +1464,7 @@
       refreshPeerTiles(e.detail.id);
       updateStreamViewersUI();
       syncScreenViewers();
+      syncHostRoomStatus();
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
@@ -1290,6 +1584,7 @@
     const was = rememberedVoice();
     if (was.deafened) setDeafened(true);
     else if (was.mic) toggleMic();
+    syncHostRoomStatus();
   }
 
   // --------------------------------------------------------------- sharing
@@ -1701,6 +1996,7 @@
       el.shareConfirm.classList.toggle('btn-primary', !active);
       el.shareConfirm.classList.toggle('btn-danger', active);
     }
+    syncHostRoomStatus();
   }
 
   // ---------------------------------------------------------------- camera
@@ -1721,6 +2017,7 @@
     // Nothing to flip while the camera is off, and the stylesheet keeps it off
     // a desktop entirely.
     if (el.flipCamera) el.flipCamera.hidden = !active;
+    syncHostRoomStatus();
   }
 
   async function startCamera() {
@@ -2745,6 +3042,7 @@
     } catch (_) {
       // Not remembered, but honoured for this visit.
     }
+    syncHostRoomStatus();
   }
 
   /** Release the microphone and put every mic-related indicator back to off. */
@@ -2762,6 +3060,7 @@
     el.mic.setAttribute('aria-pressed', String(on));
     el.mic.title = on ? 'Mute the microphone (M)' : 'Turn the microphone on (M)';
     el.micLabel.textContent = on ? 'Microphone on' : 'Microphone off';
+    syncHostRoomStatus();
   }
 
   // -------------------------------------------------------------------- deafen

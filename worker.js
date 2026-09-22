@@ -1207,6 +1207,9 @@ async function handleRoom(request, env, ctx) {
       needsHost: state.needsHost,
       empty: state.empty,
       remainingMs: state.remainingMs,
+      host: room.host || null,
+      members: room.members || [],
+      peerCount: typeof room.peerCount === 'number' ? room.peerCount : 1,
     });
   }
 
@@ -1228,12 +1231,16 @@ async function handleRoom(request, env, ctx) {
         createdAt: now,
         lastActive: now,
         emptySince: null,
-        peerCount: 1,
+        peerCount: typeof body.peerCount === 'number' ? body.peerCount : 1,
+        host: body.host || null,
+        members: body.members || [],
       };
     } else if (action === 'heartbeat') {
       if (!room) {
         room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1 };
       }
+      if (body.host) room.host = body.host;
+      if (body.members) room.members = body.members;
       const count = typeof body.peerCount === 'number' ? body.peerCount : (room.peerCount || 1);
       room.lastActive = now;
       room.peerCount = count;
@@ -1249,14 +1256,17 @@ async function handleRoom(request, env, ctx) {
         room.emptySince = now;
         room.lastActive = now;
         room.peerCount = 0;
+        room.members = [];
       }
     } else if (action === 'leave') {
       if (room) {
+        if (body.members) room.members = body.members;
         const count = typeof body.peerCount === 'number' ? body.peerCount : Math.max(0, (room.peerCount || 1) - 1);
         room.peerCount = count;
         room.lastActive = now;
         if (count === 0) {
           room.emptySince = now;
+          room.members = [];
         }
       }
     }

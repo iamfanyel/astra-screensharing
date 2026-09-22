@@ -216,6 +216,9 @@ function handleApiRoom(req, res, url) {
       needsHost: state.needsHost,
       empty: state.empty,
       remainingMs: state.remainingMs,
+      host: room.host || null,
+      members: room.members || [],
+      peerCount: typeof room.peerCount === 'number' ? room.peerCount : 1,
     });
   }
 
@@ -243,7 +246,9 @@ function handleApiRoom(req, res, url) {
           createdAt: now,
           lastActive: now,
           emptySince: null,
-          peerCount: 1,
+          peerCount: typeof body.peerCount === 'number' ? body.peerCount : 1,
+          host: body.host || null,
+          members: body.members || [],
         };
         rooms[code] = room;
         saveDevRooms();
@@ -254,6 +259,8 @@ function handleApiRoom(req, res, url) {
         if (!room) {
           room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1 };
         }
+        if (body.host) room.host = body.host;
+        if (body.members) room.members = body.members;
         const count = typeof body.peerCount === 'number' ? body.peerCount : (room.peerCount || 1);
         room.lastActive = now;
         room.peerCount = count;
@@ -274,6 +281,7 @@ function handleApiRoom(req, res, url) {
           room.emptySince = now;
           room.lastActive = now;
           room.peerCount = 0;
+          room.members = [];
         }
         rooms[code] = room;
         saveDevRooms();
@@ -282,11 +290,13 @@ function handleApiRoom(req, res, url) {
 
       if (action === 'leave') {
         if (room) {
+          if (body.members) room.members = body.members;
           const count = typeof body.peerCount === 'number' ? body.peerCount : Math.max(0, (room.peerCount || 1) - 1);
           room.peerCount = count;
           room.lastActive = now;
           if (count === 0) {
             room.emptySince = now;
+            room.members = [];
           }
           rooms[code] = room;
           saveDevRooms();

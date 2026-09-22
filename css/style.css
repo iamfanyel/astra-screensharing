@@ -1235,10 +1235,17 @@ body.resizing {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: hsl(var(--tint-h) var(--tint-s) calc(var(--l0) + var(--ls) * 3.92%) / 0.94);
-  backdrop-filter: blur(6px);
+  background: var(--bg);
   overflow: hidden;
   transition: opacity 0.2s ease;
+  font-family: "Helvetica World", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.gate #gate-form {
+  width: min(480px, calc(100vw - 48px));
+  border-radius: 18px;
+  padding: 38px 32px 30px;
+  box-sizing: border-box;
 }
 
 .gate.gate-fade-out {
@@ -1327,8 +1334,264 @@ body.resizing {
 }
 
 #gate-submit {
-  margin-top: 10px;
+  margin-top: 8px;
 }
+
+.gate .open-in-app {
+  margin-top: -4px;
+}
+
+/* -------------------------------------------------- join confirmation UI -- */
+
+.gate-bar {
+  position: absolute;
+  top: calc(24px + var(--sat));
+  left: 24px;
+  right: 24px;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+:root.is-desktop-app .gate-bar {
+  top: calc(24px + var(--titlebar-h));
+}
+
+@media (max-width: 640px) {
+  .gate-bar {
+    top: calc(16px + var(--sat));
+    left: 16px;
+    right: 16px;
+  }
+}
+
+.gate-brand {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 14px;
+}
+
+.gate-brand .logo {
+  width: 48px;
+  height: 48px;
+  display: block;
+  object-fit: contain;
+}
+
+.gate-heading {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+
+.gate-code-chip {
+  justify-self: center;
+  margin: 4px 0 2px;
+  height: 40px;
+  padding: 8px 16px;
+  font-size: 15px;
+  border-radius: 12px;
+  gap: 8px;
+}
+
+.gate-code-chip .chip-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.gate-code-chip strong {
+  font-size: 15px;
+  letter-spacing: 0.16em;
+}
+
+.gate-desc {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+  text-align: center;
+  margin: 0;
+}
+
+/* Host & room members card */
+.gate-room-card {
+  background: var(--bg-soft);
+  border: 1px solid rgb(var(--ink) / 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+
+.gate-host-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  gap: 12px;
+}
+
+.gate-host-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.gate-host-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.gate-host-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gate-host-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gate-host-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gate-host-crown {
+  display: inline-flex;
+  align-items: center;
+  color: #f59e0b; /* Discord/Astra gold */
+  flex-shrink: 0;
+}
+
+
+.gate-host-media {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.gate-media-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  width: 22px;
+  height: 22px;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.gate-media-icon.is-active {
+  color: var(--text);
+  opacity: 1;
+}
+
+.gate-media-icon.is-dimmed {
+  color: var(--muted);
+  opacity: 0.35;
+}
+
+.gate-media-icon.is-muted,
+.gate-media-icon.is-deafened {
+  color: #ed4245; /* Discord red */
+  opacity: 1;
+}
+
+.gate-members-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid rgb(var(--ink) / 0.08);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+  transition: background var(--trans-fast);
+}
+
+.gate-members-row.has-members {
+  cursor: pointer;
+  user-select: none;
+}
+
+.gate-members-row.has-members:hover {
+  background: rgb(var(--ink) / 0.04);
+}
+
+.gate-members-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gate-members-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.gate-members-text {
+  color: var(--text);
+  text-transform: lowercase;
+}
+
+.gate-members-chevron {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.gate-members-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.gate-members-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgb(var(--ink) / 0.06);
+  background: rgb(var(--ink) / 0.02);
+  padding: 4px 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.gate-member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+}
+
+.gate-member-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gate-member-name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .topbar {
   grid-area: top;
