@@ -572,7 +572,7 @@
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
               </svg>
             </button>
-            <input id="profile-popup-volume-slider" type="range" min="0" max="100" value="100" class="tile-volume-slider" />
+            <input id="profile-popup-volume-slider" type="range" min="0" max="100" value="100" class="tile-volume-slider" style="--slider-pct: 100%;" />
           </div>
         </div>
 
@@ -655,7 +655,7 @@
                   <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
                 </svg>
               </button>
-              <input id="profile-view-volume-slider" type="range" min="0" max="100" value="100" class="tile-volume-slider" />
+              <input id="profile-view-volume-slider" type="range" min="0" max="100" value="100" class="tile-volume-slider" style="--slider-pct: 100%;" />
             </div>
           </div>
 
@@ -994,7 +994,7 @@
 
             <div class="settings-grid">
               <div class="settings-field settings-device-field" data-search-group="devices">
-                <span class="settings-label" id="mic-label">Input device</span>
+                <span class="settings-label" id="mic-label">Microphone</span>
                 <div class="dock-menu-select-wrap settings-picker" id="mic-picker">
                   <div class="dock-menu-item dock-menu-select" id="mic-trigger" role="button"
                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="mic-label"
@@ -1010,12 +1010,12 @@
                     </svg>
                   </div>
                   <div class="dock-dropdown settings-dropdown" id="mic-dropdown" role="listbox"
-                       aria-label="Input device" hidden></div>
+                       aria-label="Microphone" hidden></div>
                 </div>
               </div>
 
               <div class="settings-field settings-device-field" data-search-group="devices">
-                <span class="settings-label" id="speaker-label">Output device</span>
+                <span class="settings-label" id="speaker-label">Speaker</span>
                 <div class="dock-menu-select-wrap settings-picker" id="speaker-picker">
                   <div class="dock-menu-item dock-menu-select" id="speaker-trigger" role="button"
                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="speaker-label"
@@ -1030,22 +1030,22 @@
                     </svg>
                   </div>
                   <div class="dock-dropdown settings-dropdown" id="speaker-dropdown" role="listbox"
-                       aria-label="Output device" hidden></div>
+                       aria-label="Speaker" hidden></div>
                 </div>
               </div>
 
               <div class="settings-field" data-search-group="volume">
-                <span class="settings-label">Input volume
+                <span class="settings-label">Microphone volume
                   <em id="input-volume-value" class="settings-value">100%</em></span>
                 <input id="input-volume" class="settings-range" type="range" min="0" max="200" step="5"
-                       value="100" aria-label="Input volume" />
+                       value="100" style="--slider-pct: 50%;" aria-label="Microphone volume" />
               </div>
 
               <div class="settings-field" data-search-group="volume">
-                <span class="settings-label">Output volume
+                <span class="settings-label">Speaker volume
                   <em id="output-volume-value" class="settings-value">100%</em></span>
                 <input id="output-volume" class="settings-range" type="range" min="0" max="200" step="5"
-                       value="100" aria-label="Output volume" />
+                       value="100" style="--slider-pct: 50%;" aria-label="Speaker volume" />
               </div>
             </div>
 

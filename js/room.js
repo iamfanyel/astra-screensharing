@@ -2944,21 +2944,65 @@
    * The window closes on any click outside itself and the submenu is outside,
    * so the submenu's clicks are kept from reaching that handler.
    */
-  if (el.shareQualityRow) {
-    el.shareQualityRow.addEventListener('click', (event) => {
+  let qualitySubmenuCloseTimer = null;
+
+  function cancelQualitySubmenuClose() {
+    if (qualitySubmenuCloseTimer) {
+      clearTimeout(qualitySubmenuCloseTimer);
+      qualitySubmenuCloseTimer = null;
+    }
+  }
+
+  function scheduleQualitySubmenuClose(delay = 200) {
+    cancelQualitySubmenuClose();
+    qualitySubmenuCloseTimer = setTimeout(() => {
       if (contextSubmenu && contextSubmenu.row === el.shareQualityRow) {
         closeContextSubmenu();
+      }
+      qualitySubmenuCloseTimer = null;
+    }, delay);
+  }
+
+  function openQualitySubmenu() {
+    cancelQualitySubmenuClose();
+    if (contextSubmenu && contextSubmenu.row === el.shareQualityRow) return;
+    openContextSubmenu(el.shareQualityRow, shareQualityItems(), 'right');
+    if (!contextSubmenu) return;
+    contextSubmenu.menu.addEventListener('click', (click) => click.stopPropagation());
+    contextSubmenu.menu.addEventListener('pointerenter', cancelQualitySubmenuClose);
+    contextSubmenu.menu.addEventListener('pointerleave', () => scheduleQualitySubmenuClose(200));
+  }
+
+  if (el.shareQualityRow) {
+    el.shareQualityRow.addEventListener('pointerenter', openQualitySubmenu);
+    el.shareQualityRow.addEventListener('pointerleave', () => scheduleQualitySubmenuClose(200));
+    el.shareQualityRow.addEventListener('click', (event) => {
+      cancelQualitySubmenuClose();
+      if (contextSubmenu && contextSubmenu.row === el.shareQualityRow) {
+        if (!event.detail) {
+          const first = contextSubmenu.menu.querySelector('button, input');
+          if (first) first.focus({ preventScroll: true });
+        }
         return;
       }
-      openContextSubmenu(el.shareQualityRow, shareQualityItems());
-      if (!contextSubmenu) return;
-      contextSubmenu.menu.addEventListener('click', (click) => click.stopPropagation());
-      // Opened from the keyboard, the keyboard carries on inside it.
-      if (!event.detail) {
+      openQualitySubmenu();
+      if (!event.detail && contextSubmenu) {
         const first = contextSubmenu.menu.querySelector('button, input');
         if (first) first.focus({ preventScroll: true });
       }
     });
+  }
+
+  if (el.shareMenu) {
+    el.shareMenu.addEventListener('pointerenter', (event) => {
+      if (contextSubmenu && contextSubmenu.row === el.shareQualityRow) {
+        const item = event.target.closest('.dock-menu-item, .dock-sheet-confirm');
+        if (item && item !== el.shareQualityRow) {
+          cancelQualitySubmenuClose();
+          closeContextSubmenu();
+        }
+      }
+    }, true);
   }
 
   if (el.shareModes) {
@@ -3020,6 +3064,7 @@
           state.signal.setState({ mic: true });
         }
         renderPeople();
+        populateAudioDevices();
       }
     } catch (err) {
       console.error(err);
@@ -4177,6 +4222,7 @@
     + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>';
 
   function closeContextSubmenu() {
+    cancelQualitySubmenuClose();
     if (!contextSubmenu) return;
     contextSubmenu.menu.remove();
     contextSubmenu.row.classList.remove('is-open');
@@ -4343,8 +4389,8 @@
     menu.style.top = Math.max(edge, Math.min(top, innerHeight - height - edge)) + 'px';
   }
 
-  /** Beside its row - to the right, or the left where there is no room. */
-  function openContextSubmenu(row, items) {
+  /** Beside its row - to the right, or the left where there is no room (or when preferred). */
+  function openContextSubmenu(row, items, preferredSide = 'right') {
     if (contextSubmenu && contextSubmenu.row === row) return;
     closeContextSubmenu();
     const menu = buildContextMenu(items);
@@ -4352,8 +4398,29 @@
     document.body.append(menu);
     const parent = row.parentElement.getBoundingClientRect();
     const { width } = menu.getBoundingClientRect();
-    const right = parent.right + 4;
-    const left = right + width <= innerWidth - 8 ? right : parent.left - width - 4;
+    let left;
+    let isLeft = false;
+    if (preferredSide === 'left') {
+      const leftTarget = parent.left - width - 4;
+      if (leftTarget >= 8) {
+        left = leftTarget;
+        isLeft = true;
+      } else if (parent.right + 4 + width <= innerWidth - 8) {
+        left = parent.right + 4;
+      } else {
+        left = Math.max(8, leftTarget);
+        isLeft = true;
+      }
+    } else {
+      const right = parent.right + 4;
+      if (right + width <= innerWidth - 8) {
+        left = right;
+      } else {
+        left = parent.left - width - 4;
+        isLeft = true;
+      }
+    }
+    if (isLeft) menu.classList.add('is-left');
     placeContextMenu(menu, left, row.getBoundingClientRect().top - 7);
     row.classList.add('is-open');
     row.setAttribute('aria-expanded', 'true');
@@ -4798,6 +4865,7 @@
         volumeSlider.max = '100';
         volumeSlider.value = '100';
         volumeSlider.setAttribute('aria-label', 'Stream volume');
+        updateSliderFill(volumeSlider);
 
         sliderWrap.append(volumeSlider);
         volumeControl.append(sliderWrap, volumeBtn);
@@ -4936,6 +5004,7 @@
         const data = getStreamVolume(actualPeerId);
         const displayVol = data.muted ? 0 : Math.round(data.volume * 100);
         volumeSlider.value = String(displayVol);
+        updateSliderFill(volumeSlider);
 
         if (data.muted || data.volume === 0) {
           volumeBtn.innerHTML = VOLUME_MUTED_ICON;
@@ -6094,19 +6163,87 @@
     trigger.setAttribute('aria-expanded', String(open));
   }
 
+  const MIC_ICON_SVG = '<svg class="dock-dropdown-icon settings-device-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
+
+  const HEADPHONES_ICON_SVG = '<svg class="dock-dropdown-icon settings-device-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
+
+  const MONITOR_ICON_SVG = '<svg class="dock-dropdown-icon settings-device-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+
+  const DISPLAY_DEVICE_REGEX = /(display|monitor|tv|hdmi|screen|fhd|uhd|qhd|4k|nvidia high definition|lg|dell|samsung|asus|acer|benq|viewsonic|msi|philips|sony)/i;
+
+  function getDeviceIconSvg(kind, label) {
+    if (kind === 'audioinput') return MIC_ICON_SVG;
+    return DISPLAY_DEVICE_REGEX.test(String(label || '')) ? MONITOR_ICON_SVG : HEADPHONES_ICON_SVG;
+  }
+
+  function cleanDeviceLabel(label) {
+    if (!label) return '';
+    const clean = label.replace(/^Default\s*[-:]\s*/i, '').trim();
+    return clean.toLowerCase() === 'default' ? '' : clean;
+  }
+
+  function getDefaultDeviceLabel(kind, devices) {
+    if (!devices || !devices.length) return '';
+    // 1. Explicit 'default' device
+    const defDev = devices.find((d) => d.kind === kind && d.deviceId === 'default' && d.label);
+    const cleanDef = defDev ? cleanDeviceLabel(defDev.label) : '';
+    if (cleanDef) return cleanDef;
+
+    // 2. Active microphone stream track
+    if (kind === 'audioinput' && state.micStream) {
+      const track = state.micStream.getAudioTracks()[0];
+      const cleanTrack = track ? cleanDeviceLabel(track.label) : '';
+      if (cleanTrack) return cleanTrack;
+    }
+
+    // 3. Match by groupId if defaultDev exists
+    if (defDev && defDev.groupId) {
+      const physical = devices.find(
+        (d) => d.kind === kind && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.groupId === defDev.groupId && d.label
+      );
+      const cleanPhys = physical ? cleanDeviceLabel(physical.label) : '';
+      if (cleanPhys) return cleanPhys;
+    }
+
+    // 4. First physical device of this kind with a label (Firefox/Safari)
+    const firstDev = devices.find(
+      (d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label
+    );
+    return firstDev ? cleanDeviceLabel(firstDev.label) : '';
+  }
+
   /** The trigger always names whatever is currently selected. */
   function syncDevicePicker(picker) {
     const dropdown = el[picker.dropdown];
     if (!dropdown) return;
     const wanted = state[picker.field];
-    let label = 'System default';
+    let selectedItem = null;
     for (const item of dropdown.querySelectorAll('.dock-dropdown-item')) {
       const match = item.dataset.deviceId === wanted;
       item.classList.toggle('is-selected', match);
       item.setAttribute('aria-selected', String(match));
-      if (match) label = item.textContent.trim();
+      if (match) selectedItem = item;
     }
-    if (el[picker.value]) el[picker.value].textContent = label;
+    const valEl = el[picker.value];
+    if (valEl) {
+      valEl.textContent = '';
+      if (selectedItem) {
+        if (selectedItem.dataset.deviceId === '') {
+          valEl.append(document.createTextNode('System default'));
+          const sub = selectedItem.dataset.subLabel;
+          if (sub) {
+            const subSpan = document.createElement('span');
+            subSpan.className = 'settings-picker-sub';
+            subSpan.textContent = ` (${sub})`;
+            valEl.append(subSpan);
+          }
+        } else {
+          valEl.textContent = selectedItem.dataset.label || selectedItem.textContent.trim();
+        }
+      } else {
+        valEl.textContent = 'System default';
+      }
+    }
   }
 
   async function populateAudioDevices() {
@@ -6130,27 +6267,72 @@
         state[picker.field] = '';
       }
 
+      const defaultName = getDefaultDeviceLabel(picker.kind, devices);
+
       dropdown.textContent = '';
       // Always first, and always reachable: it is the only choice that stays
       // valid when the remembered device is unplugged.
-      const entries = [{ deviceId: '', label: 'System default' }];
-      found.forEach((device, index) => {
-        // Labels stay empty until the browser has granted this kind once.
+      const entries = [{
+        deviceId: '',
+        label: 'System default',
+        subLabel: defaultName,
+        deviceLabel: defaultName,
+        isDefault: true,
+      }];
+
+      // List individual devices, excluding the virtual 'default' device
+      const specificDevices = found.filter((device) => device.deviceId !== 'default');
+      if (specificDevices.length > 0) {
+        entries.push({ isDivider: true });
+      }
+
+      specificDevices.forEach((device, index) => {
         entries.push({
           deviceId: device.deviceId,
-          label: device.label || picker.noun + ' ' + (index + 1),
+          label: device.label || (picker.noun + ' ' + (index + 1)),
+          deviceLabel: device.label,
+          subLabel: '',
+          isDefault: false,
         });
       });
 
       for (const entry of entries) {
+        if (entry.isDivider) {
+          const div = document.createElement('div');
+          div.className = 'dock-menu-divider settings-device-divider';
+          dropdown.append(div);
+          continue;
+        }
+
         const item = document.createElement('div');
-        item.className = 'dock-dropdown-item';
+        item.className = 'dock-dropdown-item' + (entry.isDefault ? ' is-default-item' : '');
         item.setAttribute('role', 'option');
         item.tabIndex = 0;
         item.dataset.deviceId = entry.deviceId;
-        const span = document.createElement('span');
-        span.textContent = entry.label;
-        item.append(span, checkSvgTemplate.cloneNode(true));
+        item.dataset.label = entry.label;
+        if (entry.subLabel) item.dataset.subLabel = entry.subLabel;
+
+        const lead = document.createElement('div');
+        lead.className = 'dock-dropdown-lead settings-device-lead';
+        lead.innerHTML = getDeviceIconSvg(picker.kind, entry.deviceLabel || entry.label);
+
+        const textWrap = document.createElement('div');
+        textWrap.className = 'settings-device-text';
+
+        const title = document.createElement('span');
+        title.className = 'settings-device-title';
+        title.textContent = entry.label;
+        textWrap.append(title);
+
+        if (entry.subLabel) {
+          const desc = document.createElement('span');
+          desc.className = 'settings-device-desc';
+          desc.textContent = entry.subLabel;
+          textWrap.append(desc);
+        }
+
+        lead.append(textWrap);
+        item.append(lead, checkSvgTemplate.cloneNode(true));
 
         const pick = (event) => {
           event.stopPropagation();
@@ -6229,6 +6411,16 @@
     if (el.themeReset) el.themeReset.classList.toggle('is-active', hue === null);
   }
 
+  const updateSliderFill = window.updateSliderFill || function (slider) {
+    if (!slider || slider.type !== 'range' || slider.classList.contains('theme-hue')) return;
+    const min = slider.min !== '' ? parseFloat(slider.min) : 0;
+    const max = slider.max !== '' ? parseFloat(slider.max) : 100;
+    const val = slider.value !== '' ? parseFloat(slider.value) : min;
+    const pct = max > min ? Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100)) : 0;
+    slider.style.setProperty('--slider-pct', pct + '%');
+  };
+  window.updateSliderFill = updateSliderFill;
+
   const VOLUME_SLIDERS = [
     { level: 'output', slider: 'outputVolume', value: 'outputVolumeValue', apply: applyOutputVolume },
     { level: 'input', slider: 'inputVolume', value: 'inputVolumeValue', apply: applyInputVolume },
@@ -6237,7 +6429,10 @@
   function syncVolumeUI() {
     for (const entry of VOLUME_SLIDERS) {
       const percent = Math.round(volumes[entry.level] * 100);
-      if (el[entry.slider]) el[entry.slider].value = String(percent);
+      if (el[entry.slider]) {
+        el[entry.slider].value = String(percent);
+        updateSliderFill(el[entry.slider]);
+      }
       if (el[entry.value]) el[entry.value].textContent = percent + '%';
     }
   }
@@ -6433,6 +6628,7 @@
     const volData = getPeerVolume(peerId);
     const displayVol = volData.muted ? 0 : Math.round(volData.volume * 100);
     el.profilePopupVolumeSlider.value = String(displayVol);
+    updateSliderFill(el.profilePopupVolumeSlider);
     el.profilePopupVolumeVal.textContent = displayVol + '%';
 
     if (volData.muted || volData.volume === 0) {
@@ -6571,6 +6767,7 @@
     const vol = getPeerVolume(peerId);
     const displayVol = vol.muted ? 0 : Math.round(vol.volume * 100);
     el.profileViewVolumeSlider.value = String(displayVol);
+    updateSliderFill(el.profileViewVolumeSlider);
     el.profileViewVolumeVal.textContent = displayVol + '%';
     if (vol.muted) {
       el.profileViewVolumeMute.innerHTML = VOLUME_MUTED_ICON;
@@ -7467,6 +7664,29 @@
     setTimeout(() => node.classList.add('out'), 3200);
     setTimeout(() => node.remove(), 3600);
   }
+
+  if (!window.__astraSliderListenerAttached) {
+    window.__astraSliderListenerAttached = true;
+    document.addEventListener('input', (e) => {
+      if (e.target && e.target.type === 'range') updateSliderFill(e.target);
+    }, { passive: true });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (e.target && e.target.type === 'range') {
+        e.target.classList.add('is-adjusting');
+        updateSliderFill(e.target);
+      }
+    }, { passive: true });
+
+    const clearSliderAdjusting = () => {
+      document.querySelectorAll('input[type="range"].is-adjusting').forEach((s) => s.classList.remove('is-adjusting'));
+    };
+    document.addEventListener('pointerup', clearSliderAdjusting, { passive: true });
+    document.addEventListener('pointercancel', clearSliderAdjusting, { passive: true });
+  }
+
+  document.querySelectorAll('input[type="range"]:not(.theme-hue)').forEach(updateSliderFill);
+  populateAudioDevices();
 
   window.__astra = { state, setSpeaking, updateSelfTiles, refreshPeerTiles };
 })();

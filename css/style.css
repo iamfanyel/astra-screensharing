@@ -2627,62 +2627,136 @@ body.sidebar-hidden .topbar-right {
 input[type="range"] {
   appearance: none;
   -webkit-appearance: none;
-  /* The box is the thumb's full height, not the track's. Sizing it to the 6px
-     track leaves the thumb overflowing a box that is itself being centred, and
-     the circle ends up riding above the bar. */
-  height: 14px;
+  --slider-pct: 0%;
+  --slider-fill-color: var(--text);
+  --slider-track-color: rgb(var(--ink) / 0.16);
+  /* 18px height provides a comfortable click/touch hit target while keeping
+     the visible track slim and vertically centred. */
+  height: 18px;
   background: transparent;
   border: 0;
   outline: none;
   cursor: pointer;
   margin: 0;
   padding: 0;
+  vertical-align: middle;
+}
+
+input[type="range"]:not(.theme-hue):hover,
+input[type="range"]:not(.theme-hue):active,
+input[type="range"]:not(.theme-hue).is-adjusting {
+  --slider-track-color: rgb(var(--ink) / 0.24);
+}
+
+input[type="range"]:active,
+input[type="range"].is-adjusting {
+  cursor: grabbing;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
   height: 6px;
-  background: rgb(var(--ink) / 0.25);
-  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--slider-fill-color) 0%,
+    var(--slider-fill-color) var(--slider-pct, 0%),
+    var(--slider-track-color) var(--slider-pct, 0%),
+    var(--slider-track-color) 100%
+  );
+  border-radius: 999px;
+  transition: background 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--text);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  /* Centres the thumb on the track: (track height - thumb height) / 2. */
-  margin-top: -4px;
-  transition: transform 0.1s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  /* Centres the thumb on the track: (track height - thumb height) / 2 = (6 - 16) / 2. */
+  margin-top: -5px;
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.4, 1), box-shadow 0.14s ease;
 }
 
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 0 4px rgb(var(--ink) / 0.12);
+}
+
+input[type="range"]:active::-webkit-slider-thumb,
+input[type="range"].is-adjusting::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.22);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 6px rgb(var(--ink) / 0.18);
+}
+
+input[type="range"]:focus-visible {
+  outline: none;
+}
+
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
 }
 
 input[type="range"]::-moz-range-track {
   height: 6px;
-  background: rgb(var(--ink) / 0.25);
-  border-radius: 3px;
+  background: var(--slider-track-color);
+  border-radius: 999px;
   border: none;
+  transition: background 0.15s ease;
+}
+
+input[type="range"]:not(.theme-hue)::-moz-range-progress {
+  height: 6px;
+  background: var(--slider-fill-color);
+  border-radius: 999px;
+  transition: background 0.15s ease;
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--text);
   cursor: pointer;
   border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  transition: transform 0.1s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.4, 1), box-shadow 0.14s ease;
 }
 
-input[type="range"]::-moz-range-thumb:hover {
-  transform: scale(1.2);
+input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 0 4px rgb(var(--ink) / 0.12);
+}
+
+input[type="range"]:active::-moz-range-thumb,
+input[type="range"].is-adjusting::-moz-range-thumb {
+  cursor: grabbing;
+  transform: scale(1.22);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 6px rgb(var(--ink) / 0.18);
+}
+
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+}
+
+input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+input[type="range"]:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+input[type="range"]:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .tile-volume-slider {
@@ -2704,11 +2778,11 @@ input[type="range"]::-moz-range-thumb:hover {
 /* A type selector outranks a bare class, so the shared grey track has to be
    overridden through `input.` - see the note on the range rules above. */
 input.theme-hue::-webkit-slider-runnable-track {
-  background: var(--hue-track);
+  background: var(--hue-track) !important;
 }
 
 input.theme-hue::-moz-range-track {
-  background: var(--hue-track);
+  background: var(--hue-track) !important;
 }
 
 /* The far end of the same choice the slider offers: no hue at all. Its fill is
@@ -4140,8 +4214,13 @@ button.tag-danger {
   z-index: 40;
   max-height: none;
   overflow: visible;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(var(--ink) / 0.22) transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .dock-dropdown {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--ink) / 0.22) transparent;
+  }
 }
 
 /* Invisible bridge across the 8px gap between trigger and floating dropdown */
@@ -4173,6 +4252,12 @@ button.tag-danger {
 
 .dock-dropdown::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--ink) / 0.4);
+}
+
+.dock-dropdown::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .dock-dropdown-item {
@@ -4443,6 +4528,12 @@ button.dock-menu-item {
   color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 87.06%));
 }
 
+#share-quality-row:hover .dock-menu-chevron,
+#share-quality-row.is-open .dock-menu-chevron {
+  color: hsl(var(--tint-h) var(--tint-s-text) calc(var(--lt0) + var(--lts) * 94.9%));
+  transform: translateX(2px);
+}
+
 /* Held open while its submenu is, so the row and the menu read as one thing. */
 .dock-menu-item.is-open {
   background: rgb(var(--ink) / 0.08);
@@ -4635,6 +4726,21 @@ button.dock-menu-item {
 
 .context-menu.is-submenu {
   min-width: 170px;
+}
+
+/* Invisible bridge across the gap between parent menu and submenu */
+.context-menu.is-submenu::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: -10px;
+  width: 14px;
+}
+
+.context-menu.is-submenu.is-left::before {
+  left: auto;
+  right: -10px;
 }
 
 .context-menu-heading {
@@ -5822,6 +5928,19 @@ body.sidebar-hidden .toasts {
   white-space: nowrap;
 }
 
+.settings-picker-sub {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.9em;
+  margin-left: 4px;
+}
+
+.dock-menu-select:hover .settings-picker-sub,
+.dock-menu-select:focus-visible .settings-picker-sub {
+  color: inherit;
+  opacity: 0.82;
+}
+
 
 .settings-picker .dock-menu-select[aria-expanded="true"] .dock-menu-chevron {
   transform: rotate(180deg);
@@ -5832,38 +5951,105 @@ body.sidebar-hidden .toasts {
   top: calc(100% + 6px);
   right: 0;
   min-width: 0;
-  max-height: 232px;
+  max-height: 280px;
   overflow-y: auto;
-  z-index: 2;
+  z-index: 20;
   box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* The dock's dropdown flies out sideways, and that bridge keeps the hover
-   alive across the gap. This one opens on click, directly under its trigger,
-   so the bridge spans nothing - and since it reaches 6px past the bottom edge
-   of a scroll container, it was adding exactly that much phantom height and a
-   scrollbar to lists that already fit. */
 .settings-dropdown::before {
   content: none;
 }
 
-/* Device names are far longer than the dock's own menu labels, so these rows
-   drop the shared `nowrap` and wrap instead - the trigger above shows a
-   clipped name, and this is where the whole of it has to be readable. */
+/* Device dropdown items organized with icon, name & optional sub-label */
 .settings-dropdown .dock-dropdown-item {
-  align-items: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  gap: 10px;
+  border-radius: 8px;
   white-space: normal;
+  min-width: 0;
+  cursor: pointer;
+  transition: background 0.12s ease;
 }
 
-.settings-dropdown .dock-dropdown-item span {
+.settings-dropdown .dock-dropdown-item.is-default-item {
+  padding: 9px 10px;
+}
+
+.settings-device-lead {
+  display: flex;
+  align-items: center;
+  gap: 11px;
   min-width: 0;
+  flex: 1;
+}
+
+.settings-device-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.12s ease;
+}
+
+.dock-dropdown-item:hover .settings-device-icon,
+.dock-dropdown-item:focus-visible .settings-device-icon,
+.dock-dropdown-item.is-selected .settings-device-icon {
+  color: var(--text);
+}
+
+.settings-device-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.settings-device-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-/* Keeps the tick on the first line of a name that wraps. */
-.settings-dropdown .dock-dropdown-check {
-  margin-top: 2px;
+.settings-device-desc {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
+
+.dock-dropdown-item:hover .settings-device-desc,
+.dock-dropdown-item:focus-visible .settings-device-desc {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.dock-dropdown-item.is-selected .settings-device-desc {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.settings-device-divider {
+  margin: 5px 4px;
+  height: 1px;
+  background: rgb(var(--ink) / 0.1);
+  flex-shrink: 0;
+}
+
 
 /* The theme swatches. Each shows the background it switches to, as a literal
    colour rather than a token, so every option looks like itself while you are

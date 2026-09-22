@@ -24,6 +24,34 @@
   const CIRCLE = PREVIEW - MASK_INSET * 2;
   const MAX_LENGTH = 45000; // data URL characters, allowing crisp 256px avatars
 
+  const updateSliderFill = window.updateSliderFill || function (slider) {
+    if (!slider || slider.type !== 'range' || slider.classList.contains('theme-hue')) return;
+    const min = slider.min !== '' ? parseFloat(slider.min) : 0;
+    const max = slider.max !== '' ? parseFloat(slider.max) : 100;
+    const val = slider.value !== '' ? parseFloat(slider.value) : min;
+    const pct = max > min ? Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100)) : 0;
+    slider.style.setProperty('--slider-pct', pct + '%');
+  };
+  window.updateSliderFill = updateSliderFill;
+
+  if (!window.__astraSliderListenerAttached) {
+    window.__astraSliderListenerAttached = true;
+    document.addEventListener('input', (e) => {
+      if (e.target && e.target.type === 'range') updateSliderFill(e.target);
+    }, { passive: true });
+    document.addEventListener('pointerdown', (e) => {
+      if (e.target && e.target.type === 'range') {
+        e.target.classList.add('is-adjusting');
+        updateSliderFill(e.target);
+      }
+    }, { passive: true });
+    const clear = () => {
+      document.querySelectorAll('input[type="range"].is-adjusting').forEach((s) => s.classList.remove('is-adjusting'));
+    };
+    document.addEventListener('pointerup', clear, { passive: true });
+    document.addEventListener('pointercancel', clear, { passive: true });
+  }
+
   function getName() {
     try {
       return localStorage.getItem(NAME_KEY) || '';
@@ -271,6 +299,8 @@
         view.y = 0;
         ui.zoom.value = '1';
         ui.rotation.value = '0';
+        ui.zoom.dispatchEvent(new Event('input', { bubbles: true }));
+        ui.rotation.dispatchEvent(new Event('input', { bubbles: true }));
         render();
       });
 
@@ -352,9 +382,9 @@
       '<div class="editor-mask" style="inset: ' + MASK_INSET + 'px"></div>' +
       '</div>' +
       '<label class="menu-row"><span>Size</span>' +
-      '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
+      '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" style="--slider-pct: 0%;" /></label>' +
       '<label class="menu-row"><span>Rotation</span>' +
-      '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" /></label>' +
+      '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" style="--slider-pct: 50%;" /></label>' +
       '<div class="editor-actions">' +
       '<button type="button" class="btn btn-small editor-reset">Reset</button>' +
       '<span class="editor-spacer"></span>' +
@@ -565,9 +595,9 @@
       '<div class="banner-editor-mask"></div>' +
       '</div>' +
       '<label class="menu-row"><span>Size</span>' +
-      '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>' +
+      '<input class="editor-zoom" type="range" min="1" max="4" step="0.01" value="1" style="--slider-pct: 0%;" /></label>' +
       '<label class="menu-row"><span>Rotation</span>' +
-      '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" /></label>' +
+      '<input class="editor-rotation" type="range" min="-180" max="180" step="1" value="0" style="--slider-pct: 50%;" /></label>' +
       '<div class="editor-actions">' +
       '<button type="button" class="btn btn-small editor-reset">Reset</button>' +
       '<span class="editor-spacer"></span>' +
@@ -655,6 +685,8 @@
         view.y = 0;
         ui.zoom.value = '1';
         ui.rotation.value = '0';
+        ui.zoom.dispatchEvent(new Event('input', { bubbles: true }));
+        ui.rotation.dispatchEvent(new Event('input', { bubbles: true }));
         render();
       });
 
