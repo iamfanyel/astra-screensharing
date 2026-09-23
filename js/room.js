@@ -4688,6 +4688,17 @@
     video.poster = TRANSPARENT_POSTER;
     root.appendChild(video);
 
+    const onVideoFrameEvent = () => {
+      const isPortrait = video.videoWidth > 0 && video.videoHeight > video.videoWidth;
+      root.classList.toggle('is-portrait', isPortrait);
+      if (actualKind === 'screen') {
+        syncTileLoading(state.tiles.get(tileKey));
+      }
+    };
+    for (const evt of ['loadedmetadata', 'resize', 'playing', 'emptied']) {
+      video.addEventListener(evt, onVideoFrameEvent);
+    }
+
     let audio = null;
     if (actualKind === 'screen' && !isSelf) {
       audio = document.createElement('audio');
@@ -4823,11 +4834,6 @@
         loadingOverlay.innerHTML = '<span class="tile-spinner"></span>';
         root.appendChild(loadingOverlay);
 
-        // videoWidth stays 0 until the first frame decodes; these are the
-        // events that can change that.
-        for (const type of ['loadedmetadata', 'resize', 'playing', 'emptied']) {
-          video.addEventListener(type, () => syncTileLoading(state.tiles.get(tileKey)));
-        }
       }
 
       caption = document.createElement('figcaption');
@@ -5064,6 +5070,7 @@
         userTile.video.play().catch(() => {});
       }
     } else {
+      userTile.root.classList.remove('is-portrait');
       if (userTile.video.srcObject) {
         userTile.video.srcObject = null;
       }
@@ -5257,7 +5264,7 @@
         userTile.video.play().catch(() => {});
       }
     } else {
-      userTile.root.classList.remove('has-camera');
+      userTile.root.classList.remove('has-camera', 'is-portrait');
       if (userTile.video.srcObject) {
         userTile.video.srcObject = null;
       }
