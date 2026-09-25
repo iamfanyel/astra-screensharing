@@ -7643,6 +7643,21 @@
     }
   });
 
+  // Returning from the background: cancel any offline timer that was frozen
+  // while the page was hidden (it would otherwise fire and show "Disconnected"
+  // before the `online` event has a chance to cancel it), and re-announce the
+  // room to the server so STALE_HEARTBEAT_MS doesn't mark it as empty.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || tornDown || leaving) return;
+    if (localOfflineTimer) {
+      clearTimeout(localOfflineTimer);
+      localOfflineTimer = null;
+    }
+    if (state.signal && state.signal.isHub && state.signal.code) {
+      syncHostRoomStatus();
+    }
+  });
+
   el.backToStart.addEventListener('click', leaveForLobby);
 
   // The status bar is gone with the redesign: say it in a toast, and keep the

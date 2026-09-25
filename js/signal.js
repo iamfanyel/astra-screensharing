@@ -17,6 +17,12 @@
   const HEARTBEAT_INTERVAL_MS = 3000;
   const HEARTBEAT_TIMEOUT_MS = 25000;
   /**
+   * Timeout for a peer whose data channel is still open. JS timers freeze in
+   * the background but WebRTC stays alive via ICE keepalive, so an open
+   * connection means the peer is still there.
+   */
+  const BACKGROUND_TIMEOUT_MS = 5 * 60 * 1000;
+  /**
    * How long the hub keeps a member whose data connection closed before
    * telling the room they left.
    *
@@ -46,7 +52,7 @@
    * asleep, so every "last heard" is stale on waking, including for people
    * who never went anywhere.
    */
-  const WAKE_GRACE_MS = 6000;
+  const WAKE_GRACE_MS = 10000;
 
   /** Page events that mean we may just have woken up. */
   const WAKE_EVENTS = [[document, 'visibilitychange'], [window, 'online'], [window, 'pageshow']];
@@ -1277,21 +1283,28 @@
         this._renewHostLease(now);
         for (const [id, conn] of this.conns) {
           if (id === this.selfId) continue;
-          const lastSeen = this._memberLastSeen.get(id) || now;
-          if (now - lastSeen > HEARTBEAT_TIMEOUT_MS) {
-            console.warn(`[signal] Member ${id} timed out after ${now - lastSeen}ms`);
+          if (conn && conn.open) {
+            try { conn.send({ t: 'ping' }); } catch (_) {}
+          }
+          const elapsed = now - (this._memberLastSeen.get(id) || now);
+          // A peer whose connection is still open is alive - just backgrounded
+          // with its JS timers frozen. Only drop once the connection is gone or
+          // the generous background limit is up.
+          if (elapsed > HEARTBEAT_TIMEOUT_MS && !(conn && conn.open && elapsed < BACKGROUND_TIMEOUT_MS)) {
+            console.warn(`[signal] Member ${id} timed out after ${elapsed}ms`);
             try { conn.close(); } catch (_) {}
             this._dropMember(id, 'timeout');
-          } else if (conn && conn.open) {
-            try { conn.send({ t: 'ping' }); } catch (_) {}
           }
         }
       } else {
         if (this.conn && this.conn.open) {
           try { this.conn.send({ t: 'ping' }); } catch (_) {}
         }
-        if (this._hostLastSeen && (now - this._hostLastSeen > HEARTBEAT_TIMEOUT_MS)) {
-          console.warn(`[signal] Host ${this.hostId} timed out after ${now - this._hostLastSeen}ms`);
+        const hostElapsed = this._hostLastSeen ? now - this._hostLastSeen : 0;
+        // Same rule as the hub side: an open connection means the host is
+        // alive but backgrounded. Only act when the link is really gone.
+        if (hostElapsed > HEARTBEAT_TIMEOUT_MS && !(this.conn && this.conn.open && hostElapsed < BACKGROUND_TIMEOUT_MS)) {
+          console.warn(`[signal] Host ${this.hostId} timed out after ${hostElapsed}ms`);
           this._handleHostLoss('timeout');
         }
       }
