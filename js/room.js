@@ -1410,6 +1410,7 @@
       selfId: signal.selfId,
       signal,
       iceServers: window.ASTRA.iceServers,
+      fluidity: fluidityOn(),
       roleOf: (track) => {
         if (track === state.videoTrack) return 'screen';
         if (track === state.cameraTrack) return 'camera';
@@ -1830,9 +1831,10 @@
    * Discord's does: a picture that shrinks under load is the one change a
    * viewer always notices, and it rarely climbs back. What gives instead:
    *
-   *  - fluidity on: nothing but the bitrate. The encoder keeps both the size
-   *    and the frame rate and spends fewer bits on each frame, so a tight link
-   *    costs some crispness in motion rather than smoothness or size.
+   *  - fluidity on: prioritizes frame rate for smooth motion. On a bad
+   *    connection, it can dynamically adapt resolution down to 720p (never
+   *    lower) so the encoder does not have to crush the bitrate or drop FPS,
+   *    preserving both motion and readable visual quality.
    *  - fluidity off: the frame rate, so each frame keeps its full detail -
    *    the right trade for reading text.
    */
@@ -1840,6 +1842,7 @@
     const on = fluidityOn();
     if (state.mesh) {
       state.mesh.setDegradationPreference(on ? 'maintain-framerate-and-resolution' : 'maintain-resolution');
+      state.mesh.setFluidity(on);
     }
     if (state.videoTrack) state.videoTrack.contentHint = on ? 'motion' : 'detail';
   }

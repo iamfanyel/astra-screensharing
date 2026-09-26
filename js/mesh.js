@@ -96,6 +96,23 @@
   const DISCONNECT_GRACE_MS = 4000;
 
   /**
+   * The lowest resolution the fluidity option will adapt down to on a bad
+   * connection. Never less than 720p (720px on the short edge).
+   */
+  const MIN_FLUIDITY_HEIGHT = 720;
+  const FLUIDITY_720P_BITRATE_30 = 2000000;
+  const FLUIDITY_720P_BITRATE_60 = 3000000;
+
+  /** How often the screen sender's connection health is evaluated. */
+  const ADAPTATION_INTERVAL_MS = 2000;
+
+  function getTrackShortEdge(track) {
+    const s = track && typeof track.getSettings === 'function' ? track.getSettings() : null;
+    if (s && s.height && s.width) return Math.min(s.height, s.width);
+    return (s && s.height) || 0;
+  }
+
+  /**
    * What to ask for instead when the engine does not know a preference.
    * 'maintain-framerate-and-resolution' - adapt the bitrate only, the way
    * Discord does - is recent; without it, holding the resolution is what
@@ -175,7 +192,7 @@
   const ROLES = ['screen', 'camera', 'screen-audio', 'voice'];
 
   class Mesh extends EventTarget {
-    constructor({ selfId, signal, iceServers, roleOf }) {
+    constructor({ selfId, signal, iceServers, roleOf, fluidity = true }) {
       super();
       this.selfId = selfId;
       // What a local track is for - 'screen', 'camera', 'screen-audio',
@@ -188,6 +205,9 @@
       this.maxVideoBitrate = 3500000;
       this.maxVideoFramerate = 30;
       this.degradationPreference = 'maintain-framerate-and-resolution';
+      this.fluidity = Boolean(fluidity);
+      this._adaptationTimer = null;
+      this._adapting = false;
       // Who wants the screen share right now - see setScreenViewers. null
       // until the room says, which means everybody.
       this.screenViewers = null;
@@ -298,11 +318,13 @@
       }
       this.peers.delete(id);
       this._reapplyEncoding();
+      this._checkAdaptationState();
     }
 
     close() {
       // No point recomputing everyone's share of the uplink on the way out.
       this.closing = true;
+      this._stopAdaptation();
       for (const id of Array.from(this.peers.keys())) this.remove(id);
     }
 
@@ -383,6 +405,7 @@
     /** Re-sync senders after tracks are added to or removed from localStream. */
     publish() {
       for (const peer of this.peers.values()) this._sync(peer);
+      this._checkAdaptationState();
     }
 
     setMaxVideoBitrate(bitrate, maxFramerate) {
@@ -394,6 +417,206 @@
     setDegradationPreference(preference) {
       this.degradationPreference = preference;
       this._reapplyEncoding();
+    }
+
+    /**
+     * When fluidity is enabled, the stream prioritizes frame rate and smoothness.
+     * On a bad connection, it automatically scales down resolution to 720p (never below)
+     * to relieve bandwidth/CPU pressure without over-compressing or dropping FPS.
+     */
+    setFluidity(fluidity) {
+      const on = Boolean(fluidity);
+      if (this.fluidity === on) return;
+      this.fluidity = on;
+      if (!on) {
+        this._resetResolutionAdaptation();
+        this._stopAdaptation();
+      } else {
+        this._checkAdaptationState();
+      }
+    }
+
+    _hasActiveScreenTrack() {
+      if (!this.localStream) return false;
+      return this.localStream.getVideoTracks().some((t) => this.roleOf(t) === 'screen');
+    }
+
+    _checkAdaptationState() {
+      if (this.closing || !this.fluidity || !this._hasActiveScreenTrack()) {
+        if (!this._hasActiveScreenTrack()) this._resetResolutionAdaptation();
+        this._stopAdaptation();
+      } else {
+        this._startAdaptation();
+      }
+    }
+
+    _startAdaptation() {
+      if (this._adaptationTimer || this.closing) return;
+      this._adaptationTimer = setInterval(() => {
+        this._runAdaptationPass();
+      }, ADAPTATION_INTERVAL_MS);
+    }
+
+    _stopAdaptation() {
+      if (this._adaptationTimer) {
+        clearInterval(this._adaptationTimer);
+        this._adaptationTimer = null;
+      }
+    }
+
+    _resetResolutionAdaptation() {
+      for (const peer of this.peers.values()) {
+        for (const slot of peer.slots) {
+          if (slot.downscaled) {
+            slot.downscaled = false;
+            slot.scaleFactor = 1.0;
+            slot.badStreak = 0;
+            slot.goodStreak = 0;
+            this._applyEncoding(slot);
+          }
+        }
+      }
+    }
+
+    async _evaluateSenderConnection(sender) {
+      if (!sender || typeof sender.getStats !== 'function') {
+        return { bad: false, good: true };
+      }
+      try {
+        const stats = await sender.getStats();
+        let bad = false;
+        let good = true;
+        let foundOutbound = false;
+
+        for (const report of stats.values()) {
+          if (report.type === 'outbound-rtp' && report.kind === 'video') {
+            foundOutbound = true;
+            // WebRTC congestion/overuse flags
+            if (report.qualityLimitationReason === 'bandwidth' || report.qualityLimitationReason === 'cpu') {
+              bad = true;
+              good = false;
+            } else if (report.qualityLimitationReason && report.qualityLimitationReason !== 'none') {
+              good = false;
+            }
+
+            // Struggling to maintain target frame rate
+            if (typeof report.framesPerSecond === 'number' && this.maxVideoFramerate) {
+              if (report.framesPerSecond > 0 && report.framesPerSecond < this.maxVideoFramerate * 0.65) {
+                bad = true;
+                good = false;
+              } else if (report.framesPerSecond < this.maxVideoFramerate * 0.85) {
+                good = false;
+              }
+            }
+          }
+
+          if (report.type === 'remote-inbound-rtp' && report.kind === 'video') {
+            // Receiver packet loss
+            if (typeof report.fractionLost === 'number') {
+              if (report.fractionLost > 0.05) {
+                bad = true;
+                good = false;
+              } else if (report.fractionLost > 0.02) {
+                good = false;
+              }
+            }
+            // High latency spike
+            if (typeof report.roundTripTime === 'number') {
+              if (report.roundTripTime > 0.4) {
+                bad = true;
+                good = false;
+              } else if (report.roundTripTime > 0.25) {
+                good = false;
+              }
+            }
+          }
+
+          if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.nominated)) {
+            const targetBitrate = this._videoBitrate();
+            if (typeof report.availableOutgoingBitrate === 'number' && targetBitrate) {
+              if (report.availableOutgoingBitrate < targetBitrate * 0.6) {
+                bad = true;
+                good = false;
+              } else if (report.availableOutgoingBitrate < targetBitrate * 0.85) {
+                good = false;
+              }
+            }
+          }
+        }
+
+        return { bad: foundOutbound && bad, good: foundOutbound && good };
+      } catch (_) {
+        return { bad: false, good: false };
+      }
+    }
+
+    async _runAdaptationPass() {
+      if (this.closing || this._adapting || !this.fluidity) return;
+      this._adapting = true;
+      try {
+        const screenSlots = [];
+        for (const peer of this.peers.values()) {
+          if (peer.closed) continue;
+          for (const slot of peer.slots) {
+            if (slot.kind === 'video' && slot.track && this.roleOf(slot.track) === 'screen' && this._sendsScreenTo(slot.peerId)) {
+              screenSlots.push(slot);
+            }
+          }
+        }
+        if (!screenSlots.length) return;
+
+        await Promise.all(screenSlots.map(async (slot) => {
+          const shortEdge = getTrackShortEdge(slot.track);
+          // Fluidity adaptation should only reduce down to 720p, not less than that.
+          // If the track is already <= 720p, it never drops lower.
+          if (shortEdge <= MIN_FLUIDITY_HEIGHT) {
+            if (slot.downscaled) {
+              slot.downscaled = false;
+              slot.scaleFactor = 1.0;
+              slot.badStreak = 0;
+              slot.goodStreak = 0;
+              this._applyEncoding(slot);
+            }
+            return;
+          }
+
+          const targetScale = Math.round((shortEdge / MIN_FLUIDITY_HEIGHT) * 100) / 100;
+          const health = await this._evaluateSenderConnection(slot.sender);
+
+          if (health.bad) {
+            slot.badStreak = (slot.badStreak || 0) + 1;
+            slot.goodStreak = 0;
+          } else if (health.good) {
+            slot.goodStreak = (slot.goodStreak || 0) + 1;
+            slot.badStreak = 0;
+          } else {
+            slot.badStreak = 0;
+            slot.goodStreak = 0;
+          }
+
+          // Downscale to 720p after 2 consecutive bad intervals (~4s)
+          if (!slot.downscaled && slot.badStreak >= 2) {
+            slot.downscaled = true;
+            slot.scaleFactor = targetScale;
+            slot.badStreak = 0;
+            slot.goodStreak = 0;
+            this._applyEncoding(slot);
+            this.emit('screen-adapted', { peerId: slot.peerId, downscaled: true, resolution: '720p' });
+          }
+          // Recover to full resolution after 4 consecutive good intervals (~8s)
+          else if (slot.downscaled && slot.goodStreak >= 4) {
+            slot.downscaled = false;
+            slot.scaleFactor = 1.0;
+            slot.badStreak = 0;
+            slot.goodStreak = 0;
+            this._applyEncoding(slot);
+            this.emit('screen-adapted', { peerId: slot.peerId, downscaled: false });
+          }
+        }));
+      } catch (_) {
+      } finally {
+        this._adapting = false;
+      }
     }
 
     /**
@@ -509,7 +732,16 @@
           if (track.kind === 'video') {
             preferCodecs(peer.pc.getTransceivers().find((t) => t.sender === sender));
           }
-          const slot = { sender, track, kind: track.kind, peerId: peer.id };
+          const slot = {
+            sender,
+            track,
+            kind: track.kind,
+            peerId: peer.id,
+            downscaled: false,
+            scaleFactor: 1.0,
+            badStreak: 0,
+            goodStreak: 0,
+          };
           peer.slots.push(slot);
           this._applyEncoding(slot);
         } catch (err) {
@@ -517,6 +749,7 @@
         }
       }
       this._announceRoles(peer);
+      this._checkAdaptationState();
     }
 
     /**
@@ -546,12 +779,19 @@
 
     /** Put a track on a slot, or null to park it. */
     _carry(slot, track) {
+      if (slot.track !== track) {
+        slot.downscaled = false;
+        slot.scaleFactor = 1.0;
+        slot.badStreak = 0;
+        slot.goodStreak = 0;
+      }
       slot.track = track;
       slot.sender.replaceTrack(track).catch((err) => {
         // Parking races with teardown often enough not to be worth reporting.
         if (track) console.warn('[mesh] could not swap track', err);
       });
       if (track) this._applyEncoding(slot);
+      this._checkAdaptationState();
     }
 
     async _applyEncoding(slot, encoding = this._encoding()) {
@@ -559,14 +799,31 @@
       const sender = slot.sender;
       // Only the share is switched off for people not watching it; a camera
       // is small and is either on or not sent at all.
-      const active = this.roleOf(slot.track) !== 'screen' || this._sendsScreenTo(slot.peerId);
+      const isScreen = this.roleOf(slot.track) === 'screen';
+      const active = !isScreen || this._sendsScreenTo(slot.peerId);
+      const isDownscaled = isScreen && this.fluidity && slot.downscaled && slot.scaleFactor > 1;
+
+      // When downscaled to 720p on a weak connection, cap the max bitrate to 720p's
+      // optimal rate (3 Mbps for 60fps, 2 Mbps for 30fps) so the link is not choked,
+      // maintaining the framerate without over-compressing.
+      let effectiveBitrate = encoding.bitrate;
+      if (isDownscaled) {
+        const cap720 = (encoding.framerate && encoding.framerate >= 50) ? FLUIDITY_720P_BITRATE_60 : FLUIDITY_720P_BITRATE_30;
+        effectiveBitrate = Math.min(encoding.bitrate, cap720);
+      }
+
       const apply = (preference) => {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
         params.encodings[0].active = active;
-        params.encodings[0].maxBitrate = encoding.bitrate;
+        params.encodings[0].maxBitrate = effectiveBitrate;
         if (encoding.framerate) {
           params.encodings[0].maxFramerate = encoding.framerate;
+        }
+        if (isDownscaled) {
+          params.encodings[0].scaleResolutionDownBy = slot.scaleFactor;
+        } else if ('scaleResolutionDownBy' in params.encodings[0]) {
+          params.encodings[0].scaleResolutionDownBy = 1.0;
         }
         params.degradationPreference = preference;
         return sender.setParameters(params);
