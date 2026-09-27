@@ -542,7 +542,7 @@ const MAX_FRIENDS = 100;
 const MAX_INVITES = 20;
 
 const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const STALE_HEARTBEAT_MS = 3 * 60 * 1000; // 3 minutes without heartbeat = treated as empty (tolerant of background tabs)
+const STALE_HEARTBEAT_MS = 60 * 60 * 1000; // 1 hour without heartbeat = treated as empty (tolerant of backgrounded devices)
 // Must match `roomCodePattern` in js/config.js.
 const ROOM_CODE_REGEX = /^[A-Z0-9]{4,12}$/;
 
@@ -1272,7 +1272,7 @@ async function handleRoom(request, env, ctx) {
     }
 
     if (room) {
-      const shouldWriteKv = action !== 'heartbeat' || !room.lastKvWrite || (now - room.lastKvWrite > 15 * 60 * 1000);
+      const shouldWriteKv = action !== 'heartbeat' || !room.lastKvWrite || (now - room.lastKvWrite > 30 * 60 * 1000);
       if (shouldWriteKv) {
         room.lastKvWrite = now;
       }

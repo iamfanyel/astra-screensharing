@@ -17,12 +17,6 @@
   const HEARTBEAT_INTERVAL_MS = 3000;
   const HEARTBEAT_TIMEOUT_MS = 25000;
   /**
-   * Timeout for a peer whose data channel is still open. JS timers freeze in
-   * the background but WebRTC stays alive via ICE keepalive, so an open
-   * connection means the peer is still there.
-   */
-  const BACKGROUND_TIMEOUT_MS = 5 * 60 * 1000;
-  /**
    * How long the hub keeps a member whose data connection closed before
    * telling the room they left.
    *
@@ -93,8 +87,10 @@
    * unreachable, and without it the code's own broker id is the fallback,
    * which is exactly how this worked before.
    */
+  let hostLeaseAvailable = true;
+
   async function hostLease(action, code, peerId) {
-    if (!code) return null;
+    if (!code || !hostLeaseAvailable) return null;
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const giveUp = setTimeout(() => controller && controller.abort(), LEASE_TIMEOUT_MS);
     try {
@@ -110,9 +106,17 @@
         ? '/api/host?code=' + encodeURIComponent(code)
         : '/api/host';
       const res = await fetch(url, options);
+      if (res.status === 404) {
+        hostLeaseAvailable = false;
+        return null;
+      }
       if (!res.ok) return null;
       const answer = await res.json();
-      return answer && answer.available === false ? null : answer;
+      if (answer && answer.available === false) {
+        hostLeaseAvailable = false;
+        return null;
+      }
+      return answer;
     } catch (_) {
       return null;
     } finally {
@@ -321,7 +325,7 @@
       this._brokerGiveUpTimer = setTimeout(() => {
         this._brokerGiveUpTimer = null;
         if (this.left || !peer.disconnected || peer.destroyed) return;
-        if (this._roomLinkAlive()) {
+        if (this._roomLinkAlive() || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
           this._armBrokerGiveUp(peer);
           return;
         }
@@ -1288,9 +1292,8 @@
           }
           const elapsed = now - (this._memberLastSeen.get(id) || now);
           // A peer whose connection is still open is alive - just backgrounded
-          // with its JS timers frozen. Only drop once the connection is gone or
-          // the generous background limit is up.
-          if (elapsed > HEARTBEAT_TIMEOUT_MS && !(conn && conn.open && elapsed < BACKGROUND_TIMEOUT_MS)) {
+          // with its JS timers frozen. Never drop while the data connection is open.
+          if (elapsed > HEARTBEAT_TIMEOUT_MS && !(conn && conn.open)) {
             console.warn(`[signal] Member ${id} timed out after ${elapsed}ms`);
             try { conn.close(); } catch (_) {}
             this._dropMember(id, 'timeout');
@@ -1303,11 +1306,12 @@
         const hostElapsed = this._hostLastSeen ? now - this._hostLastSeen : 0;
         // Same rule as the hub side: an open connection means the host is
         // alive but backgrounded. Only act when the link is really gone.
-        if (hostElapsed > HEARTBEAT_TIMEOUT_MS && !(this.conn && this.conn.open && hostElapsed < BACKGROUND_TIMEOUT_MS)) {
+        if (hostElapsed > HEARTBEAT_TIMEOUT_MS && !(this.conn && this.conn.open)) {
           console.warn(`[signal] Host ${this.hostId} timed out after ${hostElapsed}ms`);
           this._handleHostLoss('timeout');
         }
       }
+      this.emit('heartbeat', { now });
     }
 
     /**

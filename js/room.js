@@ -11,6 +11,7 @@
    * bottom, a panel at a time - the CSS reads the same number.
    */
   const compact = window.matchMedia('(max-width: 860px)');
+  const isMobilePlatform = () => compact.matches || !!(window.AstraPlatform && window.AstraPlatform.isNativeApp());
   /**
    * A peer can publish a screen and a camera at once, so tiles are keyed by
    * both. Everything that walks or clears a peer's tiles iterates this list
@@ -835,9 +836,44 @@
     } catch (_) {}
   }
 
-  function syncHostRoomStatus() {
-    if (state.signal && state.signal.isHub && state.signal.code) {
+  /**
+   * Heartbeat interval for syncing room status to /api/room.
+   * 2 minutes keeps room.lastActive well within the 1-hour stale threshold,
+   * while using only 30 requests/hour (720/day) — under 1% of Cloudflare's free quota.
+   */
+  const ROOM_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
+  let lastRoomApiHeartbeatTime = 0;
+  let pendingRoomSyncTimer = null;
+
+  function syncHostRoomStatus(immediate = false) {
+    if (tornDown || leaving || !state.signal || !state.signal.isHub || !state.signal.code || state.signal.left) {
+      if (pendingRoomSyncTimer) {
+        clearTimeout(pendingRoomSyncTimer);
+        pendingRoomSyncTimer = null;
+      }
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastRoomApiHeartbeatTime;
+
+    if (immediate || elapsed >= ROOM_HEARTBEAT_INTERVAL_MS) {
+      if (pendingRoomSyncTimer) {
+        clearTimeout(pendingRoomSyncTimer);
+        pendingRoomSyncTimer = null;
+      }
+      lastRoomApiHeartbeatTime = now;
       notifyRoomApi('heartbeat', state.signal.code);
+      return;
+    }
+
+    // Cooldown active: debounce and schedule a single trailing sync after the interval expires so state changes aren't lost
+    if (!pendingRoomSyncTimer) {
+      const delay = Math.max(2000, ROOM_HEARTBEAT_INTERVAL_MS - elapsed);
+      pendingRoomSyncTimer = setTimeout(() => {
+        pendingRoomSyncTimer = null;
+        syncHostRoomStatus(true);
+      }, delay);
     }
   }
 
@@ -849,16 +885,17 @@
     // Non-host peers sending heartbeats creates redundant KV writes and rapidly exhausts free tier quotas.
     if (!state.signal || !state.signal.isHub) return;
 
-    const count = state.signal && state.signal.roster ? state.signal.roster.size : 1;
-    notifyRoomApi('heartbeat', code, count);
+    // Send initial status immediately on start
+    syncHostRoomStatus(true);
+
+    // Fallback interval (2 minutes) in case Web Worker is unavailable in environment
     roomApiHeartbeatInterval = setInterval(() => {
       if (tornDown || leaving || !state.signal || state.signal.left || !state.signal.isHub) {
         stopRoomApiHeartbeat();
         return;
       }
-      const peerCount = state.signal.roster ? state.signal.roster.size : 1;
-      notifyRoomApi('heartbeat', code, peerCount);
-    }, 60000);
+      syncHostRoomStatus();
+    }, ROOM_HEARTBEAT_INTERVAL_MS);
   }
 
   function stopRoomApiHeartbeat() {
@@ -866,6 +903,11 @@
       clearInterval(roomApiHeartbeatInterval);
       roomApiHeartbeatInterval = null;
     }
+    if (pendingRoomSyncTimer) {
+      clearTimeout(pendingRoomSyncTimer);
+      pendingRoomSyncTimer = null;
+    }
+    lastRoomApiHeartbeatTime = 0;
   }
 
   let exitBeaconSent = false;
@@ -1313,6 +1355,10 @@
    */
   function showReconnecting(on) {
     if (!el.reconnecting) return;
+    if (isMobilePlatform()) {
+      el.reconnecting.hidden = true;
+      return;
+    }
     if (on && (tornDown || leaving || !state.signal || el.gate.hidden === false)) return;
     el.reconnecting.hidden = !on;
   }
@@ -1469,6 +1515,13 @@
     });
 
     signal.addEventListener('chat', (e) => addMessage(e.detail));
+    signal.addEventListener('heartbeat', () => {
+      if (tornDown || leaving || !state.signal || !state.signal.isHub) return;
+      const now = Date.now();
+      if (now - lastRoomApiHeartbeatTime >= ROOM_HEARTBEAT_INTERVAL_MS) {
+        syncHostRoomStatus(true);
+      }
+    });
     signal.addEventListener('reconnecting', () => showReconnecting(true));
     signal.addEventListener('reconnected', () => showReconnecting(false));
     signal.addEventListener('closed', (e) => showClosed(e.detail.reason));
@@ -1479,6 +1532,8 @@
       renderPeople();
       if (isSelf && signal.code) {
         startRoomApiHeartbeat(signal.code);
+      } else {
+        stopRoomApiHeartbeat();
       }
     });
     signal.addEventListener('error', (e) => toast(friendlyError(e.detail), 'bad'));
@@ -7624,10 +7679,11 @@
 
   window.addEventListener('offline', () => {
     if (tornDown || leaving) return;
+    if (document.visibilityState === 'hidden') return;
     toast('You’re offline. Reconnecting…', 'bad');
     if (localOfflineTimer) clearTimeout(localOfflineTimer);
     localOfflineTimer = setTimeout(() => {
-      if (!navigator.onLine && !tornDown && !leaving) {
+      if (!navigator.onLine && !tornDown && !leaving && document.visibilityState === 'visible') {
         showClosed('Disconnected: your network connection was lost.');
       }
     }, LOCAL_OFFLINE_GRACE_MS);
