@@ -192,7 +192,7 @@
   const ROLES = ['screen', 'camera', 'screen-audio', 'voice'];
 
   class Mesh extends EventTarget {
-    constructor({ selfId, signal, iceServers, roleOf, fluidity = true }) {
+    constructor({ selfId, signal, iceServers, roleOf, fluidity = true, packetPriority = true }) {
       super();
       this.selfId = selfId;
       // What a local track is for - 'screen', 'camera', 'screen-audio',
@@ -206,6 +206,7 @@
       this.maxVideoFramerate = 30;
       this.degradationPreference = 'maintain-framerate-and-resolution';
       this.fluidity = Boolean(fluidity);
+      this.packetPriority = Boolean(packetPriority);
       this._adaptationTimer = null;
       this._adapting = false;
       // Who wants the screen share right now - see setScreenViewers. null
@@ -433,6 +434,26 @@
         this._stopAdaptation();
       } else {
         this._checkAdaptationState();
+      }
+    }
+
+    /**
+     * Hint to routers and the browser's packet scheduler to prioritize voice
+     * and screen share packets over bulk downloads via DSCP packet marking and
+     * WebRTC encoding priority.
+     */
+    setPacketPriority(packetPriority) {
+      const on = Boolean(packetPriority);
+      if (this.packetPriority === on) return;
+      this.packetPriority = on;
+      this._reapplyAllEncodings();
+    }
+
+    _reapplyAllEncodings() {
+      if (this.closing) return;
+      const encoding = this._encoding();
+      for (const peer of this.peers.values()) {
+        for (const slot of peer.slots) this._applyEncoding(slot, encoding);
       }
     }
 
@@ -795,8 +816,37 @@
     }
 
     async _applyEncoding(slot, encoding = this._encoding()) {
-      if (slot.kind !== 'video' || !slot.track) return;
+      if (!slot.track || !slot.sender || typeof slot.sender.getParameters !== 'function') return;
       const sender = slot.sender;
+
+      // Audio (Voice & Screen Audio):
+      // Highest priority, ensuring real-time voice packets are not dropped or starved
+      // by video or background traffic, requesting DSCP socket marking where supported.
+      if (slot.kind === 'audio') {
+        const applyAudio = (withQos) => {
+          const params = sender.getParameters();
+          params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+          params.encodings[0].priority = withQos ? 'high' : 'medium';
+          if (withQos) {
+            params.encodings[0].networkPriority = 'high';
+          } else {
+            delete params.encodings[0].networkPriority;
+          }
+          return sender.setParameters(params);
+        };
+        if (this.packetPriority) {
+          try {
+            await applyAudio(true);
+          } catch (_) {
+            try { await applyAudio(false); } catch (_) {}
+          }
+        } else {
+          try { await applyAudio(false); } catch (_) {}
+        }
+        return;
+      }
+
+      if (slot.kind !== 'video') return;
       // Only the share is switched off for people not watching it; a camera
       // is small and is either on or not sent at all.
       const isScreen = this.roleOf(slot.track) === 'screen';
@@ -812,11 +862,20 @@
         effectiveBitrate = Math.min(encoding.bitrate, cap720);
       }
 
-      const apply = (preference) => {
+      const qos = this.packetPriority;
+      const apply = (preference, withQos = qos) => {
         const params = sender.getParameters();
         params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
         params.encodings[0].active = active;
         params.encodings[0].maxBitrate = effectiveBitrate;
+        // Prioritize stream packets: screen shares get 'high' priority; cameras get 'medium'
+        if (withQos) {
+          params.encodings[0].priority = isScreen ? 'high' : 'medium';
+          params.encodings[0].networkPriority = 'high';
+        } else {
+          params.encodings[0].priority = 'low';
+          delete params.encodings[0].networkPriority;
+        }
         if (encoding.framerate) {
           params.encodings[0].maxFramerate = encoding.framerate;
         }
@@ -830,8 +889,14 @@
       };
       const preference = usablePreference(encoding.preference);
       try {
-        await apply(preference);
+        await apply(preference, qos);
       } catch (err) {
+        if (qos) {
+          try {
+            await apply(preference, false);
+            return;
+          } catch (_) {}
+        }
         // An engine that does not know the preference rejects the whole set,
         // bitrate included - so learn that once and settle for its nearest.
         // Anything else: not every browser lets you set this, and its
@@ -840,7 +905,7 @@
         if (!fallback || !err || err.name !== 'TypeError') return;
         refusedPreferences.add(preference);
         try {
-          await apply(fallback);
+          await apply(fallback, false);
         } catch (_) {
           // Its defaults, then.
         }

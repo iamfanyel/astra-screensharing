@@ -175,6 +175,7 @@
     shareStop: $('share-stop'),
     shareChange: $('share-change'),
     fluidity: $('fluidity'),
+    packetPriority: $('packet-priority'),
     flipCamera: $('flip-camera'),
     audioOutput: $('audio-output'),
     outputMenu: $('output-menu'),
@@ -1457,6 +1458,7 @@
       signal,
       iceServers: window.ASTRA.iceServers,
       fluidity: fluidityOn(),
+      packetPriority: packetPriorityOn(),
       roleOf: (track) => {
         if (track === state.videoTrack) return 'screen';
         if (track === state.cameraTrack) return 'camera';
@@ -1900,6 +1902,25 @@
       state.mesh.setFluidity(on);
     }
     if (state.videoTrack) state.videoTrack.contentHint = on ? 'motion' : 'detail';
+  }
+
+  const packetPriorityOn = () => {
+    if (el.packetPriority) return el.packetPriority.checked;
+    try {
+      return localStorage.getItem('astra-packet-priority') !== 'false';
+    } catch (_) {
+      return true;
+    }
+  };
+
+  function applyPacketPriority() {
+    const on = packetPriorityOn();
+    try {
+      localStorage.setItem('astra-packet-priority', on ? 'true' : 'false');
+    } catch (_) {}
+    if (state.mesh) {
+      state.mesh.setPacketPriority(on);
+    }
   }
 
   /**
@@ -2918,6 +2939,16 @@
   if (el.fluidity) {
     el.fluidity.addEventListener('change', () => {
       applyFluidity();
+    });
+  }
+
+  if (el.packetPriority) {
+    try {
+      const saved = localStorage.getItem('astra-packet-priority');
+      if (saved !== null) el.packetPriority.checked = saved === 'true';
+    } catch (_) {}
+    el.packetPriority.addEventListener('change', () => {
+      applyPacketPriority();
     });
   }
 
