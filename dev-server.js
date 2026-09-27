@@ -39,6 +39,10 @@ http
       return handleApiRoom(req, res, url);
     }
 
+    if (url.pathname === '/api/host' || url.pathname === '/api/host/') {
+      return handleApiHost(req, res, url);
+    }
+
     if (url.pathname === '/api/friends' || url.pathname === '/api/friends/') {
       return handleApiFriends(req, res);
     }
@@ -217,6 +221,7 @@ function handleApiRoom(req, res, url) {
       empty: state.empty,
       remainingMs: state.remainingMs,
       host: room.host || null,
+      hostPeerId: room.hostPeerId || (room.host && room.host.peerId) || null,
       members: room.members || [],
       peerCount: typeof room.peerCount === 'number' ? room.peerCount : 1,
     });
@@ -248,6 +253,7 @@ function handleApiRoom(req, res, url) {
           emptySince: null,
           peerCount: typeof body.peerCount === 'number' ? body.peerCount : 1,
           host: body.host || null,
+          hostPeerId: (body.host && body.host.peerId) || body.hostPeerId || null,
           members: body.members || [],
         };
         rooms[code] = room;
@@ -259,7 +265,11 @@ function handleApiRoom(req, res, url) {
         if (!room) {
           room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1 };
         }
-        if (body.host) room.host = body.host;
+        if (body.host) {
+          room.host = body.host;
+          if (body.host.peerId) room.hostPeerId = body.host.peerId;
+        }
+        if (body.hostPeerId) room.hostPeerId = body.hostPeerId;
         if (body.members) room.members = body.members;
         const count = typeof body.peerCount === 'number' ? body.peerCount : (room.peerCount || 1);
         room.lastActive = now;
@@ -305,6 +315,103 @@ function handleApiRoom(req, res, url) {
       }
 
       sendJson(res, 400, { error: 'Unknown action' });
+    });
+    return;
+  }
+
+  res.writeHead(405, { 'Content-Type': 'text/plain' });
+  res.end('Method not allowed');
+}
+
+function handleApiHost(req, res, url) {
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    return res.end();
+  }
+
+  const rooms = loadDevRooms();
+
+  if (req.method === 'GET') {
+    const code = (url.searchParams.get('code') || '').trim().toUpperCase();
+    if (!ROOM_CODE_REGEX.test(code)) {
+      return sendJson(res, 400, { error: 'Invalid room code' });
+    }
+    const room = rooms[code];
+    const hostId = room ? (room.hostPeerId || (room.host && room.host.peerId) || null) : null;
+    return sendJson(res, 200, {
+      available: true,
+      hostId,
+      generation: room ? (room.hostGeneration || 1) : 0,
+    });
+  }
+
+  if (req.method === 'POST') {
+    let bodyStr = '';
+    req.on('data', (chunk) => (bodyStr += chunk));
+    req.on('end', () => {
+      let body = {};
+      try {
+        body = JSON.parse(bodyStr);
+      } catch (_) {}
+
+      const code = String(body.code || '').trim().toUpperCase();
+      if (!ROOM_CODE_REGEX.test(code)) {
+        return sendJson(res, 400, { error: 'Invalid room code' });
+      }
+
+      let room = rooms[code];
+      const action = body.action || 'heartbeat';
+      const peerId = typeof body.peerId === 'string' ? body.peerId.slice(0, 128) : '';
+      const now = Date.now();
+
+      if (!room) {
+        room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1, hostPeerId: null, hostGeneration: 0 };
+        rooms[code] = room;
+      }
+
+      if (action === 'host') {
+        const hostId = room.hostPeerId || (room.host && room.host.peerId) || null;
+        return sendJson(res, 200, { available: true, hostId, generation: room.hostGeneration || 1 });
+      }
+
+      if (action === 'claim') {
+        const isHeld = room.hostPeerId && (now - (room.lastActive || 0) < 25000);
+        if (!isHeld || room.hostPeerId === peerId) {
+          room.hostPeerId = peerId;
+          room.hostGeneration = (room.hostGeneration || 0) + 1;
+          room.lastActive = now;
+          if (room.host) room.host.peerId = peerId;
+          saveDevRooms();
+          return sendJson(res, 200, { available: true, ok: true, hostId: peerId, generation: room.hostGeneration });
+        }
+        return sendJson(res, 200, { available: true, ok: false, hostId: room.hostPeerId, generation: room.hostGeneration || 1 });
+      }
+
+      if (action === 'heartbeat') {
+        if (!room.hostPeerId || room.hostPeerId === peerId) {
+          room.hostPeerId = peerId;
+          room.lastActive = now;
+          if (room.host) room.host.peerId = peerId;
+          saveDevRooms();
+          return sendJson(res, 200, { available: true, ok: true, hostId: peerId, generation: room.hostGeneration || 1 });
+        }
+        return sendJson(res, 200, { available: true, ok: false, hostId: room.hostPeerId, generation: room.hostGeneration || 1 });
+      }
+
+      if (action === 'release') {
+        if (room.hostPeerId === peerId) {
+          room.hostPeerId = null;
+          room.hostGeneration = (room.hostGeneration || 0) + 1;
+          saveDevRooms();
+        }
+        return sendJson(res, 200, { available: true, ok: true });
+      }
+
+      return sendJson(res, 400, { error: 'Unknown action' });
     });
     return;
   }

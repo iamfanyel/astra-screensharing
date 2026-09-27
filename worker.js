@@ -446,7 +446,7 @@ async function handleHost(request, env) {
   }
 
   if (!env.ROOM_HOST || typeof env.ROOM_HOST.idFromName !== 'function') {
-    return jsonResponse({ available: false });
+    return await handleHostFallback(request, env, code, action, isPost, body);
   }
 
   const action = isPost ? String(body.action || 'heartbeat') : 'host';
@@ -464,10 +464,66 @@ async function handleHost(request, env) {
     const data = await answer.json();
     return jsonResponse(Object.assign({ available: true }, data));
   } catch (err) {
-    console.warn('host lease failed:', err);
-    // Same shape as a missing binding: the browsers carry on without it.
-    return jsonResponse({ available: false });
+    console.warn('host lease DO failed, falling back:', err);
+    return await handleHostFallback(request, env, code, action, isPost, body);
   }
+}
+
+async function handleHostFallback(request, env, code, action, isPost, body) {
+  const now = Date.now();
+  let room = await getStoredRoom(request, env, code);
+  const peerId = typeof body.peerId === 'string' ? body.peerId.slice(0, 128) : '';
+  const currentHostId = room ? (room.hostPeerId || (room.host && room.host.peerId) || null) : null;
+
+  if (action === 'host') {
+    const isFresh = currentHostId && (now - (room.lastActive || 0) < 25000);
+    return jsonResponse({
+      available: true,
+      hostId: isFresh ? currentHostId : null,
+      generation: room ? (room.hostGeneration || 1) : 0,
+    });
+  }
+
+  if (action === 'claim') {
+    if (!room) {
+      room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1, hostPeerId: null, hostGeneration: 0 };
+    }
+    const isHeld = currentHostId && (now - (room.lastActive || 0) < 25000);
+    if (!isHeld || currentHostId === peerId) {
+      room.hostPeerId = peerId;
+      room.hostGeneration = (room.hostGeneration || 0) + 1;
+      room.lastActive = now;
+      if (room.host) room.host.peerId = peerId;
+      await putStoredRoom(request, env, null, code, room, false);
+      return jsonResponse({ available: true, ok: true, hostId: peerId, generation: room.hostGeneration });
+    }
+    return jsonResponse({ available: true, ok: false, hostId: currentHostId, generation: room.hostGeneration || 1 });
+  }
+
+  if (action === 'heartbeat') {
+    if (!room) {
+      room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1, hostPeerId: null, hostGeneration: 0 };
+    }
+    if (!currentHostId || currentHostId === peerId) {
+      room.hostPeerId = peerId;
+      room.lastActive = now;
+      if (room.host) room.host.peerId = peerId;
+      await putStoredRoom(request, env, null, code, room, false);
+      return jsonResponse({ available: true, ok: true, hostId: peerId, generation: room.hostGeneration || 1 });
+    }
+    return jsonResponse({ available: true, ok: false, hostId: currentHostId, generation: room.hostGeneration || 1 });
+  }
+
+  if (action === 'release') {
+    if (room && room.hostPeerId === peerId) {
+      room.hostPeerId = null;
+      room.hostGeneration = (room.hostGeneration || 0) + 1;
+      await putStoredRoom(request, env, null, code, room, false);
+    }
+    return jsonResponse({ available: true, ok: true });
+  }
+
+  return jsonResponse({ error: 'Unknown action' }, 400);
 }
 
 /**
@@ -675,19 +731,24 @@ async function deleteStoredRoom(request, env, ctx, code) {
  * state before the lease existed, and the old answer stands.
  */
 async function hostHolding(env, code) {
-  if (!env || !env.ROOM_HOST || typeof env.ROOM_HOST.idFromName !== 'function') return null;
-  try {
-    const stub = env.ROOM_HOST.get(env.ROOM_HOST.idFromName(code));
-    const answer = await stub.fetch('https://room/host', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ peerId: null }),
-    });
-    const data = await answer.json();
-    return data && data.hostId ? data.hostId : null;
-  } catch (_) {
-    return null;
+  if (env && env.ROOM_HOST && typeof env.ROOM_HOST.idFromName === 'function') {
+    try {
+      const stub = env.ROOM_HOST.get(env.ROOM_HOST.idFromName(code));
+      const answer = await stub.fetch('https://room/host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peerId: null }),
+      });
+      const data = await answer.json();
+      if (data && data.hostId) return data.hostId;
+    } catch (_) {}
   }
+  const room = memoryRooms.get(code);
+  if (room && (room.hostPeerId || (room.host && room.host.peerId))) {
+    const elapsed = Date.now() - (room.lastActive || 0);
+    if (elapsed < 30000) return room.hostPeerId || room.host.peerId;
+  }
+  return null;
 }
 
 /** A friend list, always an array, always bounded. */
@@ -1208,6 +1269,7 @@ async function handleRoom(request, env, ctx) {
       empty: state.empty,
       remainingMs: state.remainingMs,
       host: room.host || null,
+      hostPeerId: room.hostPeerId || (room.host && room.host.peerId) || null,
       members: room.members || [],
       peerCount: typeof room.peerCount === 'number' ? room.peerCount : 1,
     });
@@ -1233,13 +1295,18 @@ async function handleRoom(request, env, ctx) {
         emptySince: null,
         peerCount: typeof body.peerCount === 'number' ? body.peerCount : 1,
         host: body.host || null,
+        hostPeerId: (body.host && body.host.peerId) || body.hostPeerId || null,
         members: body.members || [],
       };
     } else if (action === 'heartbeat') {
       if (!room) {
         room = { code, createdAt: now, lastActive: now, emptySince: null, peerCount: 1 };
       }
-      if (body.host) room.host = body.host;
+      if (body.host) {
+        room.host = body.host;
+        if (body.host.peerId) room.hostPeerId = body.host.peerId;
+      }
+      if (body.hostPeerId) room.hostPeerId = body.hostPeerId;
       if (body.members) room.members = body.members;
       const count = typeof body.peerCount === 'number' ? body.peerCount : (room.peerCount || 1);
       room.lastActive = now;

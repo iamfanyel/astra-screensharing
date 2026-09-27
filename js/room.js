@@ -779,6 +779,9 @@
       }
     }
     const isSelfHost = state.signal && state.signal.isHub;
+    const hostPeerId = isSelfHost
+      ? (state.signal ? state.signal.selfId : null)
+      : (hostPeer ? hostPeer.id : null);
     const hostName = isSelfHost
       ? (AstraProfile.getName() || 'Host')
       : (hostPeer ? hostPeer.name : 'Host');
@@ -800,6 +803,7 @@
 
     return {
       host: {
+        peerId: hostPeerId,
         name: hostName,
         avatar: hostAvatar,
         sharing: hostSharing,
@@ -820,9 +824,11 @@
       const payload = { action, code, peerCount: count };
       if (host !== undefined) {
         payload.host = host;
+        if (host && host.peerId) payload.hostPeerId = host.peerId;
       } else if (state.signal && state.signal.isHub) {
         const info = getHostAndMembersInfo();
         payload.host = info.host;
+        if (info.host && info.host.peerId) payload.hostPeerId = info.host.peerId;
         if (members === undefined) payload.members = info.members;
       }
       if (members !== undefined) {
@@ -1058,10 +1064,10 @@
         try {
           state.signal = await Signal.join(roomCode, name);
         } catch (err) {
-          // If no host responded (host closed tab or tab refresh):
-          // Only reclaim if the room is still within the 5-minute valid window
-          const canReclaim = !roomStatus || (!roomStatus.expired && roomStatus.exists !== false);
-          if (err && err.type === 'peer-unavailable' && canReclaim) {
+          // If no host responded (host closed tab, migration in flight, or broker blip):
+          // Try to reclaim the room as long as the server hasn't explicitly confirmed it expired
+          const isExpired = roomStatus && !roomStatus.fallback && roomStatus.expired;
+          if (err && err.type === 'peer-unavailable' && !isExpired) {
             try {
               state.signal = await Signal.reclaim(roomCode, name);
             } catch (_) {
@@ -1084,11 +1090,9 @@
         state.mixer = null;
       }
       const msg = friendlyError(err);
-      if (
-        (err && (err.type === 'peer-unavailable' || err.type === 'room-deleted')) ||
-        msg.toLowerCase().includes('expired') ||
-        msg.toLowerCase().includes('no room')
-      ) {
+      // Only redirect to lobby if the room was explicitly confirmed as expired by the server API.
+      // Transient broker hiccups or connection errors stay on the gate with a Retry option.
+      if (roomStatus && !roomStatus.fallback && roomStatus.expired) {
         location.replace('../?deleted=1');
         return;
       }
@@ -1097,7 +1101,7 @@
       el.gateError.textContent = msg;
       el.gateError.hidden = false;
       el.gateSubmit.disabled = false;
-      el.gateSubmit.textContent = wantsCreate ? 'Create room' : 'Join';
+      el.gateSubmit.textContent = wantsCreate ? 'Create room' : 'Retry';
     }
   }
 
@@ -1489,6 +1493,18 @@
       chime('left');
       state.mesh.remove(id);
       dropPeerMedia(id);
+      const row = state.peopleRows.get(id);
+      if (row) {
+        if (activePopupPeerId === id && typeof closeProfilePopup === 'function') {
+          closeProfilePopup();
+        }
+        if (viewedPeerId === id && typeof closeFullProfile === 'function') {
+          closeFullProfile();
+        }
+        row.item.remove();
+        state.peopleRows.delete(id);
+        state.peopleAvatars.delete(id);
+      }
       vad.detach(id);
       state.peerWatching.delete(tileKey(id, 'screen'));
       state.peerWatching.delete(id);

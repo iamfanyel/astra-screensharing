@@ -15,7 +15,7 @@
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I: readable aloud
   const JOIN_TIMEOUT_MS = 20000;
   const HEARTBEAT_INTERVAL_MS = 3000;
-  const HEARTBEAT_TIMEOUT_MS = 25000;
+  const HEARTBEAT_TIMEOUT_MS = 15000;
   /**
    * How long the hub keeps a member whose data connection closed before
    * telling the room they left.
@@ -25,7 +25,7 @@
    * down their media connection to that person - their screen and camera
    * vanished for the whole room over a hiccup only one link had.
    */
-  const REJOIN_GRACE_MS = 8000;
+  const REJOIN_GRACE_MS = 3500;
   /** The least time between two attempts to get back to the same host. */
   const QUIET_REJOIN_SPACING_MS = 2000;
   /**
@@ -632,6 +632,10 @@
       }
 
       switch (msg.t) {
+        case 'leave':
+          this._dropMember(conn.peer, 'left');
+          try { conn.close(); } catch (_) {}
+          break;
         case 'signal':
           if (msg.to === this.selfId) this.emit('signal', { from: conn.peer, data: msg.data });
           else this._sendTo(msg.to, { t: 'signal', from: conn.peer, data: msg.data });
@@ -667,6 +671,10 @@
       if (!this.conns.has(id) && !this.roster.has(id)) return;
       const member = this.roster.get(id);
       const name = member ? member.name : 'A participant';
+      const conn = this.conns.get(id);
+      if (conn) {
+        try { conn.close(); } catch (_) {}
+      }
       this.conns.delete(id);
       this.roster.delete(id);
       this._memberLastSeen.delete(id);
@@ -713,12 +721,35 @@
         }, JOIN_TIMEOUT_MS);
 
         // Asked for straight away so it is usually answered by the time the
-        // broker connection is up.
-        const whoIsHosting = hostLease('host', roomCode, null)
-          .then((answer) => (answer && answer.hostId) || null)
-          .catch(() => null);
+        // broker connection is up. Checks host lease first, then /api/room.
+        const whoIsHosting = (async () => {
+          try {
+            const answer = await hostLease('host', roomCode, null);
+            if (answer && answer.hostId) return answer.hostId;
+          } catch (_) {}
+          try {
+            const controller = typeof AbortController === 'function' ? new AbortController() : null;
+            const timeout = setTimeout(() => controller && controller.abort(), 2000);
+            const res = await fetch('/api/room?code=' + encodeURIComponent(roomCode), {
+              signal: controller ? controller.signal : undefined,
+            });
+            clearTimeout(timeout);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.host && data.host.peerId) return data.host.peerId;
+              if (data && data.hostPeerId) return data.hostPeerId;
+            }
+          } catch (_) {}
+          return null;
+        })();
 
         let opened = false;
+        let triedFallback = false;
+        const fallbackId = window.ASTRA.idPrefix + roomCode;
+        let activeTargetId = null;
+        let connectTo = null;
+        let currentConn = null;
+
         peer.on('open', async () => {
           // As in _openHub: this fires again on every reconnect, and below it
           // registers listeners and reaches for the host.
@@ -729,56 +760,60 @@
           opened = true;
           signal._watchBroker(peer);
 
-          // Where the room actually is. The code's own broker id is only the
-          // room's first host; once that host has been replaced, the id can be
-          // left registered to somebody who is no longer running the room, and
-          // joining it is how people ended up in a room of their own. The
-          // lease knows who took over. Started before the peer opened, so the
-          // two waits overlap, and it falls back to the old answer when the
-          // lease cannot be reached.
-          const fallbackId = window.ASTRA.idPrefix + roomCode;
           const known = await whoIsHosting;
           if (settled) return;
           const hostId = known || fallbackId;
+          triedFallback = (hostId === fallbackId);
 
-          // Connect metadata is relayed by the broker inside a single
-          // signalling message, so it has to stay small. Pictures go over the
-          // data channel once the connection is open - see setState below and
-          // the push in room.js right after joining.
-          const conn = peer.connect(hostId, {
-            metadata: {
-              name: cleanName(name),
-              dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
-              badge: window.AstraDiscord ? window.AstraDiscord.badgeFor() : '',
-              discord: window.AstraDiscord ? window.AstraDiscord.accountLabel() : '',
-            },
-            reliable: true,
-          });
+          connectTo = (targetId) => {
+            activeTargetId = targetId;
+            const conn = peer.connect(targetId, {
+              metadata: {
+                name: cleanName(name),
+                dev: !!(window.AstraDiscord && window.AstraDiscord.isDev()),
+                badge: window.AstraDiscord ? window.AstraDiscord.badgeFor() : '',
+                discord: window.AstraDiscord ? window.AstraDiscord.accountLabel() : '',
+              },
+              reliable: true,
+            });
 
-          conn.on('data', (msg) => {
-            if (!msg) return;
-            if (!settled && msg.t === 'welcome') {
-              signal._setupMember(peer, conn, msg, cleanName(name));
-              settle(resolve, signal);
-              return;
-            }
-            if (!settled && msg.t === 'denied') {
-              if (settle(reject, new Error(msg.reason || 'The room refused the connection.'))) {
-                peer.destroy();
+            conn.on('data', (msg) => {
+              if (!msg || (!settled && conn !== currentConn)) return;
+              if (!settled && msg.t === 'welcome') {
+                signal._setupMember(peer, conn, msg, cleanName(name));
+                settle(resolve, signal);
+                return;
               }
-              return;
-            }
-            signal._onMemberData(msg);
-          });
+              if (!settled && msg.t === 'denied') {
+                if (settle(reject, new Error(msg.reason || 'The room refused the connection.'))) {
+                  peer.destroy();
+                }
+                return;
+              }
+              signal._onMemberData(msg);
+            });
 
-          conn.on('close', () => {
-            const wasJoining = settle(reject, new Error('No room with that code, or the host has closed it.'));
-            if (wasJoining) {
-              peer.destroy();
-            } else if (!signal.left) {
-              signal._handleHostLoss();
-            }
-          });
+            conn.on('close', () => {
+              // Ignore close events from superseded connection attempts
+              if (conn !== currentConn) return;
+              if (!settled && !triedFallback && targetId !== fallbackId) {
+                triedFallback = true;
+                connectTo(fallbackId);
+                return;
+              }
+              const wasJoining = settle(reject, new Error('No room with that code, or the host has closed it.'));
+              if (wasJoining) {
+                peer.destroy();
+              } else if (!signal.left) {
+                signal._handleHostLoss();
+              }
+            });
+
+            currentConn = conn;
+            return conn;
+          };
+
+          connectTo(hostId);
         });
 
         peer.on('error', (err) => {
@@ -793,6 +828,22 @@
               return;
             }
             return signal._reportError(err);
+          }
+          if (!settled && err && err.type === 'peer-unavailable') {
+            if (!triedFallback && activeTargetId !== fallbackId && connectTo) {
+              triedFallback = true;
+              if (currentConn) {
+                const old = currentConn;
+                currentConn = null;
+                try { old.close(); } catch (_) {}
+              }
+              connectTo(fallbackId);
+              return;
+            }
+            // If fallback is currently in progress, ignore stale error from initial target
+            if (activeTargetId === fallbackId && err.message && !err.message.includes(fallbackId)) {
+              return;
+            }
           }
           if (
             attempts < 2 &&
@@ -1072,8 +1123,12 @@
       this.hostId = this.selfId;
       this._hostLastSeen = 0;
 
+      const now = Date.now();
       for (const [id, peer] of this.roster) {
         peer.host = (id === this.selfId);
+        if (id !== this.selfId) {
+          this._memberLastSeen.set(id, now);
+        }
       }
 
       if (this.conn) {
@@ -1287,16 +1342,26 @@
         this._renewHostLease(now);
         for (const [id, conn] of this.conns) {
           if (id === this.selfId) continue;
-          if (conn && conn.open) {
+          const isOpen = conn && conn.open;
+          if (isOpen) {
             try { conn.send({ t: 'ping' }); } catch (_) {}
           }
           const elapsed = now - (this._memberLastSeen.get(id) || now);
-          // A peer whose connection is still open is alive - just backgrounded
-          // with its JS timers frozen. Never drop while the data connection is open.
-          if (elapsed > HEARTBEAT_TIMEOUT_MS && !(conn && conn.open)) {
-            console.warn(`[signal] Member ${id} timed out after ${elapsed}ms`);
+          if (elapsed > HEARTBEAT_TIMEOUT_MS || (!isOpen && elapsed > REJOIN_GRACE_MS)) {
+            console.warn(`[signal] Member ${id} timed out after ${elapsed}ms (open: ${isOpen})`);
             try { conn.close(); } catch (_) {}
             this._dropMember(id, 'timeout');
+          }
+        }
+        // Also prune any roster members that lost connection and never reconnected
+        for (const [id] of this.roster) {
+          if (id === this.selfId) continue;
+          if (!this.conns.has(id)) {
+            const lastSeen = this._memberLastSeen.get(id) || 0;
+            if (!lastSeen || now - lastSeen > REJOIN_GRACE_MS) {
+              console.warn(`[signal] Member ${id} in roster without active connection timed out`);
+              this._dropMember(id, 'timeout');
+            }
           }
         }
       } else {
@@ -1304,9 +1369,7 @@
           try { this.conn.send({ t: 'ping' }); } catch (_) {}
         }
         const hostElapsed = this._hostLastSeen ? now - this._hostLastSeen : 0;
-        // Same rule as the hub side: an open connection means the host is
-        // alive but backgrounded. Only act when the link is really gone.
-        if (hostElapsed > HEARTBEAT_TIMEOUT_MS && !(this.conn && this.conn.open)) {
+        if (hostElapsed > HEARTBEAT_TIMEOUT_MS) {
           console.warn(`[signal] Host ${this.hostId} timed out after ${hostElapsed}ms`);
           this._handleHostLoss('timeout');
         }
@@ -1425,6 +1488,14 @@
           const nextHost = candidates[0];
           this._fanout({ t: 'migrate-host', newHostId: nextHost.id, oldHostId: this.selfId });
         }
+      } else if (this.conn && this.conn.open) {
+        try {
+          this.conn.send({ t: 'leave' });
+        } catch (_) {}
+      }
+      if (this.conn) {
+        try { this.conn.close(); } catch (_) {}
+        this.conn = null;
       }
       if (this._gatewayPeer) {
         try { this._gatewayPeer.destroy(); } catch (_) {}
