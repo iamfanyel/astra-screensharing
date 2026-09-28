@@ -11,7 +11,15 @@
    * bottom, a panel at a time - the CSS reads the same number.
    */
   const compact = window.matchMedia('(max-width: 860px)');
-  const isMobilePlatform = () => compact.matches || !!(window.AstraPlatform && window.AstraPlatform.isNativeApp());
+  const isMobileDevice = () => {
+    if (window.AstraPlatform && window.AstraPlatform.isNativeApp()) return true;
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+    if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true; // iPadOS
+    return false;
+  };
+  const isMobilePlatform = () => compact.matches || isMobileDevice();
   /**
    * A peer can publish a screen and a camera at once, so tiles are keyed by
    * both. Everything that walks or clears a peer's tiles iterates this list
@@ -7718,8 +7726,15 @@
 
   el.leave.addEventListener('click', leaveForLobby);
 
-  window.addEventListener('pagehide', () => {
+  window.addEventListener('pagehide', (event) => {
     closeMiniPlayer();
+    // Do not leave room if entering bfcache (page is cached for quick resume on mobile)
+    if (event && event.persisted) return;
+    // On mobile devices, pagehide fires on screen lock and app switching.
+    // Mobile background persistence requires keeping the connection alive.
+    // Only leave if explicitly navigating away via leaveForLobby() or non-mobile unload.
+    if (isMobileDevice() && !leaving) return;
+    if (leaving) return;
     sendRoomExitBeacon();
     if (state.signal) state.signal.leave();
   });
@@ -7753,7 +7768,7 @@
   // while the page was hidden (it would otherwise fire and show "Disconnected"
   // before the `online` event has a chance to cancel it), and re-announce the
   // room to the server so STALE_HEARTBEAT_MS doesn't mark it as empty.
-  document.addEventListener('visibilitychange', () => {
+  const onResume = () => {
     if (document.visibilityState !== 'visible' || tornDown || leaving) return;
     if (localOfflineTimer) {
       clearTimeout(localOfflineTimer);
@@ -7762,7 +7777,9 @@
     if (state.signal && state.signal.isHub && state.signal.code) {
       syncHostRoomStatus();
     }
-  });
+  };
+  document.addEventListener('visibilitychange', onResume);
+  window.addEventListener('pageshow', onResume);
 
   el.backToStart.addEventListener('click', leaveForLobby);
 

@@ -15,7 +15,7 @@
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I: readable aloud
   const JOIN_TIMEOUT_MS = 20000;
   const HEARTBEAT_INTERVAL_MS = 3000;
-  const HEARTBEAT_TIMEOUT_MS = 15000;
+  const HEARTBEAT_TIMEOUT_MS = 25000;
   /**
    * How long the hub keeps a member whose data connection closed before
    * telling the room they left.
@@ -1347,8 +1347,10 @@
             try { conn.send({ t: 'ping' }); } catch (_) {}
           }
           const elapsed = now - (this._memberLastSeen.get(id) || now);
-          if (elapsed > HEARTBEAT_TIMEOUT_MS || (!isOpen && elapsed > REJOIN_GRACE_MS)) {
-            console.warn(`[signal] Member ${id} timed out after ${elapsed}ms (open: ${isOpen})`);
+          // A peer whose connection is still open is alive - just backgrounded
+          // with its JS timers frozen. Never drop while the data connection is open.
+          if (!isOpen && elapsed > REJOIN_GRACE_MS) {
+            console.warn(`[signal] Member ${id} timed out (open: ${isOpen}, elapsed: ${elapsed}ms)`);
             try { conn.close(); } catch (_) {}
             this._dropMember(id, 'timeout');
           }
@@ -1365,12 +1367,15 @@
           }
         }
       } else {
-        if (this.conn && this.conn.open) {
+        const isHostOpen = this.conn && this.conn.open;
+        if (isHostOpen) {
           try { this.conn.send({ t: 'ping' }); } catch (_) {}
         }
         const hostElapsed = this._hostLastSeen ? now - this._hostLastSeen : 0;
-        if (hostElapsed > HEARTBEAT_TIMEOUT_MS) {
-          console.warn(`[signal] Host ${this.hostId} timed out after ${hostElapsed}ms`);
+        // Same rule as the hub side: an open connection means the host is
+        // alive but backgrounded. Only act when the link is really gone.
+        if (hostElapsed > HEARTBEAT_TIMEOUT_MS && !isHostOpen) {
+          console.warn(`[signal] Host ${this.hostId} timed out after ${hostElapsed}ms (open: ${isHostOpen})`);
           this._handleHostLoss('timeout');
         }
       }
